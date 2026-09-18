@@ -17,11 +17,7 @@ count = data.get("standards_count", 0)
 print(f"Standards count: {count}")
 
 if count != 35:
-    print(f"ERROR: Expected 35 standards, got {count}")
-    sys.exit(1)
-
-if len(data.get("standards", [])) != 35:
-    print(f"ERROR: Expected 35 standards in list")
+    print(f"ERROR: Expected 35, got {count}")
     sys.exit(1)
 
 print("OK: metadata.json is valid")

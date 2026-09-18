@@ -10,7 +10,11 @@ jobs:
   test:
     name: Run tests on ${{ matrix.os }} - Python ${{ matrix.python-version }}
     runs-on: ${{ matrix.os }}
-
+    
+    env:
+      PYTHONIOENCODING: utf-8
+      PYTHONUTF8: 1
+    
     strategy:
       fail-fast: false
       matrix:
@@ -43,11 +47,14 @@ jobs:
 
       - name: Verify all SKILL.md files exist
         run: python scripts/verify_skill_files.py
-
   lint:
     name: Lint Python code
     runs-on: ubuntu-latest
-
+    
+    env:
+      PYTHONIOENCODING: utf-8
+      PYTHONUTF8: 1
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

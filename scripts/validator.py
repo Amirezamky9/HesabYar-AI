@@ -4,6 +4,9 @@
 بر اساس استاندارد حسابداری ۱ و قواعد cross-standard
 """
 import logging
+# ==================== تنظیم UTF-8 ====================
+import sys
+import io
 import yaml
 from pathlib import Path
 from typing import Dict, List, Optional, Any
@@ -11,6 +14,16 @@ from dataclasses import dataclass, field, asdict
 from enum import Enum
 
 logger = logging.getLogger(__name__)
+
+# مجبور کردن stdout/stderr به UTF-8
+if sys.stdout.encoding != "utf-8":
+    sys.stdout = io.TextIOWrapper(
+        sys.stdout.buffer, encoding="utf-8", errors="replace"
+    )
+if sys.stderr.encoding != "utf-8":
+    sys.stderr = io.TextIOWrapper(
+        sys.stderr.buffer, encoding="utf-8", errors="replace"
+    )
 
 
 # ==================== انواع ====================
