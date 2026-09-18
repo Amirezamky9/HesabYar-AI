@@ -1,0 +1,146 @@
+{
+  "balance_sheet": {
+    "cash_and_equivalents": 500000000,
+    "short_term_investments": 100000000,
+    "trade_receivables": 300000000,
+    "other_receivables": 50000000,
+    "prepayments": 30000000,
+    "inventory": 400000000,
+    "other_current_assets": 20000000,
+    "current_assets_items": [
+      {"key": "cash_and_equivalents", "amount": 500000000},
+      {"key": "short_term_investments", "amount": 100000000},
+      {"key": "trade_receivables", "amount": 300000000},
+      {"key": "other_receivables", "amount": 50000000},
+      {"key": "prepayments", "amount": 30000000},
+      {"key": "inventory", "amount": 400000000},
+      {"key": "other_current_assets", "amount": 20000000}
+    ],
+    "total_current_assets": 1400000000,
+    
+    "property_plant_equipment": 3000000000,
+    "intangible_assets": 200000000,
+    "long_term_investments": 300000000,
+    "deferred_tax_assets": 50000000,
+    "non_current_assets_items": [
+      {"key": "property_plant_equipment", "amount": 3000000000},
+      {"key": "intangible_assets", "amount": 200000000},
+      {"key": "long_term_investments", "amount": 300000000},
+      {"key": "deferred_tax_assets", "amount": 50000000}
+    ],
+    "total_non_current_assets": 3550000000,
+    "total_assets": 4950000000,
+    
+    "trade_payables": 400000000,
+    "short_term_borrowings": 300000000,
+    "income_tax_payable": 100000000,
+    "provisions_current": 50000000,
+    "other_current_liabilities": 150000000,
+    "current_liabilities_items": [
+      {"key": "trade_payables", "amount": 400000000},
+      {"key": "short_term_borrowings", "amount": 300000000},
+      {"key": "income_tax_payable", "amount": 100000000},
+      {"key": "provisions_current", "amount": 50000000},
+      {"key": "other_current_liabilities", "amount": 150000000}
+    ],
+    "total_current_liabilities": 1000000000,
+    
+    "long_term_borrowings": 800000000,
+    "deferred_tax_liabilities": 100000000,
+    "provisions_non_current": 100000000,
+    "employee_benefits": 200000000,
+    "non_current_liabilities_items": [
+      {"key": "long_term_borrowings", "amount": 800000000},
+      {"key": "deferred_tax_liabilities", "amount": 100000000},
+      {"key": "provisions_non_current", "amount": 100000000},
+      {"key": "employee_benefits", "amount": 200000000}
+    ],
+    "total_non_current_liabilities": 1200000000,
+    "total_liabilities": 2200000000,
+    
+    "share_capital": 1500000000,
+    "legal_reserve": 200000000,
+    "retained_earnings": 1050000000,
+    "equity_items": [
+      {"key": "share_capital", "amount": 1500000000},
+      {"key": "legal_reserve", "amount": 200000000},
+      {"key": "retained_earnings", "amount": 1050000000}
+    ],
+    "total_equity": 2750000000
+  },
+  
+  "income_statement": {
+    "classification_method": "nature_of_expense",
+    "revenue": 3000000000,
+    "other_income": 100000000,
+    "changes_in_inventory": 50000000,
+    "raw_materials_consumed": 1200000000,
+    "employee_benefits": 600000000,
+    "depreciation": 200000000,
+    "other_expenses": 300000000,
+    "total_expenses": 2250000000,
+    "operating_profit": 850000000,
+    "finance_costs": 100000000,
+    "share_of_associates": 50000000,
+    "profit_before_tax": 800000000,
+    "tax_expense": 200000000,
+    "discontinued_operations": 0,
+    "net_profit": 600000000,
+    "owners_of_parent": 550000000,
+    "non_controlling_interests": 50000000
+  },
+  
+  "comprehensive_income": {
+    "net_profit": 600000000,
+    "subtotal_not_reclassified": 20000000,
+    "subtotal_reclassified": 30000000,
+    "total_comprehensive_income": 650000000,
+    "owners_of_parent": 600000000,
+    "non_controlling_interests": 50000000,
+    "other_comprehensive_income": 50000000
+  },
+  
+  "equity_changes": {
+    "opening_balance": 2200000000,
+    "retrospective_application": 0,
+    "retrospective_restatement": 0,
+    "adjusted_opening_balance": 2200000000,
+    "net_profit": 600000000,
+    "other_comprehensive_income": 50000000,
+    "total_comprehensive_income": 650000000,
+    "capital_contributions": 0,
+    "distributions_to_owners": 100000000,
+    "changes_in_ownership": 0,
+    "total_owner_transactions": -100000000,
+    "closing_balance": {
+      "total_equity": 2750000000,
+      "share_capital": 1500000000,
+      "retained_earnings": 1050000000
+    }
+  },
+  
+  "cash_flow": {
+    "method": "indirect",
+    "beginning_cash": 400000000,
+    "net_profit_before_tax": 800000000,
+    "depreciation": 200000000,
+    "amortization": 0,
+    "provisions": 50000000,
+    "impairment_losses": 0,
+    "foreign_exchange_gains_losses": 0,
+    "gains_losses_on_disposal": -20000000,
+    "change_in_receivables": -50000000,
+    "change_in_inventory": -30000000,
+    "change_in_payables": 40000000,
+    "change_in_other_working_capital": 0,
+    "income_tax_paid": -180000000,
+    "other_adjustments": 0,
+    "net_cash_from_operating": 860000000,
+    "net_cash_from_investing": -300000000,
+    "net_cash_from_financing": -460000000,
+    "net_change_in_cash": 100000000,
+    "effect_of_exchange_rate": 0,
+    "ending_cash": 500000000,
+    "non_cash_transactions_disclosed": true
+  }
+}

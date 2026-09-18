@@ -18,7 +18,7 @@ balance_sheet:
     expected: 0
     tolerance: 0.01
     severity: error
-    message: ترازنامه تراز نیست (اختلاف: {diff})
+    message: "ترازنامه تراز نیست (اختلاف: {diff})"
     refs: [1.55]
   
   - id: BS002
@@ -27,7 +27,7 @@ balance_sheet:
     expected: 0
     tolerance: 0.01
     severity: error
-    message: جمع دارایی جاری و غیرجاری با کل دارایی مطابقت ندارد
+    message: "جمع دارایی جاری و غیرجاری با کل دارایی مطابقت ندارد"
     refs: [1.62]
   
   - id: BS003
@@ -36,7 +36,7 @@ balance_sheet:
     expected: 0
     tolerance: 0.01
     severity: error
-    message: جمع بدهی جاری و غیرجاری با کل بدهی مطابقت ندارد
+    message: "جمع بدهی جاری و غیرجاری با کل بدهی مطابقت ندارد"
     refs: [1.62]
   
   - id: BS004
@@ -45,7 +45,7 @@ balance_sheet:
     expected: 0
     tolerance: 0.01
     severity: error
-    message: جمع اجزای دارایی جاری مطابقت ندارد
+    message: "جمع اجزای دارایی جاری مطابقت ندارد"
     refs: [1.68]
   
   - id: BS005
@@ -54,7 +54,7 @@ balance_sheet:
     expected: 0
     tolerance: 0.01
     severity: error
-    message: جمع اجزای دارایی غیرجاری مطابقت ندارد
+    message: "جمع اجزای دارایی غیرجاری مطابقت ندارد"
     refs: [1.55]
   
   - id: BS006
@@ -63,7 +63,7 @@ balance_sheet:
     expected: 0
     tolerance: 0.01
     severity: error
-    message: جمع اجزای بدهی جاری مطابقت ندارد
+    message: "جمع اجزای بدهی جاری مطابقت ندارد"
     refs: [1.69]
   
   - id: BS007
@@ -72,7 +72,7 @@ balance_sheet:
     expected: 0
     tolerance: 0.01
     severity: error
-    message: جمع اجزای بدهی غیرجاری مطابقت ندارد
+    message: "جمع اجزای بدهی غیرجاری مطابقت ندارد"
     refs: [1.69]
   
   - id: BS008
@@ -81,7 +81,7 @@ balance_sheet:
     expected: 0
     tolerance: 0.01
     severity: error
-    message: جمع اجزای حقوق مالکانه مطابقت ندارد
+    message: "جمع اجزای حقوق مالکانه مطابقت ندارد"
     refs: [1.108]
   
   - id: BS-W01
@@ -89,21 +89,21 @@ balance_sheet:
     formula: total_current_assets / total_current_liabilities
     min: 1.0
     severity: warning
-    message: نسبت جاری کمتر از ۱ (مقدار: {value})
+    message: "نسبت جاری کمتر از ۱ (مقدار: {value})"
   
   - id: BS-W02
     description: نسبت بدهی به حقوق مالکانه
     formula: total_liabilities / total_equity
     max: 2.0
     severity: warning
-    message: نسبت بدهی به حقوق مالکانه بالاست (مقدار: {value})
+    message: "نسبت بدهی به حقوق مالکانه بالاست (مقدار: {value})"
   
   - id: BS-W03
     description: نسبت بدهی
     formula: total_liabilities / total_assets
     max: 0.7
     severity: warning
-    message: نسبت بدهی بالاست (مقدار: {value})
+    message: "نسبت بدهی بالاست (مقدار: {value})"
 
 # ============================================
 # قواعد صورت سود و زیان
@@ -117,7 +117,7 @@ income_statement:
     expected: 0
     tolerance: 0.01
     severity: error
-    message: جمع هزینه‌ها مطابقت ندارد
+    message: "جمع هزینه‌ها مطابقت ندارد"
     applies_to: nature_of_expense
     refs: [1.96]
   
@@ -127,7 +127,7 @@ income_statement:
     expected: 0
     tolerance: 0.01
     severity: error
-    message: سود عملیاتی مطابقت ندارد
+    message: "سود عملیاتی مطابقت ندارد"
     applies_to: nature_of_expense
     refs: [1.96]
   
@@ -137,7 +137,7 @@ income_statement:
     expected: 0
     tolerance: 0.01
     severity: error
-    message: سود ناخالص مطابقت ندارد
+    message: "سود ناخالص مطابقت ندارد"
     applies_to: function_of_expense
     refs: [1.97]
   
@@ -149,7 +149,7 @@ income_statement:
     expected: 0
     tolerance: 0.01
     severity: error
-    message: سود عملیاتی مطابقت ندارد
+    message: "سود عملیاتی مطابقت ندارد"
     applies_to: function_of_expense
     refs: [1.97]
   
@@ -159,7 +159,7 @@ income_statement:
     expected: 0
     tolerance: 0.01
     severity: error
-    message: سود قبل از مالیات مطابقت ندارد
+    message: "سود قبل از مالیات مطابقت ندارد"
     refs: [1.83]
   
   - id: IS006
@@ -168,7 +168,7 @@ income_statement:
     expected: 0
     tolerance: 0.01
     severity: error
-    message: سود خالص مطابقت ندارد
+    message: "سود خالص مطابقت ندارد"
     refs: [1.83]
   
   - id: IS007
@@ -177,7 +177,7 @@ income_statement:
     expected: 0
     tolerance: 0.01
     severity: error
-    message: تفکیک سود خالص مطابقت ندارد
+    message: "تفکیک سود خالص مطابقت ندارد"
     refs: [1.83]
 
 # ============================================
@@ -192,7 +192,7 @@ comprehensive_income:
     expected: 0
     tolerance: 0.01
     severity: error
-    message: مجموع سود و زیان جامع مطابقت ندارد
+    message: "مجموع سود و زیان جامع مطابقت ندارد"
     refs: [1.100]
   
   - id: CI002
@@ -203,7 +203,7 @@ comprehensive_income:
     expected: 0
     tolerance: 0.01
     severity: error
-    message: تفکیک مجموع سود و زیان جامع مطابقت ندارد
+    message: "تفکیک مجموع سود و زیان جامع مطابقت ندارد"
     refs: [1.100]
   
   - id: CI003
@@ -212,7 +212,7 @@ comprehensive_income:
     expected: 0
     tolerance: 0.01
     severity: error
-    message: اقلام گروه «غیرقابل انتقال» نباید تعدیل تجدید طبقه‌بندی داشته باشند
+    message: "اقلام گروه «غیرقابل انتقال» نباید تعدیل تجدید طبقه‌بندی داشته باشند"
     applies_to: items_not_reclassified
     refs: [1.101]
 
@@ -228,7 +228,7 @@ equity_changes:
     expected: 0
     tolerance: 0.01
     severity: error
-    message: معادله اصلی حقوق مالکانه مطابقت ندارد
+    message: "معادله اصلی حقوق مالکانه مطابقت ندارد"
     refs: [1.108]
   
   - id: EC002
@@ -239,7 +239,7 @@ equity_changes:
     expected: 0
     tolerance: 0.01
     severity: error
-    message: مانده تعدیل‌شده ابتدای دوره مطابقت ندارد
+    message: "مانده تعدیل‌شده ابتدای دوره مطابقت ندارد"
     refs: [1.108]
   
   - id: EC003
@@ -248,7 +248,7 @@ equity_changes:
     expected: 0
     tolerance: 0.01
     severity: error
-    message: مجموع سود و زیان جامع مطابقت ندارد
+    message: "مجموع سود و زیان جامع مطابقت ندارد"
     refs: [1.108]
   
   - id: EC004
@@ -259,7 +259,7 @@ equity_changes:
     expected: 0
     tolerance: 0.01
     severity: error
-    message: جمع معاملات با مالکان مطابقت ندارد
+    message: "جمع معاملات با مالکان مطابقت ندارد"
     refs: [1.108]
 
 # ============================================
@@ -274,7 +274,7 @@ cash_flow:
     expected: 0
     tolerance: 0.01
     severity: error
-    message: تغییر خالص در نقد مطابقت ندارد
+    message: "تغییر خالص در نقد مطابقت ندارد"
     refs: [2]
   
   - id: CF002
@@ -285,7 +285,7 @@ cash_flow:
     expected: 0
     tolerance: 0.01
     severity: error
-    message: مانده پایان مطابقت ندارد
+    message: "مانده پایان مطابقت ندارد"
     refs: [2]
   
   - id: CF003
@@ -294,7 +294,7 @@ cash_flow:
     expected: 0
     tolerance: 0.01
     severity: error
-    message: مانده پایان با ترازنامه مطابقت ندارد
+    message: "مانده پایان با ترازنامه مطابقت ندارد"
     refs: [2]
   
   - id: CF004
@@ -309,7 +309,7 @@ cash_flow:
     expected: 0
     tolerance: 0.01
     severity: error
-    message: جریان عملیاتی (روش غیرمستقیم) مطابقت ندارد
+    message: "جریان عملیاتی (روش غیرمستقیم) مطابقت ندارد"
     applies_to: indirect_method
     refs: [2]
   
@@ -317,7 +317,7 @@ cash_flow:
     description: معاملات غیرنقدی
     requirement: non_cash_transactions_disclosed
     severity: error
-    message: معاملات غیرنقدی بااهمیت باید افشا شوند
+    message: "معاملات غیرنقدی بااهمیت باید افشا شوند"
     refs: [2]
 
 # ============================================
@@ -330,7 +330,7 @@ cross_checks:
     expected: 0
     tolerance: 0.01
     severity: error
-    message: سود خالص در صورت سود و زیان و تغییرات حقوق مالکانه مطابقت ندارد
+    message: "سود خالص در صورت سود و زیان و تغییرات حقوق مالکانه مطابقت ندارد"
   
   - id: XC002
     description: مطابقت سایر اقلام OCI
@@ -340,7 +340,7 @@ cross_checks:
     expected: 0
     tolerance: 0.01
     severity: error
-    message: سایر اقلام OCI مطابقت ندارد
+    message: "سایر اقلام OCI مطابقت ندارد"
   
   - id: XC003
     description: مطابقت مجموع سود و زیان جامع
@@ -350,7 +350,7 @@ cross_checks:
     expected: 0
     tolerance: 0.01
     severity: error
-    message: مجموع سود و زیان جامع مطابقت ندارد
+    message: "مجموع سود و زیان جامع مطابقت ندارد"
   
   - id: XC004
     description: مطابقت نقد و معادل‌های نقد
@@ -358,7 +358,7 @@ cross_checks:
     expected: 0
     tolerance: 0.01
     severity: error
-    message: نقد و معادل‌های نقد مطابقت ندارد
+    message: "نقد و معادل‌های نقد مطابقت ندارد"
   
   - id: XC005
     description: مطابقت حقوق مالکانه
@@ -366,7 +366,7 @@ cross_checks:
     expected: 0
     tolerance: 0.01
     severity: error
-    message: مجموع حقوق مالکانه مطابقت ندارد
+    message: "مجموع حقوق مالکانه مطابقت ندارد"
   
   - id: XC-W01
     description: مطابقت استهلاک
@@ -374,7 +374,7 @@ cross_checks:
     expected: 0
     tolerance: 0.01
     severity: warning
-    message: استهلاک در صورت سود و زیان و جریان نقدی مطابقت ندارد
+    message: "استهلاک در صورت سود و زیان و جریان نقدی مطابقت ندارد"
 
 # ============================================
 # آستانه‌های اهمیت
@@ -385,28 +385,28 @@ materiality_thresholds:
     formula: amount / profit_before_tax
     threshold: 0.05
     severity: info
-    message: قلم بااهمیت نسبت به سود
+    message: "قلم بااهمیت نسبت به سود"
   
   - id: MAT002
     description: اهمیت نسبت به کل دارایی‌ها
     formula: amount / total_assets
     threshold: 0.01
     severity: info
-    message: قلم بااهمیت نسبت به دارایی‌ها
+    message: "قلم بااهمیت نسبت به دارایی‌ها"
   
   - id: MAT003
     description: اهمیت نسبت به درآمد عملیاتی
     formula: amount / revenue
     threshold: 0.005
     severity: info
-    message: قلم بااهمیت نسبت به درآمد
+    message: "قلم بااهمیت نسبت به درآمد"
   
   - id: MAT004
     description: اهمیت نسبت به حقوق مالکانه
     formula: amount / total_equity
     threshold: 0.02
     severity: info
-    message: قلم بااهمیت نسبت به حقوق مالکانه
+    message: "قلم بااهمیت نسبت به حقوق مالکانه"
 
 # ============================================
 # فهرست کامل قواعد
