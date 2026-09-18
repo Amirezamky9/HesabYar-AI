@@ -1,0 +1,385 @@
+# قالب صورت جریان‌های نقدی
+# استاندارد حسابداری ۲
+# ============================================
+
+name: صورت جریان‌های نقدی
+name_en: Statement of Cash Flows
+standard: 2
+standard_refs: [all]
+type: statement
+frequency: annual
+orientation: rtl
+language: fa
+ifrs: IAS 7
+
+# ============================================
+# روش‌های ارائه
+# ============================================
+presentation_methods:
+  options:
+    - direct: روش مستقیم (افشای دریافت‌ها و پرداخت‌های نقدی اصلی)
+    - indirect: روش غیرمستقیم (تعدیل سود خالص با اقلام غیرنقدی)
+  default: indirect
+  note: انتخاب روش یکنواخت (بند ۴۶ استاندارد ۱)
+
+# ============================================
+# ساختار صورت
+# ============================================
+structure:
+  # --------------------------------------------
+  # ۱. فعالیت‌های عملیاتی
+  # --------------------------------------------
+  - section: فعالیت‌های عملیاتی
+    name_en: Operating Activities
+    ref: 2
+    ifrs: IAS 7.14
+    
+    method_direct:
+      description: روش مستقیم - افشای دریافت‌ها و پرداخت‌های نقدی اصلی
+      items:
+        - key: cash_receipts_from_customers
+          label: دریافت نقدی از مشتریان
+          data_type: amount
+          sign: positive
+        
+        - key: cash_paid_to_suppliers
+          label: پرداخت نقدی به تأمین‌کنندگان
+          data_type: amount
+          sign: negative
+        
+        - key: cash_paid_to_employees
+          label: پرداخت نقدی به کارکنان
+          data_type: amount
+          sign: negative
+        
+        - key: cash_paid_for_other_operating_expenses
+          label: پرداخت نقدی برای سایر هزینه‌های عملیاتی
+          data_type: amount
+          sign: negative
+        
+        - key: interest_received
+          label: سود دریافتی
+          data_type: amount
+          sign: positive
+        
+        - key: interest_paid
+          label: سود پرداختی
+          data_type: amount
+          sign: negative
+        
+        - key: income_tax_paid
+          label: مالیات بر درآمد پرداختی
+          data_type: amount
+          sign: negative
+        
+        - key: other_operating_receipts
+          label: سایر دریافت‌های عملیاتی
+          data_type: amount
+          sign: positive
+        
+        - key: other_operating_payments
+          label: سایر پرداخت‌های عملیاتی
+          data_type: amount
+          sign: negative
+    
+    method_indirect:
+      description: روش غیرمستقیم - تعدیل سود خالص
+      items:
+        - key: net_profit_before_tax
+          label: سود (زیان) قبل از مالیات
+          data_type: amount
+          source: income_statement.profit_before_tax
+        
+        # تعدیلات اقلام غیرنقدی
+        - key: depreciation
+          label: استهلاک
+          data_type: amount
+          sign: positive
+          standard_ref: 11, 17
+        
+        - key: amortization
+          label: مستهلک‌شدن
+          data_type: amount
+          sign: positive
+          standard_ref: 17
+        
+        - key: provisions
+          label: ذخایر
+          data_type: amount
+          sign: positive
+          standard_ref: 4
+        
+        - key: impairment_losses
+          label: زیان کاهش ارزش
+          data_type: amount
+          sign: positive
+          standard_ref: 32
+        
+        - key: foreign_exchange_gains_losses
+          label: سود (زیان) تسعیر ارز
+          data_type: amount
+          sign: both
+          standard_ref: 16
+        
+        - key: gains_losses_on_disposal
+          label: سود (زیان) فروش دارایی‌ها
+          data_type: amount
+          sign: both
+          standard_ref: 11
+        
+        # تغییرات در سرمایه در گردش
+        - key: change_in_receivables
+          label: تغییر در دریافتنی‌ها
+          data_type: amount
+          sign: both
+        
+        - key: change_in_inventory
+          label: تغییر در موجودی‌ها
+          data_type: amount
+          sign: both
+          standard_ref: 8
+        
+        - key: change_in_payables
+          label: تغییر در پرداختنی‌ها
+          data_type: amount
+          sign: both
+        
+        - key: change_in_other_working_capital
+          label: تغییر در سایر اقلام سرمایه در گردش
+          data_type: amount
+          sign: both
+        
+        - key: income_tax_paid
+          label: مالیات بر درآمد پرداختی
+          data_type: amount
+          sign: negative
+          standard_ref: 35
+        
+        - key: other_adjustments
+          label: سایر تعدیلات
+          data_type: amount
+          sign: both
+    
+    total: net_cash_from_operating
+    total_label: جریان نقدی خالص از فعالیت‌های عملیاتی
+  
+  # --------------------------------------------
+  # ۲. فعالیت‌های سرمایه‌گذاری
+  # --------------------------------------------
+  - section: فعالیت‌های سرمایه‌گذاری
+    name_en: Investing Activities
+    ref: 2
+    ifrs: IAS 7.16
+    items:
+      - key: purchase_of_ppe
+        label: خرید دارایی‌های ثابت مشهود
+        data_type: amount
+        sign: negative
+        standard_ref: 11
+      
+      - key: proceeds_from_sale_of_ppe
+        label: فروش دارایی‌های ثابت مشهود
+        data_type: amount
+        sign: positive
+        standard_ref: 11
+      
+      - key: purchase_of_intangibles
+        label: خرید دارایی‌های نامشهود
+        data_type: amount
+        sign: negative
+        standard_ref: 17
+      
+      - key: proceeds_from_sale_of_intangibles
+        label: فروش دارایی‌های نامشهود
+        data_type: amount
+        sign: positive
+        standard_ref: 17
+      
+      - key: purchase_of_investments
+        label: خرید سرمایه‌گذاری‌ها
+        data_type: amount
+        sign: negative
+        standard_ref: 15
+      
+      - key: proceeds_from_sale_of_investments
+        label: فروش سرمایه‌گذاری‌ها
+        data_type: amount
+        sign: positive
+        standard_ref: 15
+      
+      - key: loans_granted
+        label: اعطای وام
+        data_type: amount
+        sign: negative
+      
+      - key: loans_repaid_to_entity
+        label: دریافت اصل وام‌های اعطایی
+        data_type: amount
+        sign: positive
+      
+      - key: interest_received
+        label: سود دریافتی
+        data_type: amount
+        sign: positive
+      
+      - key: dividends_received
+        label: سود سهام دریافتی
+        data_type: amount
+        sign: positive
+      
+      - key: other_investing
+        label: سایر جریان‌های سرمایه‌گذاری
+        data_type: amount
+        sign: both
+    
+    total: net_cash_from_investing
+    total_label: جریان نقدی خالص از فعالیت‌های سرمایه‌گذاری
+  
+  # --------------------------------------------
+  # ۳. فعالیت‌های تأمین مالی
+  # --------------------------------------------
+  - section: فعالیت‌های تأمین مالی
+    name_en: Financing Activities
+    ref: 2
+    ifrs: IAS 7.17
+    items:
+      - key: proceeds_from_borrowings
+        label: دریافت وام
+        data_type: amount
+        sign: positive
+        standard_ref: 13
+      
+      - key: repayment_of_borrowings
+        label: بازپرداخت وام
+        data_type: amount
+        sign: negative
+        standard_ref: 13
+      
+      - key: proceeds_from_share_issuance
+        label: دریافت از انتشار سهام
+        data_type: amount
+        sign: positive
+      
+      - key: share_buyback
+        label: بازخرید سهام
+        data_type: amount
+        sign: negative
+      
+      - key: dividends_paid
+        label: سود تقسیمی پرداختی
+        data_type: amount
+        sign: negative
+        ref: 110
+      
+      - key: finance_lease_payments
+        label: پرداخت اقساط اجاره سرمایه‌ای
+        data_type: amount
+        sign: negative
+        standard_ref: 44
+      
+      - key: other_financing
+        label: سایر جریان‌های تأمین مالی
+        data_type: amount
+        sign: both
+    
+    total: net_cash_from_financing
+    total_label: جریان نقدی خالص از فعالیت‌های تأمین مالی
+
+# ============================================
+# خلاصه جریان‌ها
+# ============================================
+summary:
+  - key: net_change_in_cash
+    label: تغییر خالص در نقد و معادل‌های نقد
+    formula: net_cash_from_operating + net_cash_from_investing + net_cash_from_financing
+  
+  - key: beginning_cash
+    label: مانده نقد و معادل‌های نقد در ابتدای دوره
+    data_type: amount
+  
+  - key: effect_of_exchange_rate
+    label: اثر تغییر در نرخ ارز بر نقد و معادل‌های نقد
+    data_type: amount
+    standard_ref: 16
+  
+  - key: ending_cash
+    label: مانده نقد و معادل‌های نقد در پایان دوره
+    formula: beginning_cash + net_change_in_cash + effect_of_exchange_rate
+    total: true
+    highlight: true
+
+# ============================================
+# افشاهای الزامی
+# ============================================
+required_disclosures:
+  - key: cash_and_equivalents_definition
+    description: اجزای نقد و معادل‌های نقد
+    note: باید سیاست تعیین معادل‌های نقد افشا شود
+  
+  - key: non_cash_transactions
+    description: معاملات غیرنقدی بااهمیت
+    note: مثل تبدیل بدهی به سرمایه، تحصیل دارایی با اجاره سرمایه‌ای
+  
+  - key: cash_restrictions
+    description: محدودیت‌های استفاده از نقد
+    note: اگر مانده نقد قابل استفاده نباشد، باید افشا شود
+  
+  - key: interest_and_dividends
+    description: سود و سود سهام
+    note: طبقه‌بندی باید یکنواخت باشد (عملیاتی، سرمایه‌گذاری، یا تأمین مالی)
+  
+  - key: taxes_paid
+    description: مالیات بر درآمد پرداختی
+    note: باید جداگانه افشا شود
+
+# ============================================
+# قواعد اعتبارسنجی
+# ============================================
+validations:
+  - id: net_change_check
+    description: تغییر خالص = عملیاتی + سرمایه‌گذاری + تأمین مالی
+    formula: net_change_in_cash == net_cash_from_operating + net_cash_from_investing + net_cash_from_financing
+    severity: error
+  
+  - id: ending_cash_check
+    description: مانده پایان = مانده ابتدا + تغییر خالص + اثر ارز
+    formula: ending_cash == beginning_cash + net_change_in_cash + effect_of_exchange_rate
+    severity: error
+  
+  - id: balance_sheet_match
+    description: مانده پایان نقد = مانده نقد در ترازنامه
+    formula: ending_cash == balance_sheet.cash_and_equivalents
+    severity: error
+  
+  - id: non_cash_disclosed
+    description: معاملات غیرنقدی بااهمیت باید افشا شوند
+    requirement: non_cash_transactions_disclosed == true
+    severity: warning
+
+# ============================================
+# مثال
+# ============================================
+example:
+  operating:
+    net_profit_before_tax: 500000
+    depreciation: 100000
+    change_in_receivables: -50000
+    change_in_payables: 30000
+    tax_paid: -80000
+    net_cash_from_operating: 500000
+  
+  investing:
+    purchase_of_ppe: -200000
+    proceeds_from_sale: 50000
+    net_cash_from_investing: -150000
+  
+  financing:
+    proceeds_from_borrowings: 100000
+    dividends_paid: -50000
+    net_cash_from_financing: 50000
+  
+  summary:
+    net_change: 500000 - 150000 + 50000
+    beginning_cash: 200000
+    ending_cash: 200000 + 400000
+    

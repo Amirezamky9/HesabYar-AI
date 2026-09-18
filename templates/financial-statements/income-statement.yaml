@@ -1,0 +1,293 @@
+# قالب صورت سود و زیان
+# استاندارد حسابداری ۱ - بندهای ۸۳ تا ۹۹
+# ============================================
+
+name: صورت سود و زیان
+name_en: Statement of Profit or Loss
+standard: 1
+standard_refs: [83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99]
+type: statement
+frequency: annual
+orientation: rtl
+language: fa
+
+# ============================================
+# روش طبقه‌بندی هزینه‌ها
+# ============================================
+classification_method:
+  # انتخاب یکی از دو روش
+  # 1. nature_of_expense (ماهیت هزینه)
+  # 2. function_of_expense (کارکرد هزینه / بهای تمام شده فروش)
+  options: [nature_of_expense, function_of_expense]
+  default: nature_of_expense
+  note: انتخاب روش باید یکنواخت باشد (بند ۴۶)
+
+# ============================================
+# ساختار صورت - روش ماهیت هزینه
+# ============================================
+structure_nature:
+  - key: revenue
+    label: درآمدهای عملیاتی
+    ref: 83
+    data_type: amount
+    required: true
+    ifrs: IFRS 15 / IAS 18
+    standard_ref: 43
+    sign: positive
+  
+  - key: other_income
+    label: سایر درآمدها
+    ref: 83, 86
+    data_type: amount
+    required: false
+    sign: positive
+  
+  - key: changes_in_inventory
+    label: تغییرات در موجودی کالای ساخته شده و کالای در جریان ساخت
+    ref: 96
+    data_type: amount
+    required: false
+    sign: both
+  
+  - key: raw_materials_consumed
+    label: مواد اولیه و ملزومات مصرف شده
+    ref: 96
+    data_type: amount
+    required: true
+    sign: negative
+  
+  - key: employee_benefits
+    label: هزینه مزایای کارکنان
+    ref: 96, 98
+    data_type: amount
+    required: true
+    ifrs: IAS 19
+    standard_ref: 33
+    sign: negative
+  
+  - key: depreciation
+    label: هزینه استهلاک دارایی‌های ثابت مشهود و نامشهود
+    ref: 96, 98
+    data_type: amount
+    required: true
+    ifrs: IAS 16, IAS 38
+    standard_ref: 11, 17
+    sign: negative
+  
+  - key: other_expenses
+    label: سایر هزینه‌ها
+    ref: 96
+    data_type: amount
+    required: false
+    sign: negative
+  
+  - key: total_expenses
+    label: جمع هزینه‌ها
+    formula: raw_materials_consumed + employee_benefits + depreciation + other_expenses - changes_in_inventory
+    total: true
+  
+  - key: operating_profit
+    label: سود (زیان) عملیاتی
+    formula: revenue + other_income - total_expenses
+    total: true
+    highlight: true
+  
+  - key: finance_costs
+    label: هزینه‌های مالی
+    ref: 83
+    data_type: amount
+    required: true
+    ifrs: IAS 23
+    standard_ref: 13
+    sign: negative
+  
+  - key: share_of_associates
+    label: سهم از سود (زیان) واحدهای وابسته و مشارکت‌های خاص
+    ref: 83
+    data_type: amount
+    required: false
+    ifrs: IAS 28
+    standard_ref: 20
+    sign: both
+  
+  - key: profit_before_tax
+    label: سود (زیان) قبل از مالیات
+    formula: operating_profit - finance_costs + share_of_associates
+    total: true
+    highlight: true
+  
+  - key: tax_expense
+    label: هزینه مالیات
+    ref: 83
+    data_type: amount
+    required: true
+    ifrs: IAS 12
+    standard_ref: 35
+    sign: negative
+  
+  - key: discontinued_operations
+    label: عملیات متوقف شده
+    ref: 83
+    data_type: amount
+    required: false
+    ifrs: IFRS 5
+    standard_ref: 31
+    sign: both
+    note: مبلغ مجزا برای کل عملیات متوقف شده
+  
+  - key: net_profit
+    label: سود (زیان) دوره
+    formula: profit_before_tax - tax_expense + discontinued_operations
+    total: true
+    highlight: true
+  
+  - key: attributable_to:
+    label: سود (زیان) دوره، قابل انتساب به
+    ref: 83
+    items:
+      - key: non_controlling_interests
+        label: منافع فاقد حق کنترل
+        data_type: amount
+        ifrs: IFRS 10
+        standard_ref: 39
+      
+      - key: owners_of_parent
+        label: مالکان واحد تجاری اصلی
+        data_type: amount
+
+# ============================================
+# ساختار صورت - روش کارکرد هزینه
+# ============================================
+structure_function:
+  - key: revenue
+    label: درآمدهای عملیاتی
+    ref: 83
+    data_type: amount
+    required: true
+    sign: positive
+  
+  - key: cost_of_goods_sold
+    label: بهای تمام شده کالای فروش رفته
+    ref: 97
+    data_type: amount
+    required: true
+    sign: negative
+  
+  - key: gross_profit
+    label: سود (زیان) ناخالص
+    formula: revenue - cost_of_goods_sold
+    total: true
+    highlight: true
+  
+  - key: other_income
+    label: سایر درآمدها
+    ref: 83, 86
+    data_type: amount
+    required: false
+    sign: positive
+  
+  - key: selling_expenses
+    label: هزینه‌های فروش
+    ref: 97
+    data_type: amount
+    required: true
+    sign: negative
+  
+  - key: administrative_expenses
+    label: هزینه‌های اداری
+    ref: 97
+    data_type: amount
+    required: true
+    sign: negative
+  
+  - key: other_expenses
+    label: سایر هزینه‌ها
+    ref: 97
+    data_type: amount
+    required: false
+    sign: negative
+  
+  - key: operating_profit
+    label: سود (زیان) عملیاتی
+    formula: gross_profit + other_income - selling_expenses - administrative_expenses - other_expenses
+    total: true
+    highlight: true
+  
+  - key: finance_costs
+    label: هزینه‌های مالی
+    ref: 83
+    data_type: amount
+    required: true
+    sign: negative
+  
+  - key: share_of_associates
+    label: سهم از سود (زیان) واحدهای وابسته
+    ref: 83
+    data_type: amount
+    required: false
+    sign: both
+  
+  - key: profit_before_tax
+    label: سود (زیان) قبل از مالیات
+    formula: operating_profit - finance_costs + share_of_associates
+    total: true
+    highlight: true
+  
+  - key: tax_expense
+    label: هزینه مالیات
+    ref: 83
+    data_type: amount
+    required: true
+    sign: negative
+  
+  - key: net_profit
+    label: سود (زیان) دوره
+    formula: profit_before_tax - tax_expense
+    total: true
+    highlight: true
+
+# ============================================
+# افشاهای الزامی
+# ============================================
+required_disclosures:
+  - ref: 83
+    description: حداقل اقلام اصلی صورت سود و زیان
+  - ref: 86
+    description: اقلام اصلی دیگر در صورت لزوم
+  - ref: 88
+    description: جمع‌های فرعی نباید مهم‌تر از جمع‌های کل باشند
+  - ref: 89
+    description: افشای اجزای عملکرد مالی
+  - ref: 90
+    description: عدم تهاتر درآمد و هزینه
+  - ref: 91
+    description: افشای جداگانه اقلام بااهمیت
+  - ref: 92
+    description: افشای جداگانه موارد خاص (کاهش ارزش موجودی، تجدید ساختار، ...)
+  - ref: 94
+    description: توصیه به ارائه در صورت سود و زیان
+  - ref: 98
+    description: در روش کارکرد، افشای هزینه استهلاک و مزایای کارکنان الزامی است
+  - ref: 99
+    description: انتخاب روش بستگی به عوامل تاریخی و صنعت دارد
+
+# ============================================
+# قواعد اعتبارسنجی
+# ============================================
+validations:
+  - id: net_profit_check
+    description: سود خالص = سود قبل از مالیات - مالیات
+    formula: net_profit == profit_before_tax - tax_expense
+    severity: error
+  
+  - id: attribution_check
+    description: سود خالص = سود قابل انتساب به مالکان + منافع فاقد حق کنترل
+    formula: net_profit == owners_of_parent + non_controlling_interests
+    severity: error
+  
+  - id: gross_profit_check
+    description: سود ناخالص = درآمد - بهای تمام شده (روش کارکرد)
+    formula: gross_profit == revenue - cost_of_goods_sold
+    severity: error
+    method: function_of_expense
+    

@@ -1,0 +1,201 @@
+# قالب صورت سود و زیان جامع
+# استاندارد حسابداری ۱ - بندهای ۱۰۰ تا ۱۰۷
+# ============================================
+
+name: صورت سود و زیان جامع
+name_en: Statement of Comprehensive Income
+standard: 1
+standard_refs: [100, 101, 102, 103, 104, 105, 106, 107]
+type: statement
+frequency: annual
+orientation: rtl
+language: fa
+
+# ============================================
+# ساختار صورت
+# ============================================
+structure:
+  - key: net_profit
+    label: سود (زیان) دوره
+    ref: 100
+    data_type: amount
+    required: true
+    source: income_statement.net_profit
+  
+  - key: other_comprehensive_income
+    label: سایر اقلام سود و زیان جامع
+    ref: 100, 101
+    data_type: section
+    items:
+      # --------------------------------------------
+      # گروه ۱: اقلامی که به سود و زیان دوره منتقل نمی‌شوند
+      # --------------------------------------------
+      - group: items_not_reclassified
+        label: اقلامی که به سود و زیان دوره منتقل نخواهند شد
+        ref: 101
+        items:
+          - key: revaluation_surplus_changes
+            label: تغییرات در مازاد تجدید ارزیابی
+            ref: 101, 107
+            data_type: amount
+            ifrs: IAS 16, IAS 38, IAS 40
+            standard_ref: 11, 17
+            note: طبق استاندارد ۱۱، ۱۵، ۱۷
+            reclassification: never
+          
+          - key: actuarial_gains_losses
+            label: تجدید اندازه‌گیری طرح‌های با مزایای معین
+            ref: 101
+            data_type: amount
+            ifrs: IAS 19
+            standard_ref: 33
+            reclassification: never
+          
+          - key: share_of_oci_associates_noreclass
+            label: سهم از سایر اقلام سود و زیان جامع واحدهای وابسته (غیرقابل انتقال)
+            ref: 101
+            data_type: amount
+            ifrs: IAS 28
+            standard_ref: 20
+            reclassification: never
+        
+        subtotal: subtotal_not_reclassified
+        subtotal_label: مجموع اقلام غیرقابل انتقال
+      
+      # --------------------------------------------
+      # گروه ۲: اقلامی که در شرایط خاص به سود و زیان منتقل می‌شوند
+      # --------------------------------------------
+      - group: items_reclassified
+        label: اقلامی که در شرایط خاص به سود و زیان دوره منتقل می‌شوند
+        ref: 101
+        items:
+          - key: foreign_currency_translation
+            label: سود (زیان) ناشی از تسعیر صورت‌های مالی عملیات خارجی
+            ref: 101
+            data_type: amount
+            ifrs: IAS 21
+            standard_ref: 16
+            reclassification: when_realized
+          
+          - key: cash_flow_hedges
+            label: سود (زیان) ناشی از ابزارهای مالی پوشش ریسک
+            ref: 101
+            data_type: amount
+            ifrs: IFRS 9
+            standard_ref: 15, 36, 37
+            reclassification: when_realized
+          
+          - key: share_of_oci_associates_reclass
+            label: سهم از سایر اقلام سود و زیان جامع واحدهای وابسته (قابل انتقال)
+            ref: 101
+            data_type: amount
+            ifrs: IAS 28
+            standard_ref: 20
+            reclassification: when_realized
+        
+        subtotal: subtotal_reclassified
+        subtotal_label: مجموع اقلام قابل انتقال
+        
+        # تعدیلات تجدید طبقه‌بندی
+        - key: reclassification_adjustments
+          label: تعدیلات تجدید طبقه‌بندی
+          ref: 102, 105, 106, 107
+          data_type: amount
+          note: مبالغی که در دوره جاری از سایر اقلام سود و زیان جامع به سود و زیان منتقل می‌شود
+  
+  - key: total_comprehensive_income
+    label: مجموع سود و زیان جامع دوره
+    ref: 100
+    formula: net_profit + subtotal_not_reclassified + subtotal_reclassified
+    total: true
+    highlight: true
+  
+  - key: attributable_to:
+    label: مجموع سود و زیان جامع دوره، قابل انتساب به
+    ref: 100
+    items:
+      - key: non_controlling_interests
+        label: منافع فاقد حق کنترل
+        data_type: amount
+        ifrs: IFRS 10
+        standard_ref: 39
+      
+      - key: owners_of_parent
+        label: مالکان واحد تجاری اصلی
+        data_type: amount
+
+# ============================================
+# الزامات مالیات
+# ============================================
+tax_presentation:
+  ref: 102, 103
+  options:
+    - after_tax: ارائه پس از کسر آثار مالیاتی
+    - before_tax: ارائه قبل از کسر آثار مالیاتی همراه با یک رقم برای جمع مالیات
+  default: after_tax
+  note: باید مبلغ مالیات بر درآمد مربوط به هر یک از اجزای سایر اقلام سود و زیان جامع افشا شود
+
+# ============================================
+# تعدیلات تجدید طبقه‌بندی
+# ============================================
+reclassification_adjustments:
+  ref: 105, 106, 107
+  note: |
+    تعدیلات تجدید طبقه‌بندی، مبالغی است که در دوره جاری با دوره‌های قبل، 
+    در سایر اقلام سود و زیان جامع شناسایی شده و در دوره جاری به سود و زیان منتقل می‌شود.
+  
+  presentation:
+    options:
+      - in_statement: ارائه در صورت سود و زیان جامع
+      - in_notes: ارائه در یادداشت‌های توضیحی
+    default: in_notes
+  
+  examples:
+    - mazad_revaluation_standard_11: 
+        description: تغییرات مازاد تجدید ارزیابی طبق استاندارد ۱۱
+        reclassification: به سود انباشته منتقل می‌شود (نه به سود و زیان)
+    - actuarial_standard_33:
+        description: تجدید اندازه‌گیری طرح‌های با مزایای معین طبق استاندارد ۳۳
+        reclassification: هرگز به سود و زیان منتقل نمی‌شود
+    - foreign_exchange_standard_16:
+        description: سود و زیان تسعیر ارز طبق استاندارد ۱۶
+        reclassification: در زمان قطع شناخت عملیات خارجی به سود و زیان منتقل می‌شود
+
+# ============================================
+# قواعد اعتبارسنجی
+# ============================================
+validations:
+  - id: total_oci_check
+    description: مجموع سود و زیان جامع = سود دوره + سایر اقلام
+    formula: total_comprehensive_income == net_profit + subtotal_not_reclassified + subtotal_reclassified
+    severity: error
+  
+  - id: attribution_check
+    description: مجموع سود و زیان جامع = قابل انتساب به مالکان + منافع فاقد حق کنترل
+    formula: total_comprehensive_income == owners_of_parent + non_controlling_interests
+    severity: error
+  
+  - id: no_reclass_check
+    description: اقلام گروه "غیرقابل انتقال" نباید تعدیل تجدید طبقه‌بندی داشته باشند
+    rule: items_not_reclassified.reclassification == never
+    severity: error
+
+# ============================================
+# ارتباط با سایر استانداردها
+# ============================================
+related_standards:
+  - standard: 11
+    relation: مازاد تجدید ارزیابی دارایی‌های ثابت مشهود
+  - standard: 15
+    relation: سرمایه‌گذاری‌ها (پوشش ریسک)
+  - standard: 16
+    relation: آثار تغییر در نرخ ارز
+  - standard: 17
+    relation: دارایی‌های نامشهود و سرمایه‌گذاری در املاک
+  - standard: 20
+    relation: سهم از OCI واحدهای وابسته
+  - standard: 33
+    relation: مزایای بازنشستگی کارکنان
+  - standard: 39
+    relation: منافع فاقد حق کنترل
+    

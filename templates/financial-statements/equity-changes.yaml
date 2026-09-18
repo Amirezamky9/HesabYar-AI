@@ -1,0 +1,307 @@
+# قالب صورت تغییرات در حقوق مالکانه
+# استاندارد حسابداری ۱ - بندهای ۱۰۸ تا ۱۱۳
+# ============================================
+
+name: صورت تغییرات در حقوق مالکانه
+name_en: Statement of Changes in Equity
+standard: 1
+standard_refs: [108, 109, 110, 111, 112, 113]
+type: statement
+frequency: annual
+orientation: rtl
+language: fa
+
+# ============================================
+# ساختار ستون‌ها (اجزای حقوق مالکانه)
+# ============================================
+columns:
+  - key: share_capital
+    label: سرمایه
+    ref: 108, 111
+    required: true
+    ifrs: IAS 1.54
+  
+  - key: share_premium
+    label: صرف سهام
+    ref: 111
+    required: false
+  
+  - key: legal_reserve
+    label: اندوخته قانونی
+    ref: 111
+    required: true
+  
+  - key: other_reserves
+    label: سایر اندوخته‌ها
+    ref: 111
+    required: false
+  
+  - key: revaluation_surplus
+    label: مازاد تجدید ارزیابی
+    ref: 111
+    required: false
+    ifrs: IAS 16
+    standard_ref: 11
+  
+  - key: actuarial_reserve
+    label: اندوخته تجدید اندازه‌گیری
+    ref: 111
+    required: false
+    ifrs: IAS 19
+    standard_ref: 33
+  
+  - key: foreign_currency_reserve
+    label: اندوخته تسعیر ارز
+    ref: 111
+    required: false
+    ifrs: IAS 21
+    standard_ref: 16
+  
+  - key: retained_earnings
+    label: سود انباشته
+    ref: 111
+    required: true
+  
+  - key: other_comprehensive_income
+    label: سایر اقلام سود و زیان جامع
+    ref: 111
+    required: false
+  
+  - key: non_controlling_interests
+    label: منافع فاقد حق کنترل
+    ref: 108
+    required: false
+    ifrs: IFRS 10
+    standard_ref: 39
+  
+  - key: total_equity
+    label: مجموع حقوق مالکانه
+    formula: sum(all_columns)
+    total: true
+    highlight: true
+
+# ============================================
+# ساختار سطرها (تغییرات)
+# ============================================
+rows:
+  # --------------------------------------------
+  # ۱. مانده ابتدای دوره
+  # --------------------------------------------
+  - key: opening_balance
+    label: مانده ابتدای دوره
+    ref: 108
+    data_source: previous_period_closing
+  
+  # --------------------------------------------
+  # ۲. آثار بکارگیری با تسری به گذشته
+  # --------------------------------------------
+  - key: retrospective_application
+    label: آثار بکارگیری با تسری به گذشته
+    ref: 108
+    description: طبق استاندارد ۳۴
+    ifrs: IAS 8
+    standard_ref: 34
+  
+  # --------------------------------------------
+  # ۳. تجدید ارائه با تسری به گذشته
+  # --------------------------------------------
+  - key: retrospective_restatement
+    label: تجدید ارائه با تسری به گذشته
+    ref: 108
+    description: طبق استاندارد ۳۴
+    ifrs: IAS 8
+    standard_ref: 34
+  
+  # --------------------------------------------
+  # ۴. مانده تعدیل‌شده ابتدای دوره
+  # --------------------------------------------
+  - key: adjusted_opening_balance
+    label: مانده تعدیل‌شده ابتدای دوره
+    formula: opening_balance + retrospective_application + retrospective_restatement
+    subtotal: true
+  
+  # --------------------------------------------
+  # ۵. مجموع سود و زیان جامع دوره
+  # --------------------------------------------
+  - key: comprehensive_income
+    label: مجموع سود و زیان جامع دوره
+    ref: 108
+    sub_rows:
+      - key: net_profit
+        label: سود (زیان) دوره
+        ref: 108
+        source: income_statement.net_profit
+        attributable_to: [owners_of_parent, non_controlling_interests]
+      
+      - key: other_comprehensive_income
+        label: سایر اقلام سود و زیان جامع
+        ref: 108
+        source: comprehensive_income.subtotal_not_reclassified + subtotal_reclassified
+        attributable_to: [owners_of_parent, non_controlling_interests]
+        
+        # تفکیک اجزای OCI
+        detail_items:
+          - key: revaluation_surplus_changes
+            label: تغییرات مازاد تجدید ارزیابی
+            standard_ref: 11, 17
+          
+          - key: actuarial_gains_losses
+            label: تجدید اندازه‌گیری طرح‌های با مزایای معین
+            standard_ref: 33
+          
+          - key: foreign_currency_translation
+            label: تسعیر ارز
+            standard_ref: 16
+          
+          - key: share_of_oci_associates
+            label: سهم از OCI واحدهای وابسته
+            standard_ref: 20
+    
+    total: total_comprehensive_income
+    total_label: مجموع سود و زیان جامع
+  
+  # --------------------------------------------
+  # ۶. معاملات با مالکان به عنوان مالک
+  # --------------------------------------------
+  - key: transactions_with_owners
+    label: معاملات با مالکان به عنوان مالک
+    ref: 108
+    sub_rows:
+      # ------------------------------------------
+      # ۶.۱ آورده مالکان
+      # ------------------------------------------
+      - key: capital_contributions
+        label: آورده مالکان
+        ref: 108
+        sub_items:
+          - key: share_issuance
+            label: انتشار سهام
+            data_type: amount
+          
+          - key: share_premium_received
+            label: صرف سهام دریافتی
+            data_type: amount
+          
+          - key: other_contributions
+            label: سایر آورده‌ها
+            data_type: amount
+      
+      # ------------------------------------------
+      # ۶.۲ توزیع منابع بین مالکان
+      # ------------------------------------------
+      - key: distributions_to_owners
+        label: توزیع منابع بین مالکان
+        ref: 108
+        sub_items:
+          - key: cash_dividends
+            label: سود تقسیمی نقدی
+            data_type: amount
+            ref: 110
+          
+          - key: stock_dividends
+            label: سود تقسیمی سهامی
+            data_type: amount
+            ref: 110
+          
+          - key: other_distributions
+            label: سایر توزیع‌ها
+            data_type: amount
+      
+      # ------------------------------------------
+      # ۶.۳ تغییر منافع مالکیت در واحدهای فرعی
+      # ------------------------------------------
+      - key: changes_in_ownership
+        label: تغییر منافع مالکیت در واحدهای تجاری فرعی
+        ref: 108
+        description: که موجب از دست دادن کنترل نمی‌شود
+        ifrs: IFRS 10
+        standard_ref: 39
+        data_type: amount
+    
+    total: total_owner_transactions
+    total_label: مجموع معاملات با مالکان
+  
+  # --------------------------------------------
+  # ۷. مانده پایان دوره
+  # --------------------------------------------
+  - key: closing_balance
+    label: مانده پایان دوره
+    ref: 108
+    formula: adjusted_opening_balance + total_comprehensive_income + total_owner_transactions
+    total: true
+    highlight: true
+
+# ============================================
+# افشاهای الزامی
+# ============================================
+required_disclosures:
+  - ref: 108
+    description: |
+      - مجموع سود و زیان جامع دوره (تفکیک مالکان اصلی و منافع فاقد حق کنترل)
+      - آثار بکارگیری با تسری به گذشته یا تجدید ارائه طبق استاندارد ۳۴
+      - صورت تطبیق مبالغ دفتری ابتدا و پایان دوره
+  
+  - ref: 109
+    description: افشای اجزای سایر اقلام سود و زیان جامع (در صورت تغییرات یا یادداشت‌ها)
+  
+  - ref: 110
+    description: افشای کل سود تقسیمی و مبلغ سود تقسیمی هر سهم
+  
+  - ref: 111
+    description: |
+      اجزای حقوق مالکانه شامل:
+      - هر طبقه از حقوق مالکانه تأمین شده
+      - مبلغ انباشته هر طبقه از سایر اقلام سود و زیان جامع
+      - سود انباشته
+  
+  - ref: 112
+    description: تغییرات در حقوق مالکانه از ابتدا تا پایان دوره (افزایش/کاهش خالص دارایی‌ها)
+  
+  - ref: 113
+    description: افشای اجزای حقوق مالکانه در صورت تغییرات یا یادداشت‌ها
+
+# ============================================
+# قواعد اعتبارسنجی
+# ============================================
+validations:
+  - id: balance_equation
+    description: مانده پایان = مانده ابتدا + مجموع سود و زیان جامع + معاملات با مالکان
+    formula: closing_balance == adjusted_opening_balance + total_comprehensive_income + total_owner_transactions
+    severity: error
+  
+  - id: comprehensive_income_attribution
+    description: مجموع سود و زیان جامع = قابل انتساب به مالکان + منافع فاقد حق کنترل
+    formula: comprehensive_income == owners_of_parent_portion + non_controlling_interests_portion
+    severity: error
+  
+  - id: dividends_disclosure
+    description: کل سود تقسیمی و سود هر سهم باید افشا شود
+    requirement: dividends_per_share_disclosed == true
+    severity: warning
+
+# ============================================
+# مثال محاسباتی
+# ============================================
+example:
+  opening_balance:
+    share_capital: 1000000
+    retained_earnings: 500000
+    total: 1500000
+  
+  comprehensive_income:
+    net_profit: 300000
+    oci: 50000
+    total: 350000
+  
+  transactions_with_owners:
+    dividends: -100000
+    capital_increase: 200000
+    total: 100000
+  
+  closing_balance:
+    share_capital: 1200000
+    retained_earnings: 750000
+    total: 1950000
+  
+  check: 1500000 + 350000 + 100000 == 1950000  # ✅
+  

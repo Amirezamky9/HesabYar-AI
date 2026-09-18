@@ -1,0 +1,386 @@
+# قالب صورت وضعیت مالی
+# استاندارد حسابداری ۱ - بندهای ۵۵ تا ۸۲
+# ============================================
+
+name: صورت وضعیت مالی
+name_en: Statement of Financial Position
+standard: 1
+standard_refs: [55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82]
+type: statement
+frequency: annual
+orientation: rtl
+language: fa
+
+# ============================================
+# ساختار صورت
+# ============================================
+structure:
+  - section: دارایی‌ها
+    name_en: Assets
+    subsections:
+      - name: دارایی‌های جاری
+        name_en: Current Assets
+        items:
+          - key: cash_and_equivalents
+            label: نقد و معادل‌های نقد
+            ref: 68
+            data_type: amount
+            required: true
+            ifrs: IAS 7.7
+          
+          - key: short_term_investments
+            label: سرمایه‌گذاری‌های کوتاه‌مدت
+            ref: 68
+            data_type: amount
+            required: true
+            ifrs: IAS 39/IFRS 9
+          
+          - key: trade_receivables
+            label: دریافتنی‌های تجاری
+            ref: 68, 78
+            data_type: amount
+            required: true
+            ifrs: IFRS 9
+          
+          - key: other_receivables
+            label: سایر دریافتنی‌ها
+            ref: 68, 78
+            data_type: amount
+            required: true
+          
+          - key: prepayments
+            label: پیش‌پرداخت‌ها
+            ref: 68, 78
+            data_type: amount
+            required: true
+          
+          - key: inventory
+            label: موجودی‌ها
+            ref: 68
+            data_type: amount
+            required: true
+            ifrs: IAS 2
+          
+          - key: biological_assets_current
+            label: دارایی‌های زیستی جاری
+            ref: 68
+            data_type: amount
+            required: false
+            ifrs: IAS 41
+          
+          - key: non_current_assets_held_for_sale
+            label: دارایی‌های غیرجاری نگهداری شده برای فروش
+            ref: 68, 55
+            data_type: amount
+            required: false
+            ifrs: IFRS 5
+            standard_ref: 31
+          
+          - key: other_current_assets
+            label: سایر دارایی‌های جاری
+            ref: 68, 78
+            data_type: amount
+            required: false
+        
+        total: total_current_assets
+        total_label: مجموع دارایی‌های جاری
+      
+      - name: دارایی‌های غیرجاری
+        name_en: Non-Current Assets
+        items:
+          - key: property_plant_equipment
+            label: دارایی‌های ثابت مشهود
+            ref: 55
+            data_type: amount
+            required: true
+            ifrs: IAS 16
+            standard_ref: 11
+          
+          - key: investment_property
+            label: سرمایه‌گذاری در املاک
+            ref: 55
+            data_type: amount
+            required: true
+            ifrs: IAS 40
+            standard_ref: 17
+          
+          - key: intangible_assets
+            label: دارایی‌های نامشهود
+            ref: 55
+            data_type: amount
+            required: true
+            ifrs: IAS 38
+            standard_ref: 17
+          
+          - key: investments_equity_method
+            label: سرمایه‌گذاری به روش ارزش ویژه
+            ref: 55
+            data_type: amount
+            required: true
+            ifrs: IAS 28
+            standard_ref: 20
+          
+          - key: long_term_investments
+            label: سرمایه‌گذاری‌های بلندمدت
+            ref: 55
+            data_type: amount
+            required: true
+            ifrs: IAS 39/IFRS 9
+            standard_ref: 15
+          
+          - key: biological_assets_non_current
+            label: دارایی‌های زیستی غیرجاری
+            ref: 55
+            data_type: amount
+            required: false
+            ifrs: IAS 41
+            standard_ref: 26
+          
+          - key: deferred_tax_assets
+            label: دارایی‌های مالیات انتقالی
+            ref: 55, 58
+            data_type: amount
+            required: true
+            ifrs: IAS 12
+            standard_ref: 35
+          
+          - key: other_non_current_assets
+            label: سایر دارایی‌های غیرجاری
+            ref: 55
+            data_type: amount
+            required: false
+        
+        total: total_non_current_assets
+        total_label: مجموع دارایی‌های غیرجاری
+    
+    total: total_assets
+    total_label: مجموع دارایی‌ها
+
+  - section: بدهی‌ها
+    name_en: Liabilities
+    subsections:
+      - name: بدهی‌های جاری
+        name_en: Current Liabilities
+        items:
+          - key: trade_payables
+            label: پرداختنی‌های تجاری
+            ref: 69, 72
+            data_type: amount
+            required: true
+            ifrs: IFRS 9
+          
+          - key: other_payables
+            label: سایر پرداختنی‌ها
+            ref: 69, 73
+            data_type: amount
+            required: true
+          
+          - key: short_term_borrowings
+            label: بدهی‌های مالی کوتاه‌مدت
+            ref: 69, 73
+            data_type: amount
+            required: true
+            ifrs: IFRS 9
+          
+          - key: current_portion_long_term_debt
+            label: حصه جاری بدهی‌های بلندمدت
+            ref: 69, 73
+            data_type: amount
+            required: true
+            ifrs: IFRS 9
+          
+          - key: income_tax_payable
+            label: مالیات پرداختنی
+            ref: 69
+            data_type: amount
+            required: true
+            ifrs: IAS 12
+            standard_ref: 35
+          
+          - key: provisions_current
+            label: ذخایر جاری
+            ref: 69
+            data_type: amount
+            required: true
+            ifrs: IAS 37
+            standard_ref: 4
+          
+          - key: advances_received
+            label: پیش‌دریافت‌ها
+            ref: 69
+            data_type: amount
+            required: false
+          
+          - key: liabilities_held_for_sale
+            label: بدهی‌های نگهداری شده برای فروش
+            ref: 69
+            data_type: amount
+            required: false
+            standard_ref: 31
+          
+          - key: other_current_liabilities
+            label: سایر بدهی‌های جاری
+            ref: 69, 73
+            data_type: amount
+            required: false
+        
+        total: total_current_liabilities
+        total_label: مجموع بدهی‌های جاری
+      
+      - name: بدهی‌های غیرجاری
+        name_en: Non-Current Liabilities
+        items:
+          - key: long_term_borrowings
+            label: بدهی‌های مالی بلندمدت
+            ref: 69
+            data_type: amount
+            required: true
+            ifrs: IFRS 9
+          
+          - key: deferred_tax_liabilities
+            label: بدهی‌های مالیات انتقالی
+            ref: 55, 58
+            data_type: amount
+            required: true
+            ifrs: IAS 12
+            standard_ref: 35
+          
+          - key: provisions_non_current
+            label: ذخایر غیرجاری
+            ref: 69
+            data_type: amount
+            required: true
+            ifrs: IAS 37
+            standard_ref: 4
+          
+          - key: employee_benefits
+            label: مزایای بازنشستگی کارکنان
+            ref: 55
+            data_type: amount
+            required: true
+            ifrs: IAS 19
+            standard_ref: 33
+          
+          - key: other_non_current_liabilities
+            label: سایر بدهی‌های غیرجاری
+            ref: 69
+            data_type: amount
+            required: false
+        
+        total: total_non_current_liabilities
+        total_label: مجموع بدهی‌های غیرجاری
+    
+    total: total_liabilities
+    total_label: مجموع بدهی‌ها
+
+  - section: حقوق مالکانه
+    name_en: Equity
+    items:
+      - key: share_capital
+        label: سرمایه
+        ref: 55, 81
+        data_type: amount
+        required: true
+        ifrs: IAS 1.54
+      
+      - key: share_premium
+        label: صرف سهام
+        ref: 81
+        data_type: amount
+        required: false
+      
+      - key: legal_reserve
+        label: اندوخته قانونی
+        ref: 81
+        data_type: amount
+        required: true
+      
+      - key: other_reserves
+        label: سایر اندوخته‌ها
+        ref: 81
+        data_type: amount
+        required: false
+      
+      - key: revaluation_surplus
+        label: مازاد تجدید ارزیابی
+        ref: 81
+        data_type: amount
+        required: false
+        ifrs: IAS 16
+        standard_ref: 11
+      
+      - key: retained_earnings
+        label: سود انباشته
+        ref: 81
+        data_type: amount
+        required: true
+      
+      - key: other_comprehensive_income
+        label: سایر اقلام سود و زیان جامع
+        ref: 81
+        data_type: amount
+        required: false
+      
+      - key: non_controlling_interests
+        label: منافع فاقد حق کنترل
+        ref: 55
+        data_type: amount
+        required: false
+        ifrs: IFRS 10
+        standard_ref: 39
+    
+    total: total_equity
+    total_label: مجموع حقوق مالکانه
+
+  - section: مجموع بدهی‌ها و حقوق مالکانه
+    name_en: Total Liabilities and Equity
+    formula: total_liabilities + total_equity
+
+# ============================================
+# قواعد اعتبارسنجی
+# ============================================
+validations:
+  - id: balance_check
+    description: مجموع دارایی‌ها = مجموع بدهی‌ها + حقوق مالکانه
+    formula: total_assets == total_liabilities + total_equity
+    severity: error
+    message: ترازنامه تراز نیست
+  
+  - id: current_assets_check
+    description: مجموع اجزای دارایی جاری = مجموع کل
+    formula: sum(current_asset_items) == total_current_assets
+    severity: error
+  
+  - id: non_current_assets_check
+    description: مجموع اجزای دارایی غیرجاری = مجموع کل
+    formula: sum(non_current_asset_items) == total_non_current_assets
+    severity: error
+  
+  - id: total_assets_check
+    description: مجموع دارایی جاری + غیرجاری = مجموع کل دارایی
+    formula: total_current_assets + total_non_current_assets == total_assets
+    severity: error
+  
+  - id: liabilities_check
+    description: مجموع بدهی‌ها = بدهی جاری + غیرجاری
+    formula: total_current_liabilities + total_non_current_liabilities == total_liabilities
+    severity: error
+  
+  - id: equity_check
+    description: مجموع اجزای حقوق مالکانه = مجموع کل
+    formula: sum(equity_items) == total_equity
+    severity: error
+
+# ============================================
+# یادداشت‌های الزامی
+# ============================================
+required_notes:
+  - ref: 79
+    description: طبقات فرعی اقلام اصلی
+  - ref: 80
+    description: جزئیات طبقات فرعی
+  - ref: 81
+    description: اطلاعات حقوق مالکانه (تعداد سهام، ارزش اسمی، ...)
+  - ref: 82
+    description: سرمایه و اندوخته‌ها
+    
