@@ -30,3 +30,6 @@ desktop.ini
 standards/*/source/*.doc
 standards/*/source/*.pdf
 standards/*/source/media/
+standards/*/source/*.docx
+standards/*/source/s*.doc
+scripts/test_*.py
