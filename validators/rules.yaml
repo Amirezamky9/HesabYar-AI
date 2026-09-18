@@ -1,0 +1,428 @@
+# ============================================
+# قواعد اعتبارسنجی ماشین‌خوان
+# استاندارد حسابداری ۱ و قواعد cross-standard
+# ============================================
+
+version: 1.0.0
+standard: 1
+language: fa
+generated_at: 1403/07/01
+
+# ============================================
+# قواعد ترازنامه
+# ============================================
+balance_sheet:
+  - id: BS001
+    description: معادله اصلی حسابداری
+    formula: total_assets - (total_liabilities + total_equity)
+    expected: 0
+    tolerance: 0.01
+    severity: error
+    message: ترازنامه تراز نیست (اختلاف: {diff})
+    refs: [1.55]
+  
+  - id: BS002
+    description: تفکیک دارایی‌ها
+    formula: (total_current_assets + total_non_current_assets) - total_assets
+    expected: 0
+    tolerance: 0.01
+    severity: error
+    message: جمع دارایی جاری و غیرجاری با کل دارایی مطابقت ندارد
+    refs: [1.62]
+  
+  - id: BS003
+    description: تفکیک بدهی‌ها
+    formula: (total_current_liabilities + total_non_current_liabilities) - total_liabilities
+    expected: 0
+    tolerance: 0.01
+    severity: error
+    message: جمع بدهی جاری و غیرجاری با کل بدهی مطابقت ندارد
+    refs: [1.62]
+  
+  - id: BS004
+    description: جمع اجزای دارایی جاری
+    formula: sum(current_assets_items) - total_current_assets
+    expected: 0
+    tolerance: 0.01
+    severity: error
+    message: جمع اجزای دارایی جاری مطابقت ندارد
+    refs: [1.68]
+  
+  - id: BS005
+    description: جمع اجزای دارایی غیرجاری
+    formula: sum(non_current_assets_items) - total_non_current_assets
+    expected: 0
+    tolerance: 0.01
+    severity: error
+    message: جمع اجزای دارایی غیرجاری مطابقت ندارد
+    refs: [1.55]
+  
+  - id: BS006
+    description: جمع اجزای بدهی جاری
+    formula: sum(current_liabilities_items) - total_current_liabilities
+    expected: 0
+    tolerance: 0.01
+    severity: error
+    message: جمع اجزای بدهی جاری مطابقت ندارد
+    refs: [1.69]
+  
+  - id: BS007
+    description: جمع اجزای بدهی غیرجاری
+    formula: sum(non_current_liabilities_items) - total_non_current_liabilities
+    expected: 0
+    tolerance: 0.01
+    severity: error
+    message: جمع اجزای بدهی غیرجاری مطابقت ندارد
+    refs: [1.69]
+  
+  - id: BS008
+    description: جمع اجزای حقوق مالکانه
+    formula: sum(equity_items) - total_equity
+    expected: 0
+    tolerance: 0.01
+    severity: error
+    message: جمع اجزای حقوق مالکانه مطابقت ندارد
+    refs: [1.108]
+  
+  - id: BS-W01
+    description: نسبت جاری
+    formula: total_current_assets / total_current_liabilities
+    min: 1.0
+    severity: warning
+    message: نسبت جاری کمتر از ۱ (مقدار: {value})
+  
+  - id: BS-W02
+    description: نسبت بدهی به حقوق مالکانه
+    formula: total_liabilities / total_equity
+    max: 2.0
+    severity: warning
+    message: نسبت بدهی به حقوق مالکانه بالاست (مقدار: {value})
+  
+  - id: BS-W03
+    description: نسبت بدهی
+    formula: total_liabilities / total_assets
+    max: 0.7
+    severity: warning
+    message: نسبت بدهی بالاست (مقدار: {value})
+
+# ============================================
+# قواعد صورت سود و زیان
+# ============================================
+income_statement:
+  - id: IS001
+    description: جمع هزینه‌ها (روش ماهیت)
+    formula: >
+      (raw_materials_consumed + employee_benefits + depreciation + 
+      other_expenses - changes_in_inventory) - total_expenses
+    expected: 0
+    tolerance: 0.01
+    severity: error
+    message: جمع هزینه‌ها مطابقت ندارد
+    applies_to: nature_of_expense
+    refs: [1.96]
+  
+  - id: IS002
+    description: سود عملیاتی (روش ماهیت)
+    formula: (revenue + other_income - total_expenses) - operating_profit
+    expected: 0
+    tolerance: 0.01
+    severity: error
+    message: سود عملیاتی مطابقت ندارد
+    applies_to: nature_of_expense
+    refs: [1.96]
+  
+  - id: IS003
+    description: سود ناخالص (روش کارکرد)
+    formula: (revenue - cost_of_goods_sold) - gross_profit
+    expected: 0
+    tolerance: 0.01
+    severity: error
+    message: سود ناخالص مطابقت ندارد
+    applies_to: function_of_expense
+    refs: [1.97]
+  
+  - id: IS004
+    description: سود عملیاتی (روش کارکرد)
+    formula: >
+      (gross_profit + other_income - selling_expenses - 
+      administrative_expenses - other_expenses) - operating_profit
+    expected: 0
+    tolerance: 0.01
+    severity: error
+    message: سود عملیاتی مطابقت ندارد
+    applies_to: function_of_expense
+    refs: [1.97]
+  
+  - id: IS005
+    description: سود قبل از مالیات
+    formula: (operating_profit - finance_costs + share_of_associates) - profit_before_tax
+    expected: 0
+    tolerance: 0.01
+    severity: error
+    message: سود قبل از مالیات مطابقت ندارد
+    refs: [1.83]
+  
+  - id: IS006
+    description: سود خالص
+    formula: (profit_before_tax - tax_expense + discontinued_operations) - net_profit
+    expected: 0
+    tolerance: 0.01
+    severity: error
+    message: سود خالص مطابقت ندارد
+    refs: [1.83]
+  
+  - id: IS007
+    description: تفکیک سود خالص
+    formula: (owners_of_parent + non_controlling_interests) - net_profit
+    expected: 0
+    tolerance: 0.01
+    severity: error
+    message: تفکیک سود خالص مطابقت ندارد
+    refs: [1.83]
+
+# ============================================
+# قواعد صورت سود و زیان جامع
+# ============================================
+comprehensive_income:
+  - id: CI001
+    description: مجموع سود و زیان جامع
+    formula: >
+      (net_profit + subtotal_not_reclassified + subtotal_reclassified) - 
+      total_comprehensive_income
+    expected: 0
+    tolerance: 0.01
+    severity: error
+    message: مجموع سود و زیان جامع مطابقت ندارد
+    refs: [1.100]
+  
+  - id: CI002
+    description: تفکیک مجموع سود و زیان جامع
+    formula: >
+      (owners_of_parent + non_controlling_interests) - 
+      total_comprehensive_income
+    expected: 0
+    tolerance: 0.01
+    severity: error
+    message: تفکیک مجموع سود و زیان جامع مطابقت ندارد
+    refs: [1.100]
+  
+  - id: CI003
+    description: اقلام غیرقابل انتقال
+    formula: reclassification_adjustments
+    expected: 0
+    tolerance: 0.01
+    severity: error
+    message: اقلام گروه «غیرقابل انتقال» نباید تعدیل تجدید طبقه‌بندی داشته باشند
+    applies_to: items_not_reclassified
+    refs: [1.101]
+
+# ============================================
+# قواعد صورت تغییرات در حقوق مالکانه
+# ============================================
+equity_changes:
+  - id: EC001
+    description: معادله اصلی حقوق مالکانه
+    formula: >
+      (adjusted_opening_balance + total_comprehensive_income + 
+      total_owner_transactions) - closing_balance.total_equity
+    expected: 0
+    tolerance: 0.01
+    severity: error
+    message: معادله اصلی حقوق مالکانه مطابقت ندارد
+    refs: [1.108]
+  
+  - id: EC002
+    description: مانده تعدیل‌شده ابتدای دوره
+    formula: >
+      (opening_balance + retrospective_application + 
+      retrospective_restatement) - adjusted_opening_balance
+    expected: 0
+    tolerance: 0.01
+    severity: error
+    message: مانده تعدیل‌شده ابتدای دوره مطابقت ندارد
+    refs: [1.108]
+  
+  - id: EC003
+    description: مجموع سود و زیان جامع
+    formula: (net_profit + other_comprehensive_income) - total_comprehensive_income
+    expected: 0
+    tolerance: 0.01
+    severity: error
+    message: مجموع سود و زیان جامع مطابقت ندارد
+    refs: [1.108]
+  
+  - id: EC004
+    description: جمع معاملات با مالکان
+    formula: >
+      (capital_contributions - distributions_to_owners + 
+      changes_in_ownership) - total_owner_transactions
+    expected: 0
+    tolerance: 0.01
+    severity: error
+    message: جمع معاملات با مالکان مطابقت ندارد
+    refs: [1.108]
+
+# ============================================
+# قواعد صورت جریان‌های نقدی
+# ============================================
+cash_flow:
+  - id: CF001
+    description: تغییر خالص در نقد
+    formula: >
+      (net_cash_from_operating + net_cash_from_investing + 
+      net_cash_from_financing) - net_change_in_cash
+    expected: 0
+    tolerance: 0.01
+    severity: error
+    message: تغییر خالص در نقد مطابقت ندارد
+    refs: [2]
+  
+  - id: CF002
+    description: مانده پایان
+    formula: >
+      (beginning_cash + net_change_in_cash + effect_of_exchange_rate) - 
+      ending_cash
+    expected: 0
+    tolerance: 0.01
+    severity: error
+    message: مانده پایان مطابقت ندارد
+    refs: [2]
+  
+  - id: CF003
+    description: مطابقت با ترازنامه
+    formula: ending_cash - balance_sheet.cash_and_equivalents
+    expected: 0
+    tolerance: 0.01
+    severity: error
+    message: مانده پایان با ترازنامه مطابقت ندارد
+    refs: [2]
+  
+  - id: CF004
+    description: جریان عملیاتی (روش غیرمستقیم)
+    formula: >
+      (profit_before_tax + depreciation + amortization + provisions + 
+      impairment_losses + foreign_exchange_gains_losses + 
+      gains_losses_on_disposal + change_in_receivables + 
+      change_in_inventory + change_in_payables + 
+      change_in_other_working_capital - income_tax_paid + 
+      other_adjustments) - net_cash_from_operating
+    expected: 0
+    tolerance: 0.01
+    severity: error
+    message: جریان عملیاتی (روش غیرمستقیم) مطابقت ندارد
+    applies_to: indirect_method
+    refs: [2]
+  
+  - id: CF005
+    description: معاملات غیرنقدی
+    requirement: non_cash_transactions_disclosed
+    severity: error
+    message: معاملات غیرنقدی بااهمیت باید افشا شوند
+    refs: [2]
+
+# ============================================
+# قواعد بین صورت‌ها (Cross-checks)
+# ============================================
+cross_checks:
+  - id: XC001
+    description: مطابقت سود خالص
+    formula: income_statement.net_profit - equity_changes.net_profit
+    expected: 0
+    tolerance: 0.01
+    severity: error
+    message: سود خالص در صورت سود و زیان و تغییرات حقوق مالکانه مطابقت ندارد
+  
+  - id: XC002
+    description: مطابقت سایر اقلام OCI
+    formula: >
+      comprehensive_income.other_comprehensive_income - 
+      equity_changes.other_comprehensive_income
+    expected: 0
+    tolerance: 0.01
+    severity: error
+    message: سایر اقلام OCI مطابقت ندارد
+  
+  - id: XC003
+    description: مطابقت مجموع سود و زیان جامع
+    formula: >
+      comprehensive_income.total_comprehensive_income - 
+      equity_changes.total_comprehensive_income
+    expected: 0
+    tolerance: 0.01
+    severity: error
+    message: مجموع سود و زیان جامع مطابقت ندارد
+  
+  - id: XC004
+    description: مطابقت نقد و معادل‌های نقد
+    formula: cash_flow.ending_cash - balance_sheet.cash_and_equivalents
+    expected: 0
+    tolerance: 0.01
+    severity: error
+    message: نقد و معادل‌های نقد مطابقت ندارد
+  
+  - id: XC005
+    description: مطابقت حقوق مالکانه
+    formula: balance_sheet.total_equity - equity_changes.closing_balance.total_equity
+    expected: 0
+    tolerance: 0.01
+    severity: error
+    message: مجموع حقوق مالکانه مطابقت ندارد
+  
+  - id: XC-W01
+    description: مطابقت استهلاک
+    formula: income_statement.depreciation - cash_flow.depreciation
+    expected: 0
+    tolerance: 0.01
+    severity: warning
+    message: استهلاک در صورت سود و زیان و جریان نقدی مطابقت ندارد
+
+# ============================================
+# آستانه‌های اهمیت
+# ============================================
+materiality_thresholds:
+  - id: MAT001
+    description: اهمیت نسبت به سود قبل از مالیات
+    formula: amount / profit_before_tax
+    threshold: 0.05
+    severity: info
+    message: قلم بااهمیت نسبت به سود
+  
+  - id: MAT002
+    description: اهمیت نسبت به کل دارایی‌ها
+    formula: amount / total_assets
+    threshold: 0.01
+    severity: info
+    message: قلم بااهمیت نسبت به دارایی‌ها
+  
+  - id: MAT003
+    description: اهمیت نسبت به درآمد عملیاتی
+    formula: amount / revenue
+    threshold: 0.005
+    severity: info
+    message: قلم بااهمیت نسبت به درآمد
+  
+  - id: MAT004
+    description: اهمیت نسبت به حقوق مالکانه
+    formula: amount / total_equity
+    threshold: 0.02
+    severity: info
+    message: قلم بااهمیت نسبت به حقوق مالکانه
+
+# ============================================
+# فهرست کامل قواعد
+# ============================================
+summary:
+  total_rules: 40
+  by_category:
+    balance_sheet: 11
+    income_statement: 7
+    comprehensive_income: 3
+    equity_changes: 4
+    cash_flow: 5
+    cross_checks: 6
+    materiality: 4
+  by_severity:
+    error: 27
+    warning: 9
+    info: 4
+    
