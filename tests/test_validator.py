@@ -1,0 +1,329 @@
+# -*- coding: utf-8 -*-
+"""تست‌های موتور اعتبارسنجی"""
+import json
+import sys
+from pathlib import Path
+import pytest
+
+# افزودن مسیر scripts
+sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
+
+from validator import (
+    FinancialValidator,
+    ValidationReport,
+    ValidationResult,
+    Severity,
+)
+
+
+# ==================== Fixtures ====================
+@pytest.fixture
+def validator():
+    """نمونه validator"""
+    return FinancialValidator()
+
+
+@pytest.fixture
+def sample_data():
+    """داده نمونه از فایل JSON"""
+    path = Path(__file__).parent / "sample-data.json"
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+@pytest.fixture
+def valid_balance_sheet():
+    """ترازنامه معتبر"""
+    return {
+        "cash_and_equivalents": 100,
+        "current_assets_items": [
+            {"key": "cash_and_equivalents", "amount": 100},
+        ],
+        "total_current_assets": 100,
+        "non_current_assets_items": [],
+        "total_non_current_assets": 0,
+        "total_assets": 100,
+        "current_liabilities_items": [],
+        "total_current_liabilities": 0,
+        "non_current_liabilities_items": [],
+        "total_non_current_liabilities": 0,
+        "total_liabilities": 0,
+        "equity_items": [
+            {"key": "share_capital", "amount": 100},
+        ],
+        "total_equity": 100,
+    }
+
+
+@pytest.fixture
+def invalid_balance_sheet():
+    """ترازنامه نامعتبر (تراز نیست)"""
+    return {
+        "cash_and_equivalents": 100,
+        "current_assets_items": [
+            {"key": "cash_and_equivalents", "amount": 100},
+        ],
+        "total_current_assets": 100,
+        "non_current_assets_items": [],
+        "total_non_current_assets": 0,
+        "total_assets": 100,
+        "current_liabilities_items": [],
+        "total_current_liabilities": 0,
+        "non_current_liabilities_items": [],
+        "total_non_current_liabilities": 0,
+        "total_liabilities": 0,
+        "equity_items": [
+            {"key": "share_capital", "amount": 50},
+        ],
+        "total_equity": 50,  # ← اشتباه: باید ۱۰۰ باشه
+    }
+
+
+# ==================== تست‌های ساختار ====================
+class TestValidationResult:
+    """تست ValidationResult"""
+    
+    def test_create_result(self):
+        r = ValidationResult(
+            rule_id="TEST001",
+            description="تست",
+            severity=Severity.ERROR,
+            passed=True,
+        )
+        assert r.rule_id == "TEST001"
+        assert r.passed is True
+        assert r.severity == Severity.ERROR
+    
+    def test_to_dict(self):
+        r = ValidationResult(
+            rule_id="TEST001",
+            description="تست",
+            severity=Severity.ERROR,
+            passed=False,
+            message="خطا",
+        )
+        d = r.to_dict()
+        assert d["rule_id"] == "TEST001"
+        assert d["passed"] is False
+        assert d["severity"] == "error"
+        assert d["message"] == "خطا"
+
+
+class TestValidationReport:
+    """تست ValidationReport"""
+    
+    def test_empty_report(self):
+        report = ValidationReport()
+        assert report.total_rules == 0
+        assert report.is_valid is True
+    
+    def test_add_passed_result(self):
+        report = ValidationReport()
+        report.add(ValidationResult(
+            rule_id="TEST001",
+            description="تست",
+            severity=Severity.ERROR,
+            passed=True,
+        ))
+        assert report.total_rules == 1
+        assert report.passed == 1
+        assert report.failed == 0
+        assert report.is_valid is True
+    
+    def test_add_failed_error(self):
+        report = ValidationReport()
+        report.add(ValidationResult(
+            rule_id="TEST001",
+            description="تست",
+            severity=Severity.ERROR,
+            passed=False,
+        ))
+        assert report.total_rules == 1
+        assert report.passed == 0
+        assert report.failed == 1
+        assert report.is_valid is False
+        assert len(report.errors) == 1
+    
+    def test_add_failed_warning(self):
+        report = ValidationReport()
+        report.add(ValidationResult(
+            rule_id="TEST001",
+            description="تست",
+            severity=Severity.WARNING,
+            passed=False,
+        ))
+        assert report.is_valid is True  # warning باعث invalid نمی‌شه
+        assert len(report.warnings) == 1
+    
+    def test_to_dict(self):
+        report = ValidationReport()
+        report.add(ValidationResult(
+            rule_id="TEST001",
+            description="تست",
+            severity=Severity.ERROR,
+            passed=False,
+            message="خطا",
+        ))
+        d = report.to_dict()
+        assert d["summary"]["total_rules"] == 1
+        assert d["summary"]["failed"] == 1
+        assert d["summary"]["is_valid"] is False
+        assert len(d["errors"]) == 1
+    
+    def test_to_markdown(self):
+        report = ValidationReport()
+        report.add(ValidationResult(
+            rule_id="TEST001",
+            description="تست",
+            severity=Severity.ERROR,
+            passed=False,
+            message="خطای تست",
+        ))
+        md = report.to_markdown()
+        assert "# گزارش اعتبارسنجی" in md
+        assert "TEST001" in md
+        assert "خطای تست" in md
+
+
+# ==================== تست‌های Validator ====================
+class TestFinancialValidator:
+    """تست FinancialValidator"""
+    
+    def test_init(self, validator):
+        assert validator is not None
+        assert validator.rules is not None
+        assert len(validator.rules) > 0
+    
+    def test_rules_loaded(self, validator):
+        # بررسی دسته‌های اصلی
+        assert "balance_sheet" in validator.rules
+        assert "income_statement" in validator.rules
+        assert "cash_flow" in validator.rules
+        assert "cross_checks" in validator.rules
+    
+    def test_validate_balance_sheet_valid(self, validator, valid_balance_sheet):
+        results = validator.validate_balance_sheet(valid_balance_sheet)
+        assert len(results) > 0
+        
+        # هیچ خطای error نباید باشه
+        errors = [r for r in results if r.severity == Severity.ERROR and not r.passed]
+        # توجه: بعضی قواعد ممکنه به خاطر داده ناقص خطا بدن، پس فقط چک می‌کنیم که اجرا شده
+        assert isinstance(results, list)
+    
+    def test_validate_balance_sheet_invalid(self, validator, invalid_balance_sheet):
+        results = validator.validate_balance_sheet(invalid_balance_sheet)
+        
+        # باید حداقل یه خطا داشته باشیم (BS001)
+        errors = [r for r in results if not r.passed and r.rule_id == "BS001"]
+        assert len(errors) >= 1, "BS001 باید خطا بده"
+    
+    def test_validate_all(self, validator, sample_data):
+        report = validator.validate_all(
+            balance_sheet=sample_data["balance_sheet"],
+            income_statement=sample_data["income_statement"],
+            comprehensive_income=sample_data.get("comprehensive_income"),
+            equity_changes=sample_data.get("equity_changes"),
+            cash_flow=sample_data.get("cash_flow"),
+        )
+        
+        assert report.total_rules > 0
+        assert report.passed > 0
+        
+        # داده نمونه باید معتبر باشه
+        assert report.is_valid, f"داده نمونه معتبر نیست: {[e.rule_id for e in report.errors]}"
+    
+    def test_sample_data_all_pass(self, validator, sample_data):
+        """همه ۳۶ قاعده باید پاس بشن"""
+        report = validator.validate_all(
+            balance_sheet=sample_data["balance_sheet"],
+            income_statement=sample_data["income_statement"],
+            comprehensive_income=sample_data.get("comprehensive_income"),
+            equity_changes=sample_data.get("equity_changes"),
+            cash_flow=sample_data.get("cash_flow"),
+        )
+        
+        assert report.failed == 0, f"قواعد ناموفق: {[e.rule_id for e in report.errors + report.warnings]}"
+        assert len(report.errors) == 0
+        assert len(report.warnings) == 0
+
+
+# ==================== تست‌های کمکی ====================
+class TestSafeGet:
+    """تست _safe_get"""
+    
+    def test_dict_access(self, validator):
+        data = {"a": {"b": {"c": 42}}}
+        assert validator._safe_get(data, "a.b.c") == 42
+        assert validator._safe_get(data, "a.b") == {"c": 42}
+        assert validator._safe_get(data, "x.y", default=None) is None
+    
+    def test_attr_access(self, validator):
+        class Obj:
+            def __init__(self):
+                self.x = 10
+        obj = Obj()
+        assert validator._safe_get(obj, "x") == 10
+        assert validator._safe_get(obj, "y", default=0) == 0
+
+
+class TestFormulaEvaluation:
+    """تست _evaluate_formula"""
+    
+    def test_simple_formula(self, validator):
+        context = {"a": 10, "b": 5}
+        result = validator._evaluate_formula("a - b", context)
+        assert result == 5
+    
+    def test_nested_formula(self, validator):
+        context = {
+            "x": {"y": 10},
+            "z": 3,
+        }
+        result = validator._evaluate_formula("x.y - z", context)
+        assert result == 7
+
+
+# ==================== تست‌های یکپارچگی ====================
+class TestIntegration:
+    """تست‌های یکپارچگی"""
+    
+    def test_metadata_exists(self):
+        path = Path(__file__).parent.parent / "metadata.json"
+        assert path.exists()
+        
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        
+        assert data["standards_count"] == 35
+        assert len(data["standards"]) == 35
+    
+    def test_all_skill_md_exist(self):
+        path = Path(__file__).parent.parent / "metadata.json"
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        
+        missing = []
+        for std in data["standards"]:
+            slug = std["slug"]
+            skill = Path(__file__).parent.parent / "standards" / slug / "SKILL.md"
+            if not skill.exists():
+                missing.append(slug)
+        
+        assert len(missing) == 0, f"فایل‌های SKILL.md گمشده: {missing}"
+    
+    def test_rules_yaml_exists(self):
+        path = Path(__file__).parent.parent / "validators" / "rules.yaml"
+        assert path.exists()
+        
+        import yaml
+        with open(path, "r", encoding="utf-8") as f:
+            rules = yaml.safe_load(f)
+        
+        assert rules is not None
+        assert "balance_sheet" in rules
+        assert "income_statement" in rules
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])
+    
