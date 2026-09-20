@@ -52,8 +52,11 @@ jobs:
       - name: Type check (pyright)
         run: uv run pyright
 
-      - name: Run Alembic migration
-        run: uv run alembic upgrade head
+      - name: Run Alembic migration roundtrip
+        run: |
+          uv run alembic upgrade head
+          uv run alembic downgrade base
+          uv run alembic upgrade head
 
       - name: Run full test suite
         run: uv run pytest -v

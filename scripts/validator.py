@@ -5,11 +5,16 @@
 """
 import logging
 # ==================== تنظیم UTF-8 ====================
-import sys
+import ast
 import io
-import yaml
+import logging
+import operator
+import re
+import sys
+from decimal import Decimal
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, List, Optional
+import yaml
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 
@@ -147,10 +152,152 @@ class ValidationReport:
         return "\n".join(lines)
 
 
+class UnsafeFormulaError(Exception):
+    """Raised when a formula contains disallowed AST constructs or malicious code."""
+
+
+_SAFE_AST_NODES: frozenset[type] = frozenset({
+    ast.Expression,
+    ast.BinOp,
+    ast.UnaryOp,
+    ast.Constant,
+    ast.Name,
+    ast.Attribute,
+    ast.Compare,
+    ast.Load,
+    # Allowed operators
+    ast.Add,
+    ast.Sub,
+    ast.Mult,
+    ast.Div,
+    ast.USub,
+    ast.UAdd,
+    ast.Eq,
+    ast.NotEq,
+    ast.Lt,
+    ast.LtE,
+    ast.Gt,
+    ast.GtE,
+})
+
+_BIN_OPS: dict[type, Any] = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+}
+
+_CMP_OPS: dict[type, Any] = {
+    ast.Eq: operator.eq,
+    ast.NotEq: operator.ne,
+    ast.Lt: operator.lt,
+    ast.LtE: operator.le,
+    ast.Gt: operator.gt,
+    ast.GtE: operator.ge,
+}
+
+_UNARY_OPS: dict[type, Any] = {
+    ast.USub: operator.neg,
+    ast.UAdd: operator.pos,
+}
+
+
+def _validate_ast_tree(node: ast.AST) -> None:
+    if type(node) not in _SAFE_AST_NODES:
+        raise UnsafeFormulaError(
+            f"Disallowed AST node: {type(node).__name__}. "
+            "Only arithmetic and safe comparisons are permitted."
+        )
+    for child in ast.iter_child_nodes(node):
+        _validate_ast_tree(child)
+
+
+def _safe_div(a: float, b: float) -> float:
+    if b == 0:
+        raise ZeroDivisionError("Division by zero in rule formula")
+    return a / b
+
+
+def _eval_ast_node(node: ast.AST, context: Dict[str, Any]) -> Any:
+    if isinstance(node, ast.Expression):
+        return _eval_ast_node(node.body, context)
+
+    if isinstance(node, ast.Constant):
+        val = node.value
+        if isinstance(val, bool):
+            raise UnsafeFormulaError("Boolean constants are not permitted in arithmetic expressions")
+        if isinstance(val, (int, float, Decimal)):
+            return float(val)
+        raise UnsafeFormulaError(f"Unsupported constant type: {type(val).__name__}")
+
+    if isinstance(node, ast.Name):
+        name = node.id
+        if name.startswith("_"):
+            raise UnsafeFormulaError(f"Access to private/dunder identifier forbidden: {name}")
+        if name not in context:
+            raise KeyError(f"Field not found in context: {name!r}")
+        val = context[name]
+        if isinstance(val, (int, float, Decimal)):
+            return float(val)
+        return val
+
+    if isinstance(node, ast.Attribute):
+        if node.attr.startswith("_"):
+            raise UnsafeFormulaError(f"Access to private/dunder attribute forbidden: {node.attr}")
+        target = _eval_ast_node(node.value, context)
+        if isinstance(target, dict):
+            if node.attr not in target:
+                raise KeyError(f"Key {node.attr!r} not found in dict")
+            val = target[node.attr]
+            if isinstance(val, (int, float, Decimal)):
+                return float(val)
+            return val
+        if hasattr(target, node.attr):
+            val = getattr(target, node.attr)
+            if isinstance(val, (int, float, Decimal)):
+                return float(val)
+            return val
+        raise KeyError(f"Attribute {node.attr!r} not found on target")
+
+    if isinstance(node, ast.BinOp):
+        left = _eval_ast_node(node.left, context)
+        right = _eval_ast_node(node.right, context)
+        if not isinstance(left, (int, float, Decimal)) or not isinstance(right, (int, float, Decimal)):
+            raise TypeError(f"Arithmetic operands must be numbers, got {type(left).__name__} and {type(right).__name__}")
+        if isinstance(node.op, ast.Div):
+            return _safe_div(float(left), float(right))
+        op_func = _BIN_OPS.get(type(node.op))
+        if op_func is None:
+            raise UnsafeFormulaError(f"Unsupported binary operator: {type(node.op).__name__}")
+        return float(op_func(left, right))
+
+    if isinstance(node, ast.UnaryOp):
+        operand = _eval_ast_node(node.operand, context)
+        if not isinstance(operand, (int, float, Decimal)):
+            raise TypeError(f"Unary operand must be a number, got {type(operand).__name__}")
+        op_func = _UNARY_OPS.get(type(node.op))
+        if op_func is None:
+            raise UnsafeFormulaError(f"Unsupported unary operator: {type(node.op).__name__}")
+        return float(op_func(operand))
+
+    if isinstance(node, ast.Compare):
+        left = _eval_ast_node(node.left, context)
+        for op, comparator in zip(node.ops, node.comparators, strict=True):
+            right = _eval_ast_node(comparator, context)
+            cmp_func = _CMP_OPS.get(type(op))
+            if cmp_func is None:
+                raise UnsafeFormulaError(f"Unsupported comparison: {type(op).__name__}")
+            if not cmp_func(left, right):
+                return False
+            left = right
+        return True
+
+    raise UnsafeFormulaError(f"Cannot evaluate AST node: {type(node).__name__}")
+
+
 # ==================== موتور اعتبارسنجی ====================
 class FinancialValidator:
     """موتور اعتبارسنجی صورت‌های مالی"""
-    
+
     def __init__(self, rules_path: Optional[Path] = None):
         """
         Args:
@@ -158,10 +305,11 @@ class FinancialValidator:
         """
         if rules_path is None:
             rules_path = Path(__file__).parent.parent / "validators" / "rules.yaml"
-        
+
         self.rules_path = rules_path
         self.rules = self._load_rules()
         self.tolerance = 0.01  # تلورانس پیش‌فرض
+        self._last_eval_error: Optional[str] = None
     
     def _load_rules(self) -> Dict:
         """بارگذاری قواعد از YAML"""
@@ -182,14 +330,14 @@ class FinancialValidator:
         """
         if data is None:
             return default
-        
+
         parts = path.replace("[", ".").replace("]", "").split(".")
         current = data
-        
+
         for part in parts:
-            if not part:
-                continue
-            
+            if not part or part.startswith("_"):
+                return default
+
             # اگه دیکشنری بود
             if isinstance(current, dict):
                 current = current.get(part, default)
@@ -198,63 +346,71 @@ class FinancialValidator:
                 current = getattr(current, part, default)
             else:
                 return default
-            
+
             if current is None:
                 return default
-        
+
         return current
-    
+
+    def _expand_sum(self, formula: str, context: Dict) -> str:
+        """جایگزینی sum(...) با مقدار"""
+        def replace_sum(match: re.Match) -> str:
+            items_key = match.group(1).strip()
+            if not all(part.isidentifier() for part in items_key.split(".")):
+                raise UnsafeFormulaError(f"Invalid sum target: {items_key}")
+            items = self._safe_get(context, items_key, default=[])
+            if isinstance(items, list):
+                total = 0.0
+                for item in items:
+                    if isinstance(item, dict):
+                        total += float(item.get("amount", 0))
+                    elif isinstance(item, (int, float, Decimal)):
+                        total += float(item)
+                return str(total)
+            return "0"
+
+        return re.sub(r"sum\(([^)]+)\)", replace_sum, formula)
+
+    def _evaluate_formula_ast(self, formula: str, context: Dict) -> float:
+        """
+        ارزیابی امن یک فرمول محاسباتی با تحلیل AST.
+        هیچ‌گونه eval()، exec() یا ایمپورت مجاز نیست.
+        """
+        formula = " ".join(formula.split())
+        formula = self._expand_sum(formula, context)
+        try:
+            tree = ast.parse(formula, mode="eval")
+        except SyntaxError as exc:
+            raise UnsafeFormulaError(f"Formula syntax error: {exc}") from exc
+
+        _validate_ast_tree(tree)
+        val = _eval_ast_node(tree.body, context)
+        if isinstance(val, bool):
+            raise UnsafeFormulaError("Formula must evaluate to a numeric value, not boolean")
+        if isinstance(val, (int, float, Decimal)):
+            return float(val)
+        raise UnsafeFormulaError(f"Formula evaluated to non-numeric type: {type(val).__name__}")
+
     def _evaluate_formula(self, formula: str, context: Dict) -> Optional[float]:
         """
-        ارزیابی یک فرمول ساده
-        
+        ارزیابی یک فرمول با موتور امن AST (بدون eval).
+
         پشتیبانی از:
         - a + b - c
         - a * b / c
         - sum(items)
         - (a + b) - (c + d)
+        - مسیرهای تودرتو: x.y - z
         """
         try:
-            # جایگزینی sum(...) با مقادیر
-            formula = self._expand_sum(formula, context)
-            
-            # جایگزینی متغیرها با مقادیر
-            for key, value in context.items():
-                if isinstance(value, (int, float)):
-                    formula = formula.replace(key, str(value))
-                elif isinstance(value, dict):
-                    # مسیرهای تودرتو
-                    for sub_key, sub_value in value.items():
-                        if isinstance(sub_value, (int, float)):
-                            full_key = f"{key}.{sub_key}"
-                            formula = formula.replace(full_key, str(sub_value))
-            
-            # ارزیابی
-            result = eval(formula, {"__builtins__": {}}, {})
-            return float(result)
+            val = self._evaluate_formula_ast(formula, context)
+            self._last_eval_error = None
+            return val
         except Exception as e:
+            self._last_eval_error = str(e)
             logger.debug(f"Formula evaluation failed: {formula} - {e}")
             return None
-    
-    def _expand_sum(self, formula: str, context: Dict) -> str:
-        """جایگزینی sum(...) با مقدار"""
-        import re
-        
-        def replace_sum(match):
-            items_key = match.group(1).strip()
-            items = context.get(items_key, [])
-            if isinstance(items, list):
-                total = 0
-                for item in items:
-                    if isinstance(item, dict):
-                        total += item.get("amount", 0)
-                    elif isinstance(item, (int, float)):
-                        total += item
-                return str(total)
-            return "0"
-        
-        return re.sub(r"sum\(([^)]+)\)", replace_sum, formula)
-    
+
     def _validate_rule(self, rule: Dict, context: Dict, category: str) -> ValidationResult:
         """اعتبارسنجی یک قاعده"""
         rule_id = rule.get("id", "UNKNOWN")
@@ -262,7 +418,7 @@ class FinancialValidator:
         severity = Severity(rule.get("severity", "error"))
         refs = rule.get("refs", [])
         message = rule.get("message", "")
-        
+
         # بررسی applies_to
         applies_to = rule.get("applies_to")
         if applies_to:
@@ -276,7 +432,7 @@ class FinancialValidator:
                     message=f"Skipped (applies to {applies_to})",
                     refs=refs,
                 )
-        
+
         # بررسی requirement (بدون فرمول)
         requirement = rule.get("requirement")
         if requirement:
@@ -292,10 +448,19 @@ class FinancialValidator:
                 actual=value,
                 refs=refs,
             )
-        
+
         # ارزیابی فرمول
         formula = rule.get("formula")
         if not formula:
+            if severity == Severity.ERROR:
+                return ValidationResult(
+                    rule_id=rule_id,
+                    description=description,
+                    severity=severity,
+                    passed=False,
+                    message="Mandatory rule missing executable formula or requirement",
+                    refs=refs,
+                )
             return ValidationResult(
                 rule_id=rule_id,
                 description=description,
@@ -304,13 +469,23 @@ class FinancialValidator:
                 message="No formula",
                 refs=refs,
             )
-        
+
         # پاکسازی فرمول (خطوط چندگانه)
         formula = " ".join(formula.split())
-        
+
         result = self._evaluate_formula(formula, context)
-        
+
         if result is None:
+            err_detail = getattr(self, "_last_eval_error", None) or f"could not evaluate: {formula[:50]}"
+            if severity == Severity.ERROR:
+                return ValidationResult(
+                    rule_id=rule_id,
+                    description=description,
+                    severity=severity,
+                    passed=False,
+                    message=f"Formula evaluation error: {err_detail}",
+                    refs=refs,
+                )
             return ValidationResult(
                 rule_id=rule_id,
                 description=description,
@@ -319,11 +494,11 @@ class FinancialValidator:
                 message=f"Could not evaluate: {formula[:50]}",
                 refs=refs,
             )
-        
+
         # بررسی expected
         expected = rule.get("expected", 0)
         tolerance = rule.get("tolerance", self.tolerance)
-        
+
         if "expected" in rule:
             passed = abs(result - expected) <= tolerance
         elif "min" in rule:
@@ -332,7 +507,7 @@ class FinancialValidator:
             passed = result <= rule["max"]
         else:
             passed = abs(result) <= tolerance
-        
+
         return ValidationResult(
             rule_id=rule_id,
             description=description,
@@ -382,14 +557,17 @@ class FinancialValidator:
         """اعتبارسنجی صورت تغییرات در حقوق مالکانه"""
         return self.validate_category("equity_changes", ec)
     
-    def validate_cash_flow(self, cf: Dict) -> List[ValidationResult]:
+    def validate_cash_flow(self, cf: Dict, balance_sheet: Optional[Dict] = None) -> List[ValidationResult]:
         """اعتبارسنجی صورت جریان‌های نقدی"""
-        return self.validate_category("cash_flow", cf)
-    
+        context = dict(cf)
+        if balance_sheet is not None and "balance_sheet" not in context:
+            context["balance_sheet"] = balance_sheet
+        return self.validate_category("cash_flow", context)
+
     def validate_cross_checks(self, context: Dict) -> List[ValidationResult]:
         """اعتبارسنجی بین صورت‌ها"""
         return self.validate_category("cross_checks", context)
-    
+
     def validate_all(
         self,
         balance_sheet: Dict,
@@ -400,28 +578,28 @@ class FinancialValidator:
     ) -> ValidationReport:
         """اعتبارسنجی جامع همه صورت‌ها"""
         report = ValidationReport()
-        
+
         # ۱. ترازنامه
         for r in self.validate_balance_sheet(balance_sheet):
             report.add(r)
-        
+
         # ۲. صورت سود و زیان
         for r in self.validate_income_statement(income_statement):
             report.add(r)
-        
+
         # ۳. صورت سود و زیان جامع
         if comprehensive_income:
             for r in self.validate_comprehensive_income(comprehensive_income):
                 report.add(r)
-        
+
         # ۴. صورت تغییرات در حقوق مالکانه
         if equity_changes:
             for r in self.validate_equity_changes(equity_changes):
                 report.add(r)
-        
+
         # ۵. صورت جریان‌های نقدی
         if cash_flow:
-            for r in self.validate_cash_flow(cash_flow):
+            for r in self.validate_cash_flow(cash_flow, balance_sheet=balance_sheet):
                 report.add(r)
         
         # ۶. Cross-checks

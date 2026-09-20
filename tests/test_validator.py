@@ -323,5 +323,122 @@ class TestIntegration:
         assert "income_statement" in rules
 
 
+# ==================== تست‌های Fail-Closed ====================
+class TestValidatorFailClosed:
+    """تست رفتارهای Fail-Closed در اعتبارسنجی"""
+
+    def test_formula_evaluation_error_fails_closed(self, validator):
+        """خطای ارزیابی فرمول در قاعده اجباری باید fail-closed باشد (passed=False, is_valid=False)"""
+        rule = {
+            "id": "ERR001",
+            "description": "خطای تقسیم بر صفر",
+            "formula": "total_assets / zero_val",
+            "severity": "error",
+            "message": "خطای محاسباتی",
+        }
+        context = {"total_assets": 100, "zero_val": 0}
+        result = validator._validate_rule(rule, context, "custom")
+
+        assert result.passed is False
+        assert result.severity == Severity.ERROR
+        assert "Formula evaluation error:" in result.message
+
+        report = ValidationReport()
+        report.add(result)
+        assert report.is_valid is False
+        assert len(report.errors) == 1
+
+    def test_syntax_error_formula_fails_closed(self, validator):
+        """فرمول با خطای نحوی باید fail-closed باشد"""
+        rule = {
+            "id": "SYN001",
+            "description": "خطای نحو",
+            "formula": "total_assets +* 10",
+            "severity": "error",
+        }
+        context = {"total_assets": 100}
+        result = validator._validate_rule(rule, context, "custom")
+
+        assert result.passed is False
+        assert result.severity == Severity.ERROR
+        assert "Formula evaluation error:" in result.message
+
+        report = ValidationReport()
+        report.add(result)
+        assert report.is_valid is False
+
+    @pytest.mark.parametrize("malicious_formula", [
+        "__import__('os').system('id')",
+        "eval('1 + 1')",
+        "exec('a = 1')",
+        "__builtins__.__import__('os')",
+        "[c for c in ().__class__.__base__.__subclasses__()]",
+        "open('/etc/passwd').read()",
+    ])
+    def test_malicious_formula_injection_fails_closed(self, validator, malicious_formula):
+        """تلاش برای تزریق کد مخرب باید رد شده و fail-closed باشد"""
+        rule = {
+            "id": "SEC001",
+            "description": "تست امنیتی تزریق کد",
+            "formula": malicious_formula,
+            "severity": "error",
+            "message": "رد شد",
+        }
+        context = {"total_assets": 100}
+        result = validator._validate_rule(rule, context, "custom")
+
+        assert result.passed is False
+        assert result.severity == Severity.ERROR
+        assert "Formula evaluation error:" in result.message
+
+        report = ValidationReport()
+        report.add(result)
+        assert report.is_valid is False
+        assert len(report.errors) == 1
+
+    def test_missing_formula_on_mandatory_rule_fails_closed(self, validator):
+        """قاعده اجباری بدون فرمول و بدون requirement باید fail-closed باشد"""
+        rule = {
+            "id": "EMPTY001",
+            "description": "قاعده بدون فرمول",
+            "severity": "error",
+        }
+        context = {"total_assets": 100}
+        result = validator._validate_rule(rule, context, "custom")
+
+        assert result.passed is False
+        assert result.severity == Severity.ERROR
+        assert result.message == "Mandatory rule missing executable formula or requirement"
+
+        report = ValidationReport()
+        report.add(result)
+        assert report.is_valid is False
+        assert len(report.errors) == 1
+
+    def test_non_mandatory_missing_formula_or_error_does_not_fail_report(self, validator):
+        """قاعده غیراجباری (warning/info) در صورت خطا گزارش را invalid نمی‌کند"""
+        rule_missing = {
+            "id": "WARN001",
+            "description": "هشدار بدون فرمول",
+            "severity": "warning",
+        }
+        res_missing = validator._validate_rule(rule_missing, {}, "custom")
+        assert res_missing.passed is True
+
+        rule_err = {
+            "id": "WARN002",
+            "description": "هشدار با خطای ارزیابی",
+            "formula": "unknown_var + 10",
+            "severity": "warning",
+        }
+        res_err = validator._validate_rule(rule_err, {}, "custom")
+        assert res_err.passed is True
+
+        report = ValidationReport()
+        report.add(res_missing)
+        report.add(res_err)
+        assert report.is_valid is True
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

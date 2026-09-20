@@ -14,14 +14,21 @@ import uuid
 from collections.abc import Generator
 
 import pytest
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
+from hesabyar.domain.common.context import TenantContext
+from hesabyar.domain.common.errors import InvariantViolationError, TenantMismatchError
+from hesabyar.domain.common.ids import ActorId
 from hesabyar.infrastructure.persistence.postgres.models import (
     ActorModel,
     Base,
     TenantModel,
+)
+from hesabyar.infrastructure.persistence.postgres.repositories import (
+    ActorRepository,
+    TenantRepository,
 )
 
 TEST_DB_URL = os.getenv(
@@ -34,11 +41,13 @@ TEST_DB_URL = os.getenv(
 def engine():
     """Create a SQLAlchemy engine connected to the test database."""
     eng = create_engine(TEST_DB_URL, echo=False)
-    # Drop and recreate all tables so tests start with a clean schema.
-    Base.metadata.drop_all(eng)
+    # Ensure tables exist without dropping schema or desynchronizing Alembic.
     Base.metadata.create_all(eng)
+    with eng.begin() as conn:
+        conn.execute(text("TRUNCATE TABLE actors, tenants RESTART IDENTITY CASCADE;"))
     yield eng
-    Base.metadata.drop_all(eng)
+    with eng.begin() as conn:
+        conn.execute(text("TRUNCATE TABLE actors, tenants RESTART IDENTITY CASCADE;"))
     eng.dispose()
 
 
@@ -234,3 +243,114 @@ class TestTenantIsolation:
         assert len(t1.actors) == 2
         usernames = {a.username for a in t1.actors}
         assert usernames == {"member1", "member2"}
+
+
+class TestTenantScopedRepositoryIsolation:
+    """Tests for repository-level multi-tenant isolation and fail-closed security invariants."""
+
+    def test_tenant_a_cannot_fetch_tenant_b_actor_by_id(self, db: Session) -> None:
+        t_a = _make_tenant(slug="repo-tenant-a")
+        t_b = _make_tenant(slug="repo-tenant-b")
+        db.add_all([t_a, t_b])
+        db.flush()
+
+        actor_b = _make_actor(tenant_id=t_a.id if False else t_b.id, username="actor-b")
+        db.add(actor_b)
+        db.flush()
+
+        ctx_a = TenantContext(tenant_id=t_a.id, name=t_a.name)
+        repo_a = ActorRepository(session=db, tenant_context=ctx_a)
+
+        # Tenant A attempting to fetch Tenant B's actor by ID returns None
+        found_actor = repo_a.get_by_id(ActorId(actor_b.id))
+        assert found_actor is None
+
+        # Confirm list_all also excludes Tenant B's actor
+        assert repo_a.list_all() == []
+
+    def test_tenant_a_cannot_update_or_save_tenant_b_actor(self, db: Session) -> None:
+        t_a = _make_tenant(slug="repo-save-a")
+        t_b = _make_tenant(slug="repo-save-b")
+        db.add_all([t_a, t_b])
+        db.flush()
+
+        actor_b = _make_actor(tenant_id=t_b.id, username="actor-b")
+        db.add(actor_b)
+        db.flush()
+
+        ctx_a = TenantContext(tenant_id=t_a.id, name=t_a.name)
+        repo_a = ActorRepository(session=db, tenant_context=ctx_a)
+
+        # Modifying and saving Tenant B's actor via Tenant A's repository must raise TenantMismatchError
+        actor_b.display_name = "Tampered Name"
+        with pytest.raises(TenantMismatchError):
+            repo_a.save(actor_b)
+
+        # Attempting to save a brand new actor with mismatched tenant_id also raises TenantMismatchError
+        cross_actor = _make_actor(tenant_id=t_b.id, username="cross-actor")
+        with pytest.raises(TenantMismatchError):
+            repo_a.save(cross_actor)
+
+    def test_tenant_a_cannot_delete_tenant_b_actor(self, db: Session) -> None:
+        t_a = _make_tenant(slug="repo-del-a")
+        t_b = _make_tenant(slug="repo-del-b")
+        db.add_all([t_a, t_b])
+        db.flush()
+
+        actor_b = _make_actor(tenant_id=t_b.id, username="actor-b")
+        db.add(actor_b)
+        db.flush()
+
+        ctx_a = TenantContext(tenant_id=t_a.id, name=t_a.name)
+        repo_a = ActorRepository(session=db, tenant_context=ctx_a)
+
+        # Deleting Tenant B's actor via Tenant A's repo must return False and not delete
+        deleted = repo_a.delete(ActorId(actor_b.id))
+        assert deleted is False
+
+        # Verify actor_b still exists in database
+        persisted = db.execute(
+            select(ActorModel).where(ActorModel.id == actor_b.id)
+        ).scalar_one_or_none()
+        assert persisted is not None
+        assert persisted.id == actor_b.id
+
+    def test_inactive_tenant_fails_closed(self, db: Session) -> None:
+        t_inactive = _make_tenant(slug="inactive-org", is_active=False)
+        db.add(t_inactive)
+        db.flush()
+
+        actor = _make_actor(tenant_id=t_inactive.id, username="inactive-user")
+        db.add(actor)
+        db.flush()
+
+        ctx_inactive = TenantContext(tenant_id=t_inactive.id, name=t_inactive.name, is_active=False)
+        repo = ActorRepository(session=db, tenant_context=ctx_inactive)
+
+        # All operations fail closed with InvariantViolationError
+        with pytest.raises(InvariantViolationError) as exc_get:
+            repo.get_by_id(ActorId(actor.id))
+        assert "inactive" in str(exc_get.value).lower()
+
+        with pytest.raises(InvariantViolationError):
+            repo.list_all()
+
+        with pytest.raises(InvariantViolationError):
+            repo.save(actor)
+
+        with pytest.raises(InvariantViolationError):
+            repo.delete(ActorId(actor.id))
+
+    def test_missing_tenant_context_fails_closed(self, db: Session) -> None:
+        # None or invalid tenant context must immediately fail closed with InvariantViolationError
+        with pytest.raises(InvariantViolationError) as exc_none:
+            ActorRepository(session=db, tenant_context=None)
+        assert exc_none.value.code == "TENANT_CONTEXT_REQUIRED"
+
+        with pytest.raises(InvariantViolationError) as exc_type:
+            ActorRepository(session=db, tenant_context="invalid-context")  # type: ignore[arg-type]
+        assert exc_type.value.code == "INVALID_TENANT_CONTEXT"
+
+        with pytest.raises(InvariantViolationError):
+            TenantRepository(session=db, tenant_context=None)
+
