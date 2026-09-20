@@ -68,7 +68,7 @@ Based on Comprehensive Income Circular (بخشنامه جامع درآمد و ب
 - Periodic bonuses agreed in employment contracts
 
 ### Non-Assessable Items (معاف از کسر حق بیمه)
-- Child allowance (حق اولاد / کمک عائله‌مندی تحت ماده ۸۶ قانون کار)
+- Child allowance (حق اولاد / کمک عائله‌مندی تحت ماده ۸۶ قانون تامین اجتماعی با اصلاحات قانون حمایت از خانواده)
 - Mission allowance (فوق‌العاده ماموریت موضوع ماده ۴۶ قانون کار)
 - Severance pay upon contract termination (حق سنوات / مزایای پایان کار موضوع ماده ۲۴ و ۳۱)
 - Unused leave settlement (بازخرید مانده مرخصی موضوع ماده ۷۱)

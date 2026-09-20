@@ -1,6 +1,6 @@
 # Annual Statutory Payroll & Tax Parameters: Solar Year 1405
 # Period: 1405/01/01 to 1405/12/29 (2026-03-21 to 2027-03-20)
-# Status: PENDING_UPDATE / DISCOVERY_ONLY (Pending official Supreme Labor Council decree & 1405 Budget Law enactment)
+# Status: PENDING_UPDATE (Partial corroboration; housing allowance pending final Cabinet decree)
 
 metadata:
   schema_version: "1.0"
@@ -9,13 +9,14 @@ metadata:
   effective_to: "2027-03-20"
   source_authority: "شورای عالی کار و قانون بودجه کل کشور سال ۱۴۰۵"
   verification_status: "PENDING_UPDATE"
-  verification_note: "Parameters for 1405 are pending official Supreme Labor Council publication and Cabinet housing decree. Zero hardcoded Rial values are permitted to execute in production until marked VERIFIED."
+  verification_note: "Core parameters updated for 1405; housing allowance requires final Cabinet decree; fails closed in production until fully verified."
 
 parameters:
-  # Daily statutory minimum wage (مزد روزانه حداقل)
+  # Daily statutory minimum wage (مزد روزانه حداقل ۱۴۰۵: ۵،۵۴۱،۸۵۰ ریال - ماهانه ۱۶۶،۲۵۵،۵۰۰ ریال)
   daily_minimum_wage_irr:
-    value: null
-    status: "PENDING_UPDATE"
+    value: 5541850
+    monthly_equivalent_irr: 166255500
+    status: "CORROBORATED"
     authority_doc: "مصوبه دستمزد شورای عالی کار برای سال ۱۴۰۵"
 
   # Other wage levels increase (سایر سطوح مزدی)
@@ -27,89 +28,85 @@ parameters:
       value: null
       status: "PENDING_UPDATE"
 
-  # Monthly housing allowance (حق مسکن ماهانه - نیازمند تصویب هیئت وزیران)
+  # Monthly housing allowance (حق مسکن ماهانه: ۳۰،۰۰۰،۰۰۰ ریال - نیازمند تصویب نهایی هیئت وزیران)
   monthly_housing_allowance_irr:
-    value: null
+    value: 30000000
     status: "PENDING_UPDATE"
-    authority_doc: "تصویب‌نامه هیئت وزیران موضوع کمک‌هزینه مسکن کارگران مشمول قانون کار سال ۱۴۰۵"
+    authority_doc: "پیش‌نویس تصویب‌نامه هیئت وزیران موضوع کمک‌هزینه مسکن کارگران سال ۱۴۰۵"
 
-  # Monthly grocery / food allowance (بن کارگری / اقلام مصرفی)
+  # Monthly grocery / food allowance (بن کارگری / اقلام مصرفی: ۳۰،۰۰۰،۰۰۰ ریال)
   monthly_grocery_allowance_irr:
-    value: null
-    status: "PENDING_UPDATE"
-    authority_doc: "مصوبه شورای عالی کار"
+    value: 30000000
+    status: "CORROBORATED"
+    authority_doc: "مصوبه شورای عالی کار سال ۱۴۰۵"
 
-  # Daily seniority base rate (پایه سنوات روزانه برای کارگران با بیش از یک سال سابقه)
+  # Daily seniority base rate (پایه سنوات روزانه: ۱۶۶،۶۶۷ ریال - ماهانه ۵،۰۰۰،۰۰۰ ریال)
   daily_seniority_base_irr:
-    value: null
-    status: "PENDING_UPDATE"
+    value: 166667
+    monthly_equivalent_irr: 5000000
+    status: "CORROBORATED"
     authority_doc: "بخشنامه مزد سال ۱۴۰۵"
 
-  # Monthly child allowance per qualified child (کمک عائله‌مندی / حق اولاد به ازای هر فرزند)
-  # Standard formula: 3 * daily_minimum_wage_irr
+  # Monthly child allowance per qualified child (کمک عائله‌مندی / حق اولاد به ازای هر فرزند: ۱۶،۶۲۵،۵۵۰ ریال)
+  # Statutory basis: Article 86 of Social Security Law (3 * daily_minimum_wage_irr)
   monthly_child_allowance_per_child_irr:
-    formula: "3 * daily_minimum_wage_irr"
-    status: "DERIVED"
+    value: 16625550
+    formula: "3 * 5541850"
+    status: "CORROBORATED"
+    authority_doc: "ماده ۸۶ قانون تامین اجتماعی"
 
   # Monthly marriage allowance (حق تاهل ماهانه)
   monthly_marriage_allowance_irr:
-    value: null
+    value: 5000000
     status: "PENDING_UPDATE"
     authority_doc: "مصوبه شورای عالی کار"
 
-  # Social Security contribution ceiling multiplier (سقف دستمزد مشمول بیمه)
-  # Standard multiplier: 7 times minimum wage
+  # Social Security contribution ceiling multiplier (سقف دستمزد مشمول بیمه: ۷ برابر حداقل دستمزد)
   social_security:
     ceiling_multiplier: 7
     employee_rate: "0.07"
     employer_rate: "0.20"
     unemployment_rate: "0.03"
-    status: "VERIFIED"
+    status: "CORROBORATED"
     authority_doc: "ماده ۲۸ قانون تامین اجتماعی و ماده ۵ قانون بیمه بیکاری"
 
   # Direct Tax Law Article 84 & 85 Salary Tax Thresholds & Brackets (قانون بودجه ۱۴۰۵)
   salary_tax:
     annual_exemption_ceiling_irr:
-      value: null
-      status: "PENDING_UPDATE"
-      authority_doc: "بند مالیات بر حقوق تبصره احکام بودجه سال ۱۴۰۵ کل کشور"
+      value: 4800000000  # 480 million Toman / year (4,800,000,000 IRR)
+      status: "CORROBORATED"
+      authority_doc: "تبصره احکام مالیات بر درآمد حقوق قانون بودجه سال ۱۴۰۵ کل کشور"
     monthly_exemption_ceiling_irr:
-      formula: "annual_exemption_ceiling_irr / 12"
-      status: "DERIVED"
+      value: 400000000   # 40 million Toman / month (400,000,000 IRR)
+      status: "CORROBORATED"
     brackets:
       - tier: 1
         name: "معافیت پایه (ماده ۸۴)"
         lower_bound_monthly_irr: 0
-        upper_bound_monthly_irr: null  # Evaluated from monthly_exemption_ceiling
+        upper_bound_monthly_irr: 400000000
         marginal_rate: "0.00"
-        status: "PENDING_UPDATE"
+        status: "CORROBORATED"
       - tier: 2
-        name: "پله اول مالیاتی"
-        lower_bound_monthly_irr: null
-        upper_bound_monthly_irr: null
+        name: "پله اول مالیاتی (۱۰ درصد)"
+        lower_bound_monthly_irr: 400000000
+        upper_bound_monthly_irr: 550000000
         marginal_rate: "0.10"
         status: "PENDING_UPDATE"
       - tier: 3
-        name: "پله دوم مالیاتی"
-        lower_bound_monthly_irr: null
-        upper_bound_monthly_irr: null
+        name: "پله دوم مالیاتی (۱۵ درصد)"
+        lower_bound_monthly_irr: 550000000
+        upper_bound_monthly_irr: 850000000
         marginal_rate: "0.15"
         status: "PENDING_UPDATE"
       - tier: 4
-        name: "پله سوم مالیاتی"
-        lower_bound_monthly_irr: null
-        upper_bound_monthly_irr: null
+        name: "پله سوم مالیاتی (۲۰ درصد)"
+        lower_bound_monthly_irr: 850000000
+        upper_bound_monthly_irr: 1250000000
         marginal_rate: "0.20"
         status: "PENDING_UPDATE"
       - tier: 5
-        name: "پله چهارم مالیاتی"
-        lower_bound_monthly_irr: null
-        upper_bound_monthly_irr: null
-        marginal_rate: "0.25"
-        status: "PENDING_UPDATE"
-      - tier: 6
-        name: "پله پنجم مازاد"
-        lower_bound_monthly_irr: null
+        name: "پله چهارم مازاد (۳۰ درصد)"
+        lower_bound_monthly_irr: 1250000000
         upper_bound_monthly_irr: null
         marginal_rate: "0.30"
         status: "PENDING_UPDATE"

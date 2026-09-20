@@ -146,44 +146,67 @@ def main() -> int:
         default=None,
         help="Explicit file path to YAML parameter file",
     )
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Validate all annual-*.yaml parameter files found in references directory",
+    )
     args = parser.parse_args()
 
-    file_path = args.file or (
-        Path(__file__).parent.parent / "references" / f"annual-{args.year}.yaml"
-    )
+    ref_dir = Path(__file__).parent.parent / "references"
 
-    if not file_path.exists():
-        print(f"ERROR: Annual parameter file not found: {file_path}", file=sys.stderr)
+    if args.all:
+        files_to_validate = sorted(ref_dir.glob("annual-*.yaml"))
+        if not files_to_validate:
+            print(f"ERROR: No annual parameter files found in {ref_dir}", file=sys.stderr)
+            return 1
+    elif args.file:
+        files_to_validate = [args.file]
+    else:
+        files_to_validate = [ref_dir / f"annual-{args.year}.yaml"]
+
+    total_errors = 0
+
+    for file_path in files_to_validate:
+        if not file_path.exists():
+            print(f"ERROR: Annual parameter file not found: {file_path}", file=sys.stderr)
+            total_errors += 1
+            continue
+
+        try:
+            with open(file_path, encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+
+            if not isinstance(data, dict):
+                print(f"ERROR: YAML content at {file_path} is not a valid dictionary.", file=sys.stderr)
+                total_errors += 1
+                continue
+
+            errors = validate_annual_parameters(data)
+            meta = data.get("metadata", {})
+            print(f"Audited parameter file: {file_path.name}")
+            print(f"  Solar Year: {meta.get('year')}")
+            print(f"  Verification Status: {meta.get('verification_status')}")
+            print(f"  Authority: {meta.get('source_authority')}")
+
+            if errors:
+                print(f"  FAILED: {len(errors)} schema invariant errors found in {file_path.name}:")
+                for err in errors:
+                    print(f"    - {err}")
+                total_errors += len(errors)
+            else:
+                print(f"  SUCCESS: {file_path.name} strictly conforms to architectural schemas and float-free invariants.\n")
+
+        except Exception as exc:
+            print(f"ERROR: Unexpected exception during parameter validation of {file_path}: {exc}", file=sys.stderr)
+            total_errors += 1
+
+    if total_errors > 0:
+        print(f"VALIDATION FAILED: {total_errors} total errors encountered across inspected files.", file=sys.stderr)
         return 1
 
-    try:
-        with open(file_path, encoding="utf-8") as f:
-            data = yaml.safe_load(f)
-
-        if not isinstance(data, dict):
-            print(f"ERROR: YAML content at {file_path} is not a valid dictionary.", file=sys.stderr)
-            return 1
-
-        errors = validate_annual_parameters(data)
-
-        meta = data.get("metadata", {})
-        print(f"Audited parameter file: {file_path.name}")
-        print(f"Solar Year: {meta.get('year')}")
-        print(f"Verification Status: {meta.get('verification_status')}")
-        print(f"Authority: {meta.get('source_authority')}")
-
-        if errors:
-            print(f"\nFAILED: {len(errors)} schema invariant errors found:")
-            for err in errors:
-                print(f"  - {err}")
-            return 1
-
-        print("\nSUCCESS: Parameter file strictly conforms to architectural schemas and float-free invariants.")
-        return 0
-
-    except Exception as exc:
-        print(f"ERROR: Unexpected exception during parameter validation: {exc}", file=sys.stderr)
-        return 1
+    print("ALL AUDITED PARAMETER FILES CONFORM TO SPECIFICATION.")
+    return 0
 
 
 if __name__ == "__main__":

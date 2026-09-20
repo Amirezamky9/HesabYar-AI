@@ -1,6 +1,6 @@
 # Annual Statutory Payroll & Tax Parameters: Solar Year 1404
 # Period: 1404/01/01 to 1404/12/29 (2025-03-21 to 2026-03-20)
-# Status: VERIFIED (Official Supreme Labor Council wage circular & 1404 Budget Law)
+# Status: CORROBORATED (Supreme Labor Council wage circular & Budget Law 1404; local physical snapshot pending)
 
 metadata:
   schema_version: "1.0"
@@ -8,54 +8,57 @@ metadata:
   effective_from: "2025-03-21"
   effective_to: "2026-03-20"
   source_authority: "شورای عالی کار و قانون بودجه سال ۱۴۰۴"
-  verification_status: "VERIFIED"
-  verified_by: "HesabYar Legal Standards Committee"
-  verified_at: "2025-04-01T00:00:00Z"
+  verification_status: "CORROBORATED"
+  verification_note: "Corroborated from official Supreme Labor Council circular and Budget Law 1404; local physical snapshot pending."
 
 parameters:
-  # Daily statutory minimum wage (مزد روزانه حداقل ۱۴۰۴: ۲،۳۸۸،۷۲۸ ریال)
+  # Daily statutory minimum wage (مزد روزانه حداقل ۱۴۰۴: ۳،۴۶۳،۶۵۶ ریال - ماهانه ۱۰۳،۹۰۹،۶۸۰ ریال)
   daily_minimum_wage_irr:
-    value: 2388728
-    status: "VERIFIED"
-    authority_doc: "بخشنامه مزد شماره ۲۷۶ شورای عالی کار سال ۱۴۰۴"
+    value: 3463656
+    monthly_equivalent_irr: 103909680
+    status: "CORROBORATED"
+    authority_doc: "بخشنامه مزد شورای عالی کار سال ۱۴۰۴"
 
-  # Other wage levels increase (سایر سطوح مزدی: ۲۲٪ به اضافه ۲۳۰،۰۲۶ ریال روزانه)
+  # Other wage levels increase (سایر سطوح مزدی: ۳۲٪ به اضافه ۳۱۰،۵۳۵ ریال روزانه)
   other_levels:
     percentage_increase:
-      value: "0.22"
-      status: "VERIFIED"
+      value: "0.32"
+      status: "CORROBORATED"
     daily_fixed_addition_irr:
-      value: 230026
-      status: "VERIFIED"
+      value: 310535
+      status: "CORROBORATED"
 
   # Monthly housing allowance (حق مسکن ماهانه: ۹،۰۰۰،۰۰۰ ریال)
   monthly_housing_allowance_irr:
     value: 9000000
-    status: "VERIFIED"
+    status: "CORROBORATED"
     authority_doc: "تصویب‌نامه شماره ۲۷۰۳۹/ت۶۲۵۴۲هـ هیئت وزیران"
 
-  # Monthly grocery / food allowance (بن کارگری / اقلام مصرفی: ۱۴،۰۰۰،۰۰۰ ریال)
+  # Monthly grocery / food allowance (بن کارگری / اقلام مصرفی: ۲۲،۰۰۰،۰۰۰ ریال)
   monthly_grocery_allowance_irr:
-    value: 14000000
-    status: "VERIFIED"
+    value: 22000000
+    status: "CORROBORATED"
     authority_doc: "بند ۲ بخشنامه مزد سال ۱۴۰۴"
 
-  # Daily seniority base rate (پایه سنوات روزانه: ۷۰،۰۰۰ ریال)
+  # Daily seniority base rate (پایه سنوات روزانه: ۹۴،۰۰۰ ریال - ماهانه ۲،۸۲۰،۰۰۰ ریال)
   daily_seniority_base_irr:
-    value: 70000
-    status: "VERIFIED"
+    value: 94000
+    monthly_equivalent_irr: 2820000
+    status: "CORROBORATED"
     authority_doc: "جدول پایه سنوات بخشنامه مزد سال ۱۴۰۴"
 
-  # Monthly child allowance per qualified child (۳ برابر حداقل مزد روزانه: ۷،۱۶۶،۱۸۴ ریال)
+  # Monthly child allowance per qualified child (۳ برابر حداقل مزد روزانه: ۱۰،۳۹۰،۹۶۸ ریال)
+  # Statutory reference: Article 86 of Social Security Law
   monthly_child_allowance_per_child_irr:
-    value: 7166184
-    formula: "3 * 2388728"
-    status: "VERIFIED"
+    value: 10390968
+    formula: "3 * 3463656"
+    status: "CORROBORATED"
+    authority_doc: "ماده ۸۶ قانون تامین اجتماعی"
 
   # Monthly marriage allowance (حق تاهل ماهانه: ۵،۰۰۰،۰۰۰ ریال)
   monthly_marriage_allowance_irr:
     value: 5000000
-    status: "VERIFIED"
+    status: "CORROBORATED"
     authority_doc: "بند ۵ بخشنامه مزد سال ۱۴۰۴"
 
   # Social Security contribution parameters
@@ -64,46 +67,46 @@ parameters:
     employee_rate: "0.07"
     employer_rate: "0.20"
     unemployment_rate: "0.03"
-    status: "VERIFIED"
-    authority_doc: "ماده ۲۸ قانون تامین اجتماعی"
+    status: "CORROBORATED"
+    authority_doc: "ماده ۲۸ قانون تامین اجتماعی و ماده ۵ قانون بیمه بیکاری"
 
   # Direct Tax Law Article 84 & 85 Salary Tax Thresholds & Brackets (قانون بودجه ۱۴۰۴)
   salary_tax:
     annual_exemption_ceiling_irr:
-      value: 1440000000  # 144 million Toman / year
-      status: "VERIFIED"
+      value: 2880000000  # 288 million Toman / year (2,880,000,000 IRR)
+      status: "CORROBORATED"
       authority_doc: "بند س تبصره ۶ قانون بودجه سال ۱۴۰۴ کل کشور"
     monthly_exemption_ceiling_irr:
-      value: 120000000   # 12 million Toman / month
-      status: "VERIFIED"
+      value: 240000000   # 24 million Toman / month (240,000,000 IRR)
+      status: "CORROBORATED"
     brackets:
       - tier: 1
         name: "معافیت پایه (ماده ۸۴)"
         lower_bound_monthly_irr: 0
-        upper_bound_monthly_irr: 120000000
+        upper_bound_monthly_irr: 240000000
         marginal_rate: "0.00"
-        status: "VERIFIED"
+        status: "CORROBORATED"
       - tier: 2
         name: "پله اول (۱۰ درصد)"
-        lower_bound_monthly_irr: 120000000
-        upper_bound_monthly_irr: 165000000
+        lower_bound_monthly_irr: 240000000
+        upper_bound_monthly_irr: 330000000
         marginal_rate: "0.10"
-        status: "VERIFIED"
+        status: "CORROBORATED"
       - tier: 3
         name: "پله دوم (۱۵ درصد)"
-        lower_bound_monthly_irr: 165000000
-        upper_bound_monthly_irr: 270000000
+        lower_bound_monthly_irr: 330000000
+        upper_bound_monthly_irr: 540000000
         marginal_rate: "0.15"
-        status: "VERIFIED"
+        status: "CORROBORATED"
       - tier: 4
         name: "پله سوم (۲۰ درصد)"
-        lower_bound_monthly_irr: 270000000
-        upper_bound_monthly_irr: 400000000
+        lower_bound_monthly_irr: 540000000
+        upper_bound_monthly_irr: 800000000
         marginal_rate: "0.20"
-        status: "VERIFIED"
+        status: "CORROBORATED"
       - tier: 5
         name: "پله چهارم (۳۰ درصد)"
-        lower_bound_monthly_irr: 400000000
+        lower_bound_monthly_irr: 800000000
         upper_bound_monthly_irr: null
         marginal_rate: "0.30"
-        status: "VERIFIED"
+        status: "CORROBORATED"

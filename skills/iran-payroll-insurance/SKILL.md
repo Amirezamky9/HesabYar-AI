@@ -4,11 +4,10 @@ description: >
   Use for Iranian payroll, labor law, social security, and salary tax compliance:
   employment contracts, attendance and timesheet rules, leave calculations (Labor Law Arts. 64-74),
   multi-axis component matrix (earnings, deductions, employer contributions), Social Security
-  insurance assessments (7% employee, 20% employer, 3% unemployment), progressive salary tax
-  withholding (Direct Tax Law Arts. 84 & 85), Tamin DBF diskettes, and tax portal export.
-  Always resolve the calculation period and effective-dated legal parameters first. Fail closed
-  if required statutory parameters are missing or unverified. Never assume insurance assessability
-  equals taxability.
+  insurance assessments, progressive salary tax withholding (Direct Tax Law Arts. 84-86),
+  Tamin DBF diskettes, and tax portal export. Always resolve the calculation period and
+  effective-dated legal parameters first. Fail closed if required statutory parameters are
+  missing or unverified. Never assume insurance assessability equals taxability.
 ---
 
 # Iran Payroll, Labor & Insurance Compliance
@@ -26,7 +25,7 @@ This skill serves as the **operational and compliance control plane** for Irania
 Invoke this skill when:
 - Designing, reviewing, or validating employment contracts, probationary periods, or termination terms under the Iranian Labor Law.
 - Configuring or checking the 11-axis **Payroll Component Matrix** (ماتریس عوامل حقوق و دستمزد).
-- Auditing Social Security assessments (مشمول بیمه تامین اجتماعی: سهم کارگر ۷٪، سهم کارفرما ۲۰٪، بیمه بیکاری ۳٪).
+- Auditing Social Security assessments (مشمول بیمه تامین اجتماعی: سهم بیمه‌شده، سهم کارفرما، بیمه بیکاری).
 - Calculating or reviewing progressive salary tax withholding under Articles 84, 85, and 86 of the Direct Tax Law (مالیات حقوق).
 - Preparing or validating regulatory submission artifacts:
   - Tamin monthly diskettes (`DSKWOR00.DBF` and `DSKKAR00.DBF`).
@@ -44,8 +43,8 @@ When interacting with payroll domain logic, agents MUST enforce these non-negoti
 **Never infer or assume `is_insurance_assessable == is_taxable`.**  
 In Iranian labor and tax jurisprudence, insurance assessability and taxability diverge significantly:
 - Grocery coupon (بن خواربار) and Housing allowance (حق مسکن) are assessable for Social Security, but exempt from salary tax under General Assembly of the Administrative Court verdicts (Ruling No. 1957 and Circular 200/1401/10).
-- Child allowance (حق اولاد) is exempt from Social Security contributions (Labor Law Art. 86) but is taxable for salary income tax.
-- Every earning component MUST be evaluated against its independent flags in the component matrix.
+- Child allowance (حق اولاد / کمک عائله‌مندی) is exempt from Social Security contributions (Social Security Law Art. 86 as amended by Family Support Laws) but is taxable for salary income tax.
+- Every earning component MUST be evaluated against its independent flags and statutory rule references in the component matrix.
 
 ### 2. Zero Hardcoding Rule
 - No monetary rial amounts or tax bracket thresholds may be hard-coded in code, prompts, or schemas.
@@ -88,13 +87,13 @@ The skill provides standalone CLI utilities in `scripts/`:
 uv run python skills/iran-payroll-insurance/scripts/validate_sources.py
 
 # Validate schema and constraints of annual parameter files
-uv run python skills/iran-payroll-insurance/scripts/validate_parameters.py --year 1405
+uv run python skills/iran-payroll-insurance/scripts/validate_parameters.py --all
 
 # Inspect statutory parameter deltas between consecutive solar years
 uv run python skills/iran-payroll-insurance/scripts/diff_annual_rules.py --from-year 1404 --to-year 1405
 
 # Audit freshness of legal sources and warn on pending decrees
-uv run python skills/iran-payroll-insurance/scripts/check_source_freshness.py
+uv run python skills/iran-payroll-insurance/scripts/check_source_freshness.py --as-of-date 2026-09-20
 ```
 
 *Note: These scripts are strictly for validation and integrity checking. They do not execute business calculations.*

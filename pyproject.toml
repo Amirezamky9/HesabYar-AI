@@ -68,4 +68,4 @@ pythonPlatform = "Linux"
 typeCheckingMode = "standard"
 include = ["src", "tests"]
 exclude = ["scripts", "**/__pycache__", ".venv"]
-extraPaths = ["src", "scripts"]
+extraPaths = ["src", "scripts", "skills/iran-payroll-insurance/scripts"]

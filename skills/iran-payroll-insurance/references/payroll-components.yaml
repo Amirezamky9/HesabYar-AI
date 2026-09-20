@@ -1,8 +1,11 @@
 # Canonical Iranian Payroll Component Matrix
-# Version: 1.5.0
+# Version: 1.5.1
 # Authority: Labor Law, Social Security Law, Direct Tax Law, Supreme Labor Council Decrees
-schema_version: "1.0"
-description: "Multi-axis classification matrix for standard Iranian payroll components. Strict rejection of is_insurance_assessable == is_taxable."
+schema_version: "1.1"
+description: >
+  Multi-axis classification matrix for standard Iranian payroll components.
+  Augmented with effective-dated statutory legal rule references for each axis,
+  strictly forbidding timeless boolean assumptions.
 
 components:
   - code: "BASE_WAGE"
@@ -23,6 +26,16 @@ components:
       is_eidi_base: true
       is_leave_settlement_base: true
       is_employer_cost: false
+    rule_references:
+      wage_base_rule_ref: "RULE-LABOR-ART35-BASE-WAGE"
+      insurance_assessability_rule_ref: "RULE-SSO-ART28-ASSESSABLE-WAGE"
+      taxability_rule_ref: "RULE-TAX-ART83-TAXABLE-SALARY"
+      overtime_base_rule_ref: "RULE-LABOR-ART59-OVERTIME-BASE"
+      severance_base_rule_ref: "RULE-LABOR-ART24-SEVERANCE-BASE"
+      eidi_base_rule_ref: "RULE-EIDI-1370-BONUS-BASE"
+      leave_settlement_rule_ref: "RULE-LABOR-ART71-LEAVE-SETTLEMENT-BASE"
+      employer_cost_rule_ref: null
+    statutory_notes: "Labor Law Arts. 34-36; core wage base for all statutory multipliers."
 
   - code: "SENIORITY_BONUS"
     name_fa: "پایه سنوات"
@@ -42,6 +55,16 @@ components:
       is_eidi_base: true
       is_leave_settlement_base: true
       is_employer_cost: false
+    rule_references:
+      wage_base_rule_ref: "RULE-LABOR-ART36-FIXED-WAGE"
+      insurance_assessability_rule_ref: "RULE-SSO-ART28-ASSESSABLE-WAGE"
+      taxability_rule_ref: "RULE-TAX-ART83-TAXABLE-SALARY"
+      overtime_base_rule_ref: "RULE-LABOR-ART59-OVERTIME-BASE"
+      severance_base_rule_ref: "RULE-LABOR-ART24-SEVERANCE-BASE"
+      eidi_base_rule_ref: "RULE-EIDI-1370-BONUS-BASE"
+      leave_settlement_rule_ref: "RULE-LABOR-ART71-LEAVE-SETTLEMENT-BASE"
+      employer_cost_rule_ref: null
+    statutory_notes: "Labor Law Art. 36; included in fixed wage (مزد ثابت) for workers with >1 year service."
 
   - code: "HOUSING_ALLOWANCE"
     name_fa: "حق مسکن"
@@ -61,6 +84,18 @@ components:
       is_eidi_base: false
       is_leave_settlement_base: false
       is_employer_cost: false
+    rule_references:
+      wage_base_rule_ref: null
+      insurance_assessability_rule_ref: "RULE-SSO-HOUSING-ASSESSABLE"
+      taxability_rule_ref: "RULE-TAX-HOUSING-ALLOWANCE"
+      overtime_base_rule_ref: null
+      severance_base_rule_ref: null
+      eidi_base_rule_ref: null
+      leave_settlement_rule_ref: null
+      employer_cost_rule_ref: null
+    statutory_notes: >
+      Subject to Social Security per SSO circulars. Tax-exempt under Administrative Court Rulings 1957 & 11257
+      and INTA Circular 200/1401/10; dependent on annual Cabinet decree and annual Budget Law provisions.
 
   - code: "GROCERY_ALLOWANCE"
     name_fa: "بن کارگری / خواربار"
@@ -80,6 +115,18 @@ components:
       is_eidi_base: false
       is_leave_settlement_base: false
       is_employer_cost: false
+    rule_references:
+      wage_base_rule_ref: null
+      insurance_assessability_rule_ref: "RULE-SSO-GROCERY-ASSESSABLE"
+      taxability_rule_ref: "RULE-TAX-GROCERY-ALLOWANCE"
+      overtime_base_rule_ref: null
+      severance_base_rule_ref: null
+      eidi_base_rule_ref: null
+      leave_settlement_rule_ref: null
+      employer_cost_rule_ref: null
+    statutory_notes: >
+      Subject to Social Security per annual Supreme Labor Council decree. Tax-exempt welfare allowance
+      per Administrative Court Rulings 1957 & 11257.
 
   - code: "CHILD_ALLOWANCE"
     name_fa: "حق اولاد / کمک عائله‌مندی"
@@ -99,6 +146,18 @@ components:
       is_eidi_base: false
       is_leave_settlement_base: false
       is_employer_cost: false
+    rule_references:
+      wage_base_rule_ref: null
+      insurance_assessability_rule_ref: "RULE-SSO-ART86-CHILD-EXEMPT"
+      taxability_rule_ref: "RULE-TAX-CHILD-ALLOWANCE-TAXABLE"
+      overtime_base_rule_ref: null
+      severance_base_rule_ref: null
+      eidi_base_rule_ref: null
+      leave_settlement_rule_ref: null
+      employer_cost_rule_ref: null
+    statutory_notes: >
+      Statutory basis is Article 86 of Social Security Law (قانون تامین اجتماعی), as amended by subsequent
+      family support laws. 100% exempt from Social Security insurance; subject to salary income tax.
 
   - code: "MARRIAGE_ALLOWANCE"
     name_fa: "حق تاهل"
@@ -118,6 +177,16 @@ components:
       is_eidi_base: false
       is_leave_settlement_base: false
       is_employer_cost: false
+    rule_references:
+      wage_base_rule_ref: null
+      insurance_assessability_rule_ref: "RULE-SSO-MARRIAGE-ASSESSABLE"
+      taxability_rule_ref: "RULE-TAX-MARRIAGE-TAXABLE"
+      overtime_base_rule_ref: null
+      severance_base_rule_ref: null
+      eidi_base_rule_ref: null
+      leave_settlement_rule_ref: null
+      employer_cost_rule_ref: null
+    statutory_notes: "Supreme Labor Council wage decree clause for married employees. Assessable for insurance and tax."
 
   - code: "OVERTIME_PAY"
     name_fa: "فوق‌العاده اضافه کاری"
@@ -137,6 +206,16 @@ components:
       is_eidi_base: false
       is_leave_settlement_base: false
       is_employer_cost: false
+    rule_references:
+      wage_base_rule_ref: null
+      insurance_assessability_rule_ref: "RULE-SSO-ART28-OVERTIME-ASSESSABLE"
+      taxability_rule_ref: "RULE-TAX-ART83-OVERTIME-TAXABLE"
+      overtime_base_rule_ref: null
+      severance_base_rule_ref: null
+      eidi_base_rule_ref: null
+      leave_settlement_rule_ref: null
+      employer_cost_rule_ref: null
+    statutory_notes: "Labor Law Art. 59 (140% of hourly rate). Fully assessable for insurance and salary tax."
 
   - code: "SHIFT_PAY"
     name_fa: "فوق‌العاده نوبت کاری"
@@ -156,6 +235,16 @@ components:
       is_eidi_base: false
       is_leave_settlement_base: false
       is_employer_cost: false
+    rule_references:
+      wage_base_rule_ref: null
+      insurance_assessability_rule_ref: "RULE-SSO-ART28-SHIFT-ASSESSABLE"
+      taxability_rule_ref: "RULE-TAX-ART83-SHIFT-TAXABLE"
+      overtime_base_rule_ref: null
+      severance_base_rule_ref: null
+      eidi_base_rule_ref: null
+      leave_settlement_rule_ref: null
+      employer_cost_rule_ref: null
+    statutory_notes: "Labor Law Art. 56 (10%, 15%, or 22.5%). Fully assessable for insurance and salary tax."
 
   - code: "NIGHT_PREMIUM"
     name_fa: "فوق‌العاده شب کاری"
@@ -175,6 +264,16 @@ components:
       is_eidi_base: false
       is_leave_settlement_base: false
       is_employer_cost: false
+    rule_references:
+      wage_base_rule_ref: null
+      insurance_assessability_rule_ref: "RULE-SSO-ART28-NIGHT-ASSESSABLE"
+      taxability_rule_ref: "RULE-TAX-ART83-NIGHT-TAXABLE"
+      overtime_base_rule_ref: null
+      severance_base_rule_ref: null
+      eidi_base_rule_ref: null
+      leave_settlement_rule_ref: null
+      employer_cost_rule_ref: null
+    statutory_notes: "Labor Law Art. 58 (35% premium for 22:00-06:00). Assessable for insurance and salary tax."
 
   - code: "FRIDAY_PREMIUM"
     name_fa: "فوق‌العاده جمعه کاری"
@@ -194,6 +293,16 @@ components:
       is_eidi_base: false
       is_leave_settlement_base: false
       is_employer_cost: false
+    rule_references:
+      wage_base_rule_ref: null
+      insurance_assessability_rule_ref: "RULE-SSO-ART28-FRIDAY-ASSESSABLE"
+      taxability_rule_ref: "RULE-TAX-ART83-FRIDAY-TAXABLE"
+      overtime_base_rule_ref: null
+      severance_base_rule_ref: null
+      eidi_base_rule_ref: null
+      leave_settlement_rule_ref: null
+      employer_cost_rule_ref: null
+    statutory_notes: "Labor Law Art. 62 (40% premium). Assessable for insurance and salary tax."
 
   - code: "MISSION_ALLOWANCE"
     name_fa: "فوق‌العاده ماموریت"
@@ -213,6 +322,16 @@ components:
       is_eidi_base: false
       is_leave_settlement_base: false
       is_employer_cost: false
+    rule_references:
+      wage_base_rule_ref: null
+      insurance_assessability_rule_ref: "RULE-SSO-MISSION-EXEMPT"
+      taxability_rule_ref: "RULE-TAX-ART91-CLAUSE6-MISSION-EXEMPT"
+      overtime_base_rule_ref: null
+      severance_base_rule_ref: null
+      eidi_base_rule_ref: null
+      leave_settlement_rule_ref: null
+      employer_cost_rule_ref: null
+    statutory_notes: "Labor Law Art. 46 floor; exempt from insurance; exempt from salary tax under Art. 91 Clause 6."
 
   - code: "PERFORMANCE_BONUS"
     name_fa: "پاداش بهره‌وری / کارانه"
@@ -232,6 +351,16 @@ components:
       is_eidi_base: false
       is_leave_settlement_base: false
       is_employer_cost: false
+    rule_references:
+      wage_base_rule_ref: null
+      insurance_assessability_rule_ref: "RULE-SSO-ART28-PERFORMANCE-ASSESSABLE"
+      taxability_rule_ref: "RULE-TAX-ART83-PERFORMANCE-TAXABLE"
+      overtime_base_rule_ref: null
+      severance_base_rule_ref: null
+      eidi_base_rule_ref: null
+      leave_settlement_rule_ref: null
+      employer_cost_rule_ref: null
+    statutory_notes: "Contractual incentive; fully assessable for insurance and salary tax."
 
   - code: "EIDI_BONUS"
     name_fa: "عیدی و پاداش سالانه"
@@ -251,6 +380,16 @@ components:
       is_eidi_base: false
       is_leave_settlement_base: false
       is_employer_cost: false
+    rule_references:
+      wage_base_rule_ref: null
+      insurance_assessability_rule_ref: "RULE-SSO-EIDI-EXEMPT"
+      taxability_rule_ref: "RULE-TAX-EIDI-EXEMPT-UPTO-1MONTH"
+      overtime_base_rule_ref: null
+      severance_base_rule_ref: null
+      eidi_base_rule_ref: null
+      leave_settlement_rule_ref: null
+      employer_cost_rule_ref: null
+    statutory_notes: "1370 Eidi Statute. 100% exempt from insurance; tax-exempt up to 1/12th of annual Art. 84 basic ceiling."
 
   - code: "SEVERANCE_PAY"
     name_fa: "حق سنوات / پایان خدمت"
@@ -270,6 +409,16 @@ components:
       is_eidi_base: false
       is_leave_settlement_base: false
       is_employer_cost: false
+    rule_references:
+      wage_base_rule_ref: null
+      insurance_assessability_rule_ref: "RULE-SSO-SEVERANCE-EXEMPT"
+      taxability_rule_ref: "RULE-TAX-ART91-CLAUSE5-SEVERANCE-EXEMPT"
+      overtime_base_rule_ref: null
+      severance_base_rule_ref: null
+      eidi_base_rule_ref: null
+      leave_settlement_rule_ref: null
+      employer_cost_rule_ref: null
+    statutory_notes: "Labor Law Arts. 24 & 31. 100% exempt from insurance; 100% exempt from salary tax under Art. 91 Clause 5."
 
   - code: "LEAVE_SETTLEMENT"
     name_fa: "بازخرید مانده مرخصی"
@@ -289,6 +438,16 @@ components:
       is_eidi_base: false
       is_leave_settlement_base: false
       is_employer_cost: false
+    rule_references:
+      wage_base_rule_ref: null
+      insurance_assessability_rule_ref: "RULE-SSO-LEAVE-SETTLEMENT-EXEMPT"
+      taxability_rule_ref: "RULE-TAX-ART91-CLAUSE5-LEAVE-EXEMPT"
+      overtime_base_rule_ref: null
+      severance_base_rule_ref: null
+      eidi_base_rule_ref: null
+      leave_settlement_rule_ref: null
+      employer_cost_rule_ref: null
+    statutory_notes: "Labor Law Art. 71. 100% exempt from insurance; exempt from salary tax upon termination under Art. 91 Clause 5."
 
   - code: "EMPLOYER_INS_20"
     name_fa: "بیمه سهم کارفرما (۲۰٪)"
@@ -308,6 +467,16 @@ components:
       is_eidi_base: false
       is_leave_settlement_base: false
       is_employer_cost: true
+    rule_references:
+      wage_base_rule_ref: null
+      insurance_assessability_rule_ref: null
+      taxability_rule_ref: null
+      overtime_base_rule_ref: null
+      severance_base_rule_ref: null
+      eidi_base_rule_ref: null
+      leave_settlement_rule_ref: null
+      employer_cost_rule_ref: "RULE-SSO-ART28-EMPLOYER-20"
+    statutory_notes: "Social Security Law Art. 28; employer operating expense on gross assessable earnings."
 
   - code: "UNEMPLOYMENT_INS_3"
     name_fa: "بیمه بیکاری (۳٪)"
@@ -327,3 +496,13 @@ components:
       is_eidi_base: false
       is_leave_settlement_base: false
       is_employer_cost: true
+    rule_references:
+      wage_base_rule_ref: null
+      insurance_assessability_rule_ref: null
+      taxability_rule_ref: null
+      overtime_base_rule_ref: null
+      severance_base_rule_ref: null
+      eidi_base_rule_ref: null
+      leave_settlement_rule_ref: null
+      employer_cost_rule_ref: "RULE-UNEMP-ART5-EMPLOYER-3"
+    statutory_notes: "Unemployment Insurance Law Art. 5; employer operating expense on gross assessable earnings."

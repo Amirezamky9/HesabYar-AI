@@ -61,6 +61,13 @@ jobs:
       - name: Run full test suite
         run: uv run pytest -v
 
+      - name: Validate payroll skill data and rules
+        run: |
+          uv run python skills/iran-payroll-insurance/scripts/validate_sources.py
+          uv run python skills/iran-payroll-insurance/scripts/validate_parameters.py --all
+          uv run python skills/iran-payroll-insurance/scripts/check_source_freshness.py --as-of-date 2026-09-20
+          uv run python skills/iran-payroll-insurance/scripts/diff_annual_rules.py --from-year 1404 --to-year 1405
+
       - name: Check metadata
         run: uv run python scripts/check_metadata.py
 
