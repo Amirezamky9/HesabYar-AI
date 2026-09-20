@@ -29,7 +29,8 @@ class EntityId:
             self._value = cleaned
         else:
             raise InvalidIdentifierError(
-                f"{self.__class__.__name__} expects str, UUID, or {self.__class__.__name__}, got {type(value).__name__}."
+                f"{self.__class__.__name__} expects str, UUID, or {self.__class__.__name__}, "
+                f"got {type(value).__name__}."
             )
 
     @property

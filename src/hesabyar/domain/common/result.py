@@ -59,9 +59,15 @@ class Result[T, E](ABC):
         """Return inner value if Success, otherwise default."""
         ...
 
+    @abstractmethod
     def unwrap(self) -> T:
-        """Return inner value if Success, otherwise raise the contained error or ValueError."""
-        return self.value
+        """Return inner value if Success.
+
+        If Failure:
+          - If the contained error is an Exception instance, re-raise that exact exception.
+          - If the contained error is a non-exception value, raise ValueError(str(self.error)).
+        """
+        ...
 
     @abstractmethod
     def __bool__(self) -> bool:
@@ -115,6 +121,10 @@ class Success[T](Result[T, Any]):
     def unwrap_or(self, default: T) -> T:
         return self._value
 
+    def unwrap(self) -> T:
+        """Return inner value."""
+        return self._value
+
     def __bool__(self) -> bool:
         return True
 
@@ -163,6 +173,12 @@ class Failure[E](Result[Any, E]):
 
     def unwrap_or(self, default: T) -> T:
         return default
+
+    def unwrap(self) -> Any:
+        """Unwrap error: re-raise exact exception if Exception, else raise ValueError(str(self.error))."""
+        if isinstance(self._error, Exception):
+            raise self._error
+        raise ValueError(str(self._error))
 
     def __bool__(self) -> bool:
         return False

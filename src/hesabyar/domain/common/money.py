@@ -47,15 +47,16 @@ class MoneyIRR:
     """Immutable monetary value object for Iranian Rials (IRR).
 
     Enforces:
-      - Underlying value MUST be Python int (Rials).
+      - Underlying value MUST be an exact signed Python int (Rials).
+      - Equal MoneyIRR instances have strictly identical behavior.
       - Float constructor is strictly forbidden.
-      - Reject negative amounts unless explicitly constructed as an adjustment.
-      - Explicit arithmetic methods and Decimal rate multiplication.
+      - Non-finite Decimals (NaN, Infinity, -Infinity) are rejected with InvalidMoneyError.
+      - Explicit arithmetic methods and Decimal rate multiplication with explicit rounding.
     """
 
-    __slots__ = ("_amount", "_is_adjustment")
+    __slots__ = ("_amount",)
 
-    def __init__(self, amount: int, is_adjustment: bool = False) -> None:
+    def __init__(self, amount: int) -> None:
         if isinstance(amount, float):
             raise InvalidMoneyError("Float constructor is strictly forbidden for MoneyIRR.")
         if isinstance(amount, bool) or not isinstance(amount, int):
@@ -63,23 +64,12 @@ class MoneyIRR:
                 f"MoneyIRR amount must be a Python int (Rials), got {type(amount).__name__}."
             )
 
-        if amount < 0 and not is_adjustment:
-            raise InvalidMoneyError(
-                f"Negative monetary amount ({amount}) is forbidden unless explicitly marked as an adjustment."
-            )
-
-        self._amount = amount
-        self._is_adjustment = is_adjustment
+        self._amount: int = amount
 
     @property
     def amount(self) -> int:
         """Underlying amount in Iranian Rials (IRR)."""
         return self._amount
-
-    @property
-    def is_adjustment(self) -> bool:
-        """Indicates if this monetary value represents an accounting adjustment allowing negative amounts."""
-        return self._is_adjustment
 
     @property
     def is_zero(self) -> bool:
@@ -99,34 +89,21 @@ class MoneyIRR:
         return cls(0)
 
     @classmethod
-    def from_int(cls, amount: int, is_adjustment: bool = False) -> Self:
+    def from_int(cls, amount: int) -> Self:
         """Construct MoneyIRR from an integer amount in Rials."""
-        return cls(amount, is_adjustment=is_adjustment)
-
-    @classmethod
-    def adjustment(cls, amount: int) -> Self:
-        """Construct an explicit adjustment monetary value which may be negative."""
-        return cls(amount, is_adjustment=True)
+        return cls(amount)
 
     def add(self, other: MoneyIRR) -> MoneyIRR:
         """Add two MoneyIRR amounts."""
         if not isinstance(other, MoneyIRR):
             raise InvalidMoneyError(f"Cannot add {type(other).__name__} to MoneyIRR.")
-        new_amount = self._amount + other._amount
-        is_adj = self._is_adjustment or other._is_adjustment or (new_amount < 0 and self._is_adjustment)
-        return MoneyIRR(new_amount, is_adjustment=is_adj)
+        return MoneyIRR(self._amount + other._amount)
 
-    def sub(self, other: MoneyIRR, allow_adjustment: bool = False) -> MoneyIRR:
+    def sub(self, other: MoneyIRR) -> MoneyIRR:
         """Subtract other MoneyIRR from this amount."""
         if not isinstance(other, MoneyIRR):
             raise InvalidMoneyError(f"Cannot subtract {type(other).__name__} from MoneyIRR.")
-        new_amount = self._amount - other._amount
-        is_adj = allow_adjustment or self._is_adjustment or other._is_adjustment
-        if new_amount < 0 and not is_adj:
-            raise InvalidMoneyError(
-                f"Subtraction resulted in negative amount ({new_amount}) without adjustment authorization."
-            )
-        return MoneyIRR(new_amount, is_adjustment=is_adj)
+        return MoneyIRR(self._amount - other._amount)
 
     def mul_decimal(
         self,
@@ -136,27 +113,35 @@ class MoneyIRR:
         """Multiply monetary amount by a Decimal rate using an explicit rounding policy."""
         if isinstance(rate, float):
             raise InvalidMoneyError("Float rate is strictly forbidden; use Decimal.")
+
         if not isinstance(rate, Decimal):
             try:
                 rate = Decimal(str(rate))
             except Exception as e:
                 raise InvalidMoneyError(f"Invalid rate for multiplication: {rate!r}") from e
 
+        if not rate.is_finite():
+            raise InvalidMoneyError(
+                f"Cannot multiply MoneyIRR by non-finite Decimal rate: {rate!r}",
+                code="NON_FINITE_DECIMAL",
+            )
+
         if isinstance(rounding_mode, str):
             try:
                 rounding_mode = DecimalRoundingPolicy(rounding_mode)
             except ValueError:
-                # Also try matching without prefix if user passed e.g. "HALF_UP"
                 try:
                     rounding_mode = DecimalRoundingPolicy[rounding_mode]
                 except KeyError as exc:
                     raise InvalidMoneyError(f"Unknown rounding policy: {rounding_mode}") from exc
+        elif not isinstance(rounding_mode, DecimalRoundingPolicy):
+            raise InvalidMoneyError(f"Invalid rounding policy type: {type(rounding_mode).__name__}")
 
         decimal_amount = Decimal(self._amount)
         calculated = decimal_amount * rate
         rounded = calculated.quantize(Decimal(1), rounding=rounding_mode.to_decimal_rounding())
         new_amount = int(rounded)
-        return MoneyIRR(new_amount, is_adjustment=self._is_adjustment)
+        return MoneyIRR(new_amount)
 
     def to_formatted_string(self, currency_symbol: str = "ریال", show_symbol: bool = True) -> str:
         """Format the monetary amount with thousands separators and the Rial currency symbol."""
@@ -174,6 +159,9 @@ class MoneyIRR:
 
     def __sub__(self, other: MoneyIRR) -> MoneyIRR:
         return self.sub(other)
+
+    def __neg__(self) -> MoneyIRR:
+        return MoneyIRR(-self._amount)
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, MoneyIRR):
@@ -207,8 +195,7 @@ class MoneyIRR:
         return self._amount
 
     def __repr__(self) -> str:
-        adj_str = ", is_adjustment=True" if self._is_adjustment else ""
-        return f"MoneyIRR({self._amount}{adj_str})"
+        return f"MoneyIRR({self._amount})"
 
     def __str__(self) -> str:
         return self.to_formatted_string()

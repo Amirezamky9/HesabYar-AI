@@ -5,7 +5,11 @@ from __future__ import annotations
 from collections.abc import Iterable
 from enum import StrEnum
 
-from hesabyar.domain.common.errors import TenantMismatchError, UnauthorizedScopeError
+from hesabyar.domain.common.errors import (
+    InvariantViolationError,
+    TenantMismatchError,
+    UnauthorizedScopeError,
+)
 from hesabyar.domain.common.ids import ActorId, TenantId
 
 
@@ -51,6 +55,14 @@ class TenantContext:
         """Whether the tenant is currently active and allowed to perform transactions."""
         return self._is_active
 
+    def require_active(self) -> None:
+        """Assert that the tenant is active; fail-closed with InvariantViolationError."""
+        if not self._is_active:
+            raise InvariantViolationError(
+                f"Tenant {self._tenant_id} ('{self._name}') is inactive and cannot perform operations.",
+                code="TENANT_INACTIVE",
+            )
+
     def matches(self, other_tenant_id: TenantId | str) -> bool:
         """Check whether other_tenant_id matches this tenant context."""
         tid = other_tenant_id if isinstance(other_tenant_id, TenantId) else TenantId(other_tenant_id)
@@ -65,18 +77,28 @@ class TenantContext:
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, TenantContext):
-            return self._tenant_id == other._tenant_id and self._name == other._name
+            return (
+                self._tenant_id == other._tenant_id
+                and self._name == other._name
+                and self._is_active == other._is_active
+            )
         return False
 
     def __hash__(self) -> int:
-        return hash((self._tenant_id, self._name))
+        return hash((self._tenant_id, self._name, self._is_active))
 
     def __repr__(self) -> str:
         return f"TenantContext(tenant_id={self._tenant_id!r}, name={self._name!r}, is_active={self._is_active})"
 
 
 class ActorContext:
-    """Represents an authenticated actor (user or automated agent) operating within a tenant context."""
+    """Represents an authenticated actor (user or automated agent) operating within a tenant context.
+
+    Authorization principle:
+      Capabilities must be explicitly granted.
+      The 'hesabyar.admin' scope does NOT act as a wildcard granting operational
+      scopes (such as 'hesabyar.ledger.post' or 'hesabyar.tax.submit').
+    """
 
     __slots__ = ("_actor_id", "_scopes", "_tenant_id")
 
@@ -91,8 +113,15 @@ class ActorContext:
 
         resolved_scopes: set[str] = set()
         if scopes is not None:
+            valid_scopes = {s.value for s in Scope}
             for s in scopes:
-                resolved_scopes.add(s.value if isinstance(s, Scope) else str(s).strip())
+                scope_str = s.value if isinstance(s, Scope) else str(s).strip()
+                if scope_str not in valid_scopes:
+                    raise UnauthorizedScopeError(
+                        f"Unknown or invalid scope {s!r}. Must be one of: {sorted(valid_scopes)}",
+                        code="INVALID_SCOPE",
+                    )
+                resolved_scopes.add(scope_str)
         self._scopes = frozenset(resolved_scopes)
 
     @property
@@ -121,10 +150,12 @@ class ActorContext:
         return Scope.ADMIN.value in self._scopes
 
     def has_scope(self, scope: str | Scope) -> bool:
-        """Check if actor possesses the specific scope or has admin authority."""
+        """Check if actor possesses the specific scope.
+
+        ADMIN scope does NOT imply operational capabilities.
+        All scopes must be explicitly granted.
+        """
         scope_str = scope.value if isinstance(scope, Scope) else str(scope).strip()
-        if Scope.ADMIN.value in self._scopes:
-            return True
         return scope_str in self._scopes
 
     def require_scope(self, scope: str | Scope) -> None:
@@ -132,7 +163,8 @@ class ActorContext:
         scope_str = scope.value if isinstance(scope, Scope) else str(scope).strip()
         if not self.has_scope(scope_str):
             raise UnauthorizedScopeError(
-                f"Actor {self._actor_id} lacks required scope {scope_str!r}. Granted scopes: {sorted(self._scopes)}"
+                f"Actor {self._actor_id} lacks required scope {scope_str!r}. Granted scopes: {sorted(self._scopes)}",
+                code="UNAUTHORIZED_SCOPE",
             )
 
     def require_matching_tenant(self, entity_tenant_id: TenantId | str) -> None:
@@ -144,9 +176,20 @@ class ActorContext:
             )
 
     @classmethod
-    def system_admin(cls, tenant_id: TenantId | str, actor_id: ActorId | str = "system") -> ActorContext:
-        """Create a privileged system administrator context."""
-        return cls(actor_id=actor_id, tenant_id=tenant_id, scopes={Scope.ADMIN})
+    def system_admin(
+        cls,
+        tenant_id: TenantId | str,
+        actor_id: ActorId | str = "system",
+        additional_scopes: Iterable[str | Scope] | None = None,
+    ) -> ActorContext:
+        """Create a system administrator context with ADMIN scope.
+
+        Does not grant operational scopes (ledger post, tax submit) unless explicitly specified.
+        """
+        scopes: set[str | Scope] = {Scope.ADMIN}
+        if additional_scopes:
+            scopes.update(additional_scopes)
+        return cls(actor_id=actor_id, tenant_id=tenant_id, scopes=scopes)
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, ActorContext):

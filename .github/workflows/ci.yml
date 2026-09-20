@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main, develop, "arch/**"]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  ci:
+    name: Lint, type-check, migrate, test
+    runs-on: ubuntu-latest
+
+    env:
+      PYTHONIOENCODING: utf-8
+      PYTHONUTF8: 1
+      HESABYAR_DATABASE_URL: "postgresql+psycopg://hesabyar:hesabyar_pass@localhost:5432/hesabyar_test"
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: hesabyar
+          POSTGRES_PASSWORD: hesabyar_pass
+          POSTGRES_DB: hesabyar_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hesabyar -d hesabyar_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Lint (ruff)
+        run: uv run ruff check .
+
+      - name: Type check (pyright)
+        run: uv run pyright
+
+      - name: Run Alembic migration
+        run: uv run alembic upgrade head
+
+      - name: Run full test suite
+        run: uv run pytest -v
+
+      - name: Check metadata
+        run: python scripts/check_metadata.py
+
+      - name: Verify skill files
+        run: python scripts/verify_skill_files.py
+
+      - name: Legacy validator sample check
+        run: python scripts/validator.py tests/sample-data.json --format markdown

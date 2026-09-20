@@ -1,4 +1,4 @@
-"""Canonical Gregorian date with bi-directional Jalali and Moadian epoch millisecond conversions."""
+"""Canonical Gregorian date with bi-directional Jalali calendar conversions."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import jdatetime
 
 from hesabyar.domain.common.errors import InvalidDateError
 
-_PERSIAN_ARABIC_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
+_PERSIAN_ARABIC_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧۸۹", "01234567890123456789")
 
 
 def normalize_digits(value: str) -> str:
@@ -23,7 +23,10 @@ class FiscalDate:
 
     Canonical representation is strictly Gregorian (datetime.date) to ensure
     persistence and standard database interop, while providing deterministic
-    Jalali conversions and Moadian epoch millisecond calculations.
+    Jalali conversions.
+
+    Protocol-specific serializations (such as Moadian epoch milliseconds) and
+    direct system clock accesses (today()) are excluded from this domain primitive.
     """
 
     __slots__ = ("_date",)
@@ -31,11 +34,13 @@ class FiscalDate:
     def __init__(self, d: datetime.date | FiscalDate) -> None:
         if isinstance(d, FiscalDate):
             self._date = d._date
+        elif isinstance(d, datetime.datetime):
+            raise InvalidDateError(
+                "FiscalDate requires datetime.date, not datetime.datetime. "
+                "Do not silently truncate datetimes; convert explicitly via .date()."
+            )
         elif isinstance(d, datetime.date):
-            if isinstance(d, datetime.datetime):
-                self._date = d.date()
-            else:
-                self._date = d
+            self._date = d
         else:
             raise InvalidDateError(
                 f"FiscalDate requires datetime.date or FiscalDate, got {type(d).__name__}."
@@ -81,30 +86,46 @@ class FiscalDate:
         return self._date.day
 
     @classmethod
-    def today(cls) -> Self:
-        """Construct a FiscalDate representing current system date."""
-        return cls(datetime.datetime.now(tz=datetime.UTC).date())
-
-    @classmethod
     def from_gregorian(cls, d: datetime.date) -> Self:
-        """Construct a FiscalDate from a Gregorian date."""
+        """Construct a FiscalDate from an explicit Gregorian date."""
+        if isinstance(d, datetime.datetime):
+            raise InvalidDateError(
+                "from_gregorian requires datetime.date, not datetime.datetime. "
+                "Convert explicitly via .date()."
+            )
+        if not isinstance(d, datetime.date):
+            raise InvalidDateError(f"Expected datetime.date, got {type(d).__name__}.")
         return cls(d)
 
     @classmethod
-    def from_jalali(cls, year: int, month: int, day: int) -> Self:
-        """Construct a FiscalDate from Jalali (Solar Hijri) year, month, day."""
-        try:
-            jd = jdatetime.date(year, month, day)
-            gd = jd.togregorian()
+    def from_jalali(
+        cls,
+        j_or_year: jdatetime.date | int,
+        month: int | None = None,
+        day: int | None = None,
+    ) -> Self:
+        """Construct a FiscalDate from a jdatetime.date or (year, month, day)."""
+        if isinstance(j_or_year, jdatetime.date):
+            gd = j_or_year.togregorian()
             return cls(gd)
-        except (ValueError, TypeError) as exc:
-            raise InvalidDateError(
-                f"Invalid Jalali date {year:04d}/{month:02d}/{day:02d}: {exc}"
-            ) from exc
+
+        if isinstance(j_or_year, int):
+            if month is None or day is None:
+                raise InvalidDateError("from_jalali with integer year requires month and day.")
+            try:
+                jd = jdatetime.date(j_or_year, month, day)
+                gd = jd.togregorian()
+                return cls(gd)
+            except (ValueError, TypeError) as exc:
+                raise InvalidDateError(
+                    f"Invalid Jalali date {j_or_year:04d}/{month:02d}/{day:02d}: {exc}"
+                ) from exc
+
+        raise InvalidDateError(f"Expected jdatetime.date or int year, got {type(j_or_year).__name__}.")
 
     @classmethod
     def from_jalali_str(cls, date_str: str) -> Self:
-        """Parse Jalali date string in 'YYYY/MM/DD' or 'YYYY-MM-DD' format."""
+        """Parse Jalali date string in 'YYYY/MM/DD' or 'YYYY-MM-DD' format with Solar Hijri year."""
         if not isinstance(date_str, str):
             raise InvalidDateError(f"Expected str for Jalali date, got {type(date_str).__name__}.")
 
@@ -116,6 +137,11 @@ class FiscalDate:
             )
 
         y, m, d = int(match.group(1)), int(match.group(2)), int(match.group(3))
+        if not (1200 <= y <= 1500):
+            raise InvalidDateError(
+                f"Ambiguous or invalid Jalali date {date_str!r}: "
+                f"year {y} is outside valid Solar Hijri range (1200-1500)."
+            )
         return cls.from_jalali(y, m, d)
 
     @classmethod
@@ -123,30 +149,17 @@ class FiscalDate:
         """Parse ISO-8601 Gregorian date string 'YYYY-MM-DD'."""
         if not isinstance(date_str, str):
             raise InvalidDateError(f"Expected str for ISO date, got {type(date_str).__name__}.")
+
+        normalized = normalize_digits(date_str.strip())
+        if "/" in normalized:
+            raise InvalidDateError(
+                f"Ambiguous date format {date_str!r}. ISO Gregorian date must use '-' delimiter (YYYY-MM-DD)."
+            )
         try:
-            gd = datetime.date.fromisoformat(normalize_digits(date_str.strip()))
+            gd = datetime.date.fromisoformat(normalized)
             return cls(gd)
         except ValueError as exc:
             raise InvalidDateError(f"Invalid Gregorian ISO date string {date_str!r}: {exc}") from exc
-
-    @classmethod
-    def from_moadian_epoch_ms(cls, epoch_ms: int) -> Self:
-        """Construct FiscalDate from Moadian epoch timestamp in milliseconds (UTC)."""
-        if isinstance(epoch_ms, bool) or not isinstance(epoch_ms, int):
-            raise InvalidDateError(
-                f"Moadian epoch timestamp must be integer milliseconds, got {type(epoch_ms).__name__}."
-            )
-        try:
-            dt = datetime.datetime.fromtimestamp(epoch_ms / 1000.0, tz=datetime.UTC)
-            return cls(dt.date())
-        except (ValueError, OSError, OverflowError) as exc:
-            raise InvalidDateError(f"Invalid epoch millisecond value {epoch_ms}: {exc}") from exc
-
-    def to_moadian_epoch_ms(self, time_of_day: datetime.time | None = None) -> int:
-        """Convert this date to Moadian epoch milliseconds in UTC."""
-        t = time_of_day or datetime.time.min
-        dt = datetime.datetime.combine(self._date, t, tzinfo=datetime.UTC)
-        return int(dt.timestamp() * 1000)
 
     def to_jalali_str(self, delimiter: str = "/", pad_zeros: bool = True) -> str:
         """Format as Jalali string (e.g. '1405/01/15')."""
@@ -224,15 +237,26 @@ class FiscalDate:
         def validate(v: Any) -> Any:
             if isinstance(v, cls):
                 return v
+            if isinstance(v, datetime.datetime):
+                raise ValueError("datetime.datetime must be explicitly converted to date.")
             if isinstance(v, datetime.date):
                 return cls(v)
-            if isinstance(v, int):
-                return cls.from_moadian_epoch_ms(v)
+            if isinstance(v, jdatetime.date):
+                return cls.from_jalali(v)
             if isinstance(v, str):
-                cleaned = v.strip()
-                # If contains / or starts with 13 or 14 -> Jalali
-                if "/" in cleaned or cleaned.startswith(("13", "14")):
-                    return cls.from_jalali_str(cleaned)
+                cleaned = normalize_digits(v.strip())
+                match = re.match(r"^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$", cleaned)
+                if match:
+                    y = int(match.group(1))
+                    if 1200 <= y <= 1500:
+                        return cls.from_jalali_str(cleaned)
+                    if 1900 <= y <= 2100:
+                        if "/" in cleaned:
+                            raise ValueError(
+                                f"Ambiguous date format {v!r}. Gregorian dates must use ISO format (YYYY-MM-DD)."
+                            )
+                        return cls.from_iso_str(cleaned)
+                    raise ValueError(f"Ambiguous or out-of-range date: {v!r}")
                 return cls.from_iso_str(cleaned)
             raise ValueError(f"Cannot parse FiscalDate from {type(v).__name__}")
 

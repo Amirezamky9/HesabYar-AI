@@ -17,5 +17,5 @@ An exact monetary amount denominated exclusively in Iranian Rials with integer p
 _Avoid_: Currency, amount, price, Rial, Toman
 
 **FiscalDate**:
-An accounting calendar date canonically stored in Gregorian form with exact bidirectional mappings to Solar Hijri (Jalali) and Moadian millisecond epoch timestamps.
+An accounting calendar date canonically stored in Gregorian form with exact bidirectional mappings to Solar Hijri (Jalali).
 _Avoid_: Date, ShamsiDate, PersianDate, timestamp
