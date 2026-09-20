@@ -1,5 +1,7 @@
 # تطابق استانداردهای حسابداری ایران با IFRS
 
+> **Current applicability notice (1405):** This mapping is informational. It does not establish identical requirements or current applicability. Standard 15's bundled source/mapping is blocked for 1405+ pending verification of the revised-1404 official text. Standard 43 applies from 1404/01/01; Standard 44 applies from 1405/01/01 and replaces Standard 21. Use `metadata.json` and `docs/CURRENT_RULES_1405.md`.
+
 > منبع: https://thdorsan.com/sam/codificated-standards
 
 > تاریخ تولید: 2026-09-18T10:29:35.764167
@@ -25,7 +27,7 @@
 | 10 | استاندارد حسابداری شماره 10 - حسابداری کمک های بلاعوض دولت | IAS 20 | Government Grants |
 | 11 | استاندارد حسابداری شماره 11 - دارایی‌های ثابت مشهود | IAS 16 | Property, Plant and Equipment |
 | 13 | استاندارد حسابداری شماره 13 - حسابداری مخارج تأمین مالی | IAS 23 | Borrowing Costs |
-| 15 | استاندارد حسابداری شماره 15 - حسابداری سرمایه‌گذاری ها | IAS 39/IFRS 9 | Investments |
+| 15 | استاندارد حسابداری شماره 15 - حسابداری سرمایه‌گذاری ها | **REVERIFY CURRENT REVISION** | Investments — 1405+ source blocked |
 | 17 | استاندارد حسابداری شماره 17 - دارایی‌های نامشهود | IAS 38 | Intangible Assets |
 | 32 | استاندارد حسابداری شماره 32 - کاهش ارزش دارایی ها | IAS 36 | Impairment of Assets |
 | 42 | استاندارد حسابداری شماره 42 - اندازه‌گیری ارزش منصفانه | IFRS 13 | Fair Value Measurement |
