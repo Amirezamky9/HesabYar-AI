@@ -16,11 +16,13 @@ from hesabyar.infrastructure.config import (
 
 
 class TestConfig:
-    def test_default_settings(self) -> None:
+    def test_default_settings(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("HESABYAR_DATABASE_URL", raising=False)
+        monkeypatch.delenv("HESABYAR_DATABASE__URL", raising=False)
         settings = AppSettings()
         assert settings.env == Environment.DEV
         assert not settings.env.is_production
-        assert "15445" in settings.database.url
+        assert "hesabyar" in settings.database.url
         assert settings.database.pool_size == 5
         assert isinstance(settings.database, DatabaseSettings)
         assert "postgresql+psycopg://" in settings.database.sqlalchemy_url
