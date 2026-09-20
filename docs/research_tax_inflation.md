@@ -1,3 +1,6 @@
+> [!WARNING]
+> **LEGACY RESEARCH — NOT EXECUTABLE AUTHORITY.** This document contains historical research and known outdated/incorrect claims. It must not drive code, tax conclusions, Moadian behavior, or current-period compliance. Use `docs/ARCHITECTURE.md` as implementation authority and `docs/CURRENT_RULES_1405.md` for the reviewed 1405 status overlay. Any executable tax/legal fact still requires a verified effective-dated source snapshot.
+
 # دانشنامه جامع پژوهشی: نظام مالیاتی، حسابداری تورمی و مهندسی سپرهای مالیاتی در ایران
 ## مرجع فنی، حقوقی و عملیاتی برای توسعه ایجنت‌های هوشمند مالی و حسابداری (HesabYar-AI)
 
