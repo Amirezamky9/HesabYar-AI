@@ -1,9 +1,17 @@
+# LEGACY / NOT PRODUCTION-SAFE
+# This rule file is retained for migration/regression only.
+# The current scripts/validator.py executes string formulas with eval() and historically
+# treated unevaluable formulas as PASS. HYA-A1-FINAL forbids both behaviors.
+# Before production use, port these rules to the closed typed DSL required by
+# docs/ARCHITECTURE.md and attach verified standard revision/source metadata.
+# Current-period applicability: docs/CURRENT_RULES_1405.md
+
 # ============================================
 # قواعد اعتبارسنجی ماشین‌خوان
 # استاندارد حسابداری ۱ و قواعد cross-standard
 # ============================================
 
-version: 1.0.0
+version: 1.0.0-legacy
 standard: 1
 language: fa
 generated_at: 1403/07/01
