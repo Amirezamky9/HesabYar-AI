@@ -1,176 +1,69 @@
 ---
-name: accounting-iran-standards
+name: hesabyar-iran-accounting
 description: >
-  مهارت جامع استانداردهای حسابداری ایران برای طراحی و پیاده‌سازی
-  نرم‌افزار حسابداری. شامل ۳۵ استاندارد فعال، مفاهیم نظری گزارشگری مالی،
-  قواعد ارائه و افشا، اعتبارسنجی‌های cross-standard، و قالب‌های آماده
-  برای صورت‌های مالی. این مهارت بر اساس استانداردهای سازمان حسابرسی
-  ایران (تجدیدنظرشده ۱۳۹۷) تهیه شده است.
-version: 1.0.0
-author: Vohuman
-license: MIT
-tags:
-  - accounting
-  - iran
-  - financial-reporting
-  - ifrs
-  - auditing
-  - accounting-standards
-  - persian
-  - rtl
-language: fa-IR
-direction: rtl
-standards_count: 35
-source_url: https://thdorsan.com/sam/codificated-standards
+  Use for Iranian accounting and HesabYar-AI work: accounting-standard lookup,
+  financial-statement validation, period-aware applicability, Iranian tax-policy
+  analysis, Moadian/electronic-invoice work, and electronic commercial-books
+  compliance. Always resolve the requested accounting/tax period first, use the
+  applicable verified source/revision, and fail closed when the current source
+  is missing or unverified. For 1405 periods, enforce the current-source gates
+  documented in docs/CURRENT_RULES_1405.md and docs/ARCHITECTURE.md.
 ---
 
-# مهارت استانداردهای حسابداری ایران
+# HesabYar — Iranian Accounting & Compliance
 
-## 📋 معرفی
+Treat this file as the Skill control plane, not as the legal/standard knowledge dump.
 
-این مهارت، دانش کامل **۳۵ استاندارد حسابداری ایران** را در اختیار
-طراحان و توسعه‌دهندگان نرم‌افزارهای حسابداری قرار می‌دهد.
+## Required workflow
 
-## 🎯 دامنه کاربرد
+1. Determine the relevant **financial period / performance year / filing year / as-of date**.
+2. Read `metadata.json` and select only the standard revision applicable to that period.
+3. For 1405/current compliance work, read `docs/CURRENT_RULES_1405.md`.
+4. For implementation behavior, read `docs/ARCHITECTURE.md`; it is the normative architecture.
+5. Load only the relevant `standards/<slug>/SKILL.md` and source text.
+6. For tax/Moadian/electronic-books questions, require a source-backed effective-dated rule/profile.
+7. If a required current source is blocked, missing, disputed, or unverified, return that status instead of substituting an older rule.
 
-### ۱. طراحی نرم‌افزار حسابداری
-- پیاده‌سازی موتور حسابداری منطبق با استانداردهای ایران
-- تولید خودکار صورت‌های مالی
-- اعتبارسنجی گزارش‌های مالی
+## Current applicability gates
 
-### ۲. آموزش و مستندسازی
-- مرجع سریع برای حسابداران
-- توضیح مفاهیم نظری گزارشگری مالی
+- **Standard 43 — Revenue from Contracts with Customers:** applicable to periods beginning 1404/01/01 and later; it replaces Standards 3, 9 and 29 for those periods.
+- **Standard 44 — Leases:** applicable to periods beginning 1405/01/01 and later; it replaces Standard 21 for those periods.
+- **Standard 15 — Investments:** the repository's bundled source is legacy. For periods beginning 1405/01/01 and later, do **not** use it as current authority until the official revised-1404 source is imported and verified.
+- **Standard 35 — Income Taxes:** use for income-tax/deferred-tax accounting; do not route deferred-tax questions to Standard 22.
+- Annual tax rates, exemptions, Article 100 thresholds, Article 6 parameters and deadlines are **not timeless constants**.
 
-### ۳. حسابرسی و کنترل داخلی
-- چک‌لیست‌های انطباق با استانداردها
+## Validation rules
 
-## 📁 ساختار پروژه
-accounting-iran-standards/
-├── SKILL.md
-├── metadata.json
-├── core/
-├── standards/
-├── templates/
-├── validators/
-├── mappings/
-├── examples/
-├── scripts/
-└── logs/
+- Never use LLM arithmetic as a financial control.
+- Never treat `NOT_APPLICABLE` as `PASS`.
+- Mandatory-rule evaluation failure is `ERROR`, not `PASS`.
+- Never execute arbitrary Python/YAML expressions from accounting rules.
+- Return the source/revision/version used for every standards/tax compliance conclusion.
 
-## 📊 فهرست ۳۵ استاندارد
+## Trust boundaries
 
-### فاز ۱: صورت‌های مالی پایه
-| شماره | عنوان | IFRS |
-|-------|-------|------|
-| ۱ | ارائه صورت‌های مالی | IAS 1 |
-| ۲ | صورت جریان‌های نقدی | IAS 7 |
-| ۳۴ | رویه‌های حسابداری | IAS 8 |
-| ۳۵ | مالیات بر درآمد | IAS 12 |
+- OCR/document extraction creates candidates, never posted accounting truth.
+- Research notes and examples are explanatory only.
+- A current web result does not become executable law until the project source registry marks its snapshot `VERIFIED`.
+- Moadian TaxID/crypto/schema/endpoints must come from an active verified protocol profile.
+- Electronic commercial-book exports use versioned export profiles and compliance-calendar deadlines.
 
-### فاز ۲: دارایی‌ها
-| شماره | عنوان | IFRS |
-|-------|-------|------|
-| ۸ | موجودی مواد و کالا | IAS 2 |
-| ۱۰ | کمک‌های بلاعوض دولت | IAS 20 |
-| ۱۱ | دارایی‌های ثابت مشهود | IAS 16 |
-| ۱۳ | مخارج تأمین مالی | IAS 23 |
-| ۱۵ | سرمایه‌گذاری‌ها | IAS 39 |
-| ۱۷ | دارایی‌های نامشهود | IAS 38 |
-| ۳۲ | کاهش ارزش دارایی‌ها | IAS 36 |
-| ۴۲ | اندازه‌گیری ارزش منصفانه | IFRS 13 |
+## Repository navigation
 
-### فاز ۳: بدهی‌ها و تعهدات
-| شماره | عنوان | IFRS |
-|-------|-------|------|
-| ۴ | ذخایر و بدهی‌های احتمالی | IAS 37 |
-| ۵ | رویدادهای بعد از ترازنامه | IAS 10 |
-| ۳۳ | مزایای بازنشستگی | IAS 19 |
-| ۴۴ | اجاره‌ها | IFRS 16 |
+- `docs/ARCHITECTURE.md` — implementation authority.
+- `docs/CURRENT_RULES_1405.md` — current-year evidence/status overlay.
+- `metadata.json` — period-aware standards catalog.
+- `standards/` — per-standard summaries and bundled source texts.
+- `validators/` — legacy validation rules; safe typed DSL migration is required by architecture.
+- `mappings/` — informational crosswalks; never use IFRS equivalence as proof of identical Iranian requirements.
 
-### فاز ۴: درآمد و ارز
-| شماره | عنوان | IFRS |
-|-------|-------|------|
-| ۱۶ | تغییر نرخ ارز | IAS 21 |
-| ۲۶ | فعالیت‌های کشاورزی | IAS 41 |
-| ۴۳ | درآمد از قرارداد | IFRS 15 |
+## Output discipline
 
-### فاز ۵: تلفیق و سرمایه‌گذاری‌ها
-| شماره | عنوان | IFRS |
-|-------|-------|------|
-| ۱۸ | صورت‌های مالی جداگانه | IAS 27 |
-| ۲۰ | واحدهای وابسته | IAS 28 |
-| ۳۸ | ترکیب‌های تجاری | IFRS 3 |
-| ۳۹ | صورت‌های تلفیقی | IFRS 10 |
-| ۴۰ | مشارکت‌ها | IFRS 11 |
-| ۴۱ | افشای منافع | IFRS 12 |
+For any current-period accounting/tax answer include, where applicable:
 
-### فاز ۶: افشا و گزارشگری خاص
-| شماره | عنوان | IFRS |
-|-------|-------|------|
-| ۱۲ | اشخاص وابسته | IAS 24 |
-| ۲۲ | گزارشگری میان‌دوره‌ای | IAS 34 |
-| ۲۴ | قبل از بهره‌برداری | — |
-| ۲۵ | قسمت‌های مختلف | IFRS 8 |
-| ۳۰ | سود هر سهم | IAS 33 |
-| ۳۱ | غیرجاری برای فروش | IFRS 5 |
-
-### فاز ۷: صنایع خاص
-| شماره | عنوان | IFRS |
-|-------|-------|------|
-| ۲۷ | مزایای بازنشستگی | IAS 26 |
-| ۲۸ | بیمه عمومی | IFRS 4/17 |
-
-### فاز ۸: ابزارهای مالی
-| شماره | عنوان | IFRS |
-|-------|-------|------|
-| ۳۶ | ابزارهای مالی: ارائه | IAS 32 |
-| ۳۷ | ابزارهای مالی: افشا | IFRS 7 |
-
-## 🔧 نحوه استفاده
-
-### برای طراحی نرم‌افزار
-1. `metadata.json` را بخوان
-2. `core/` را بخوان
-3. پوشه استاندارد مربوطه را باز کن
-4. `SKILL.md` هر استاندارد شامل خلاصه
-5. `source/standard.md` متن کامل
-6. از `templates/` برای قالب‌ها
-7. از `validators/` برای اعتبارسنجی
-
-## 📚 مفاهیم کلیدی مشترک
-
-- **ارائه منصفانه**: بیان صادقانه معاملات
-- **تداوم فعالیت**: فرض ادامه فعالیت
-- **مبنای تعهدی**: شناسایی در زمان تحقق
-- **اهمیت**: تأثیر بر تصمیمات اقتصادی
-- **تهاتر**: ممنوعیت تسویه دارایی با بدهی
-
-## 📝 قواعد مهم برای نرم‌افزار
-
-### ۱. طبقه‌بندی جاری/غیرجاری (استاندارد ۱)
-- **دارایی جاری:** تبدیل به نقد در ۱۲ ماه
-- **بدهی جاری:** سررسید در ۱۲ ماه
-- **نقض قرارداد وام:** طبقه‌بندی جاری
-
-### ۲. حداقل اقلام صورت‌ها
-- صورت وضعیت مالی: ۱۸ قلم
-- صورت سود و زیان: ۷ قلم
-- صورت سود و زیان جامع: ۴ قلم
-
-### ۳. اطلاعات مقایسه‌ای
-- حداقل یک دوره قبل
-- در صورت تجدید ارائه: سه صورت وضعیت مالی
-
-### ۴. تهاتر
-- ممنوعیت تهاتر دارایی/بدهی و درآمد/هزینه
-
-## 📄 مجوز
-
-تحت مجوز MIT.
-
-## 🔄 به‌روزرسانی
-
-- **نسخه:** ۱.۰.۰
-- **منبع:** https://thdorsan.com/sam/codificated-standards
-- **آخرین تجدیدنظر:** ۱۳۹۷
+- applicable period;
+- standard/rule revision;
+- verification status;
+- source/provenance;
+- missing evidence or blocked source;
+- whether professional/manual review is required.
