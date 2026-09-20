@@ -73,6 +73,7 @@ def generate_metadata(standards: list) -> dict:
             "title": std["title"],
             "slug": slug,
             "ifrs_equivalent": info.get("ifrs"),
+            "ifrs_mapping_status": info.get("mapping_status", "mapped"),
             "title_en": info.get("title_en"),
             "phase": info.get("phase"),
             "phase_name": PHASE_NAMES.get(info.get("phase"), ""),
