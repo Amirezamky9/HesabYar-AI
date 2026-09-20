@@ -29,7 +29,7 @@ IFRS_MAPPING = {
     11: {"ifrs": "IAS 16",        "title_en": "Property, Plant and Equipment",               "phase": 2},
     12: {"ifrs": "IAS 24",        "title_en": "Related Party Disclosures",                   "phase": 6},
     13: {"ifrs": "IAS 23",        "title_en": "Borrowing Costs",                             "phase": 2},
-    15: {"ifrs": "IAS 39/IFRS 9", "title_en": "Investments",                                 "phase": 2},
+    15: {"ifrs": None,            "title_en": "Investments",                                 "phase": 2, "mapping_status": "reverify_current_revision"},
     16: {"ifrs": "IAS 21",        "title_en": "Effects of Changes in Foreign Exchange",      "phase": 4},
     17: {"ifrs": "IAS 38",        "title_en": "Intangible Assets",                           "phase": 2},
     18: {"ifrs": "IAS 27",        "title_en": "Separate Financial Statements",               "phase": 5},
