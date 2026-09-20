@@ -12,6 +12,28 @@ from config import (
 logger = logging.getLogger(__name__)
 
 
+CURRENT_OVERRIDES = {
+    15: {
+        "status": "blocked_current_source_gap",
+        "source_revision": "legacy-bundled",
+        "effective_to": "1404/12/29",
+        "current_from": "1405/01/01",
+        "current_requirement": "Import and verify the official revised-1404 Standard 15 before use for periods beginning 1405/01/01 or later.",
+    },
+    43: {
+        "status": "active",
+        "source_revision": "approved-1402",
+        "effective_from": "1404/01/01",
+        "supersedes": [3, 9, 29],
+    },
+    44: {
+        "status": "active",
+        "source_revision": "approved-1404",
+        "effective_from": "1405/01/01",
+        "supersedes": [21],
+    },
+}
+
 PHASE_NAMES = {
     1: "صورت‌های مالی پایه",
     2: "دارایی‌ها",
@@ -28,7 +50,7 @@ def generate_metadata(standards: list) -> dict:
     """تولید متادیتای کامل"""
     metadata = {
         "name": "accounting-iran-standards",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "generated_at": datetime.now().isoformat(),
         "source_url": SOURCE_URL,
         "standards_count": len(standards),
@@ -43,6 +65,7 @@ def generate_metadata(standards: list) -> dict:
         skill_path = STANDARDS_DIR / slug / "SKILL.md"
         md_path = STANDARDS_DIR / slug / "source" / "standard.md"
 
+        override = CURRENT_OVERRIDES.get(num, {})
         metadata["standards"].append({
             "number": num,
             "title": std["title"],
@@ -51,7 +74,13 @@ def generate_metadata(standards: list) -> dict:
             "title_en": info.get("title_en"),
             "phase": info.get("phase"),
             "phase_name": PHASE_NAMES.get(info.get("phase"), ""),
-            "status": "active",
+            "status": override.get("status", "active"),
+            "source_revision": override.get("source_revision"),
+            "effective_from": override.get("effective_from"),
+            "effective_to": override.get("effective_to"),
+            "current_from": override.get("current_from"),
+            "current_requirement": override.get("current_requirement"),
+            "supersedes": override.get("supersedes", []),
             "has_skill_md": skill_path.exists(),
             "has_markdown": md_path.exists(),
             "word_url": std.get("word_url", ""),
