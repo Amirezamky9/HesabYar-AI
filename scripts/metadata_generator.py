@@ -53,6 +53,8 @@ def generate_metadata(standards: list) -> dict:
         "version": "1.1.0",
         "generated_at": datetime.now().isoformat(),
         "source_url": SOURCE_URL,
+        "current_rules_baseline": "HYA-RULES-1405-01",
+        "current_rules_as_of": "1405/06/29",
         "standards_count": len(standards),
         "phases": {str(k): v for k, v in PHASE_NAMES.items()},
         "standards": [],
@@ -120,26 +122,30 @@ def generate_mapping_md(metadata: dict) -> None:
 
     for phase in sorted(by_phase.keys()):
         lines.append(f"### فاز {phase}: {PHASE_NAMES.get(phase, 'نامشخص')}\n\n")
-        lines.append("| شماره | عنوان | IFRS | عنوان انگلیسی |\n")
-        lines.append("|-------|-------|------|----------------|\n")
+        lines.append("| شماره | عنوان | IFRS | وضعیت | اجرا از | عنوان انگلیسی |\n")
+        lines.append("|-------|-------|------|--------|---------|----------------|\n")
         for std in by_phase[phase]:
             ifrs = std.get("ifrs_equivalent") or "—"
             title_en = std.get("title_en") or "—"
+            status = std.get("status") or "unknown"
+            effective_from = std.get("effective_from") or "—"
             lines.append(
-                f"| {std['number']} | {std['title']} | {ifrs} | {title_en} |\n"
+                f"| {std['number']} | {std['title']} | {ifrs} | {status} | {effective_from} | {title_en} |\n"
             )
         lines.append("\n")
 
     # جدول کامل
     lines.append("\n## جدول کامل\n\n")
-    lines.append("| شماره | عنوان | IFRS | فاز | SKILL.md |\n")
-    lines.append("|-------|-------|------|-----|----------|\n")
+    lines.append("| شماره | عنوان | IFRS | فاز | وضعیت | اجرا از | SKILL.md |\n")
+    lines.append("|-------|-------|------|-----|--------|---------|----------|\n")
     for std in metadata["standards"]:
         ifrs = std.get("ifrs_equivalent") or "—"
         phase = std.get("phase") or "—"
         skill = "✅" if std["has_skill_md"] else "❌"
+        status = std.get("status") or "unknown"
+        effective_from = std.get("effective_from") or "—"
         lines.append(
-            f"| {std['number']} | {std['title']} | {ifrs} | {phase} | {skill} |\n"
+            f"| {std['number']} | {std['title']} | {ifrs} | {phase} | {status} | {effective_from} | {skill} |\n"
         )
 
     MAPPING_FILE.write_text("".join(lines), encoding="utf-8")
