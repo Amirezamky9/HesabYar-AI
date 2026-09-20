@@ -31,7 +31,8 @@
       "source_revision": null,
       "effective_from": null,
       "effective_to": null,
-      "supersedes": []
+      "supersedes": [],
+      "ifrs_mapping_status": "mapped"
     },
     {
       "number": 2,
@@ -49,7 +50,8 @@
       "source_revision": null,
       "effective_from": null,
       "effective_to": null,
-      "supersedes": []
+      "supersedes": [],
+      "ifrs_mapping_status": "mapped"
     },
     {
       "number": 4,
@@ -67,7 +69,8 @@
       "source_revision": null,
       "effective_from": null,
       "effective_to": null,
-      "supersedes": []
+      "supersedes": [],
+      "ifrs_mapping_status": "mapped"
     },
     {
       "number": 5,
@@ -85,7 +88,8 @@
       "source_revision": null,
       "effective_from": null,
       "effective_to": null,
-      "supersedes": []
+      "supersedes": [],
+      "ifrs_mapping_status": "mapped"
     },
     {
       "number": 8,
@@ -103,7 +107,8 @@
       "source_revision": null,
       "effective_from": null,
       "effective_to": null,
-      "supersedes": []
+      "supersedes": [],
+      "ifrs_mapping_status": "mapped"
     },
     {
       "number": 10,
@@ -121,7 +126,8 @@
       "source_revision": null,
       "effective_from": null,
       "effective_to": null,
-      "supersedes": []
+      "supersedes": [],
+      "ifrs_mapping_status": "mapped"
     },
     {
       "number": 11,
@@ -139,7 +145,8 @@
       "source_revision": null,
       "effective_from": null,
       "effective_to": null,
-      "supersedes": []
+      "supersedes": [],
+      "ifrs_mapping_status": "mapped"
     },
     {
       "number": 12,
@@ -157,7 +164,8 @@
       "source_revision": null,
       "effective_from": null,
       "effective_to": null,
-      "supersedes": []
+      "supersedes": [],
+      "ifrs_mapping_status": "mapped"
     },
     {
       "number": 13,
@@ -175,13 +183,14 @@
       "source_revision": null,
       "effective_from": null,
       "effective_to": null,
-      "supersedes": []
+      "supersedes": [],
+      "ifrs_mapping_status": "mapped"
     },
     {
       "number": 15,
       "title": "استاندارد حسابداری شماره 15 - حسابداری سرمایه‌گذاری ها",
       "slug": "15-investments",
-      "ifrs_equivalent": "IAS 39/IFRS 9",
+      "ifrs_equivalent": null,
       "title_en": "Investments",
       "phase": 2,
       "phase_name": "دارایی‌ها",
@@ -194,7 +203,8 @@
       "effective_to": "1404/12/29",
       "current_from": "1405/01/01",
       "current_requirement": "Import and verify the official revised-1404 Standard 15 before use for periods beginning 1405/01/01 or later.",
-      "supersedes": []
+      "supersedes": [],
+      "ifrs_mapping_status": "reverify_current_revision"
     },
     {
       "number": 16,
@@ -212,7 +222,8 @@
       "source_revision": null,
       "effective_from": null,
       "effective_to": null,
-      "supersedes": []
+      "supersedes": [],
+      "ifrs_mapping_status": "mapped"
     },
     {
       "number": 17,
@@ -230,7 +241,8 @@
       "source_revision": null,
       "effective_from": null,
       "effective_to": null,
-      "supersedes": []
+      "supersedes": [],
+      "ifrs_mapping_status": "mapped"
     },
     {
       "number": 18,
@@ -248,7 +260,8 @@
       "source_revision": null,
       "effective_from": null,
       "effective_to": null,
-      "supersedes": []
+      "supersedes": [],
+      "ifrs_mapping_status": "mapped"
     },
     {
       "number": 20,
@@ -266,7 +279,8 @@
       "source_revision": null,
       "effective_from": null,
       "effective_to": null,
-      "supersedes": []
+      "supersedes": [],
+      "ifrs_mapping_status": "mapped"
     },
     {
       "number": 22,
@@ -284,7 +298,8 @@
       "source_revision": null,
       "effective_from": null,
       "effective_to": null,
-      "supersedes": []
+      "supersedes": [],
+      "ifrs_mapping_status": "mapped"
     },
     {
       "number": 24,
@@ -302,7 +317,8 @@
       "source_revision": null,
       "effective_from": null,
       "effective_to": null,
-      "supersedes": []
+      "supersedes": [],
+      "ifrs_mapping_status": "mapped"
     },
     {
       "number": 25,
@@ -320,7 +336,8 @@
       "source_revision": null,
       "effective_from": null,
       "effective_to": null,
-      "supersedes": []
+      "supersedes": [],
+      "ifrs_mapping_status": "mapped"
     },
     {
       "number": 26,
@@ -338,7 +355,8 @@
       "source_revision": null,
       "effective_from": null,
       "effective_to": null,
-      "supersedes": []
+      "supersedes": [],
+      "ifrs_mapping_status": "mapped"
     },
     {
       "number": 27,
@@ -356,7 +374,8 @@
       "source_revision": null,
       "effective_from": null,
       "effective_to": null,
-      "supersedes": []
+      "supersedes": [],
+      "ifrs_mapping_status": "mapped"
     },
     {
       "number": 28,
@@ -374,7 +393,8 @@
       "source_revision": null,
       "effective_from": null,
       "effective_to": null,
-      "supersedes": []
+      "supersedes": [],
+      "ifrs_mapping_status": "mapped"
     },
     {
       "number": 30,
@@ -392,7 +412,8 @@
       "source_revision": null,
       "effective_from": null,
       "effective_to": null,
-      "supersedes": []
+      "supersedes": [],
+      "ifrs_mapping_status": "mapped"
     },
     {
       "number": 31,
@@ -410,7 +431,8 @@
       "source_revision": null,
       "effective_from": null,
       "effective_to": null,
-      "supersedes": []
+      "supersedes": [],
+      "ifrs_mapping_status": "mapped"
     },
     {
       "number": 32,
@@ -428,7 +450,8 @@
       "source_revision": null,
       "effective_from": null,
       "effective_to": null,
-      "supersedes": []
+      "supersedes": [],
+      "ifrs_mapping_status": "mapped"
     },
     {
       "number": 33,
@@ -446,7 +469,8 @@
       "source_revision": null,
       "effective_from": null,
       "effective_to": null,
-      "supersedes": []
+      "supersedes": [],
+      "ifrs_mapping_status": "mapped"
     },
     {
       "number": 34,
@@ -464,7 +488,8 @@
       "source_revision": null,
       "effective_from": null,
       "effective_to": null,
-      "supersedes": []
+      "supersedes": [],
+      "ifrs_mapping_status": "mapped"
     },
     {
       "number": 35,
@@ -482,7 +507,8 @@
       "source_revision": null,
       "effective_from": null,
       "effective_to": null,
-      "supersedes": []
+      "supersedes": [],
+      "ifrs_mapping_status": "mapped"
     },
     {
       "number": 36,
@@ -500,7 +526,8 @@
       "source_revision": null,
       "effective_from": null,
       "effective_to": null,
-      "supersedes": []
+      "supersedes": [],
+      "ifrs_mapping_status": "mapped"
     },
     {
       "number": 37,
@@ -518,7 +545,8 @@
       "source_revision": null,
       "effective_from": null,
       "effective_to": null,
-      "supersedes": []
+      "supersedes": [],
+      "ifrs_mapping_status": "mapped"
     },
     {
       "number": 38,
@@ -536,7 +564,8 @@
       "source_revision": null,
       "effective_from": null,
       "effective_to": null,
-      "supersedes": []
+      "supersedes": [],
+      "ifrs_mapping_status": "mapped"
     },
     {
       "number": 39,
@@ -554,7 +583,8 @@
       "source_revision": null,
       "effective_from": null,
       "effective_to": null,
-      "supersedes": []
+      "supersedes": [],
+      "ifrs_mapping_status": "mapped"
     },
     {
       "number": 40,
@@ -572,7 +602,8 @@
       "source_revision": null,
       "effective_from": null,
       "effective_to": null,
-      "supersedes": []
+      "supersedes": [],
+      "ifrs_mapping_status": "mapped"
     },
     {
       "number": 41,
@@ -590,7 +621,8 @@
       "source_revision": null,
       "effective_from": null,
       "effective_to": null,
-      "supersedes": []
+      "supersedes": [],
+      "ifrs_mapping_status": "mapped"
     },
     {
       "number": 42,
@@ -608,7 +640,8 @@
       "source_revision": null,
       "effective_from": null,
       "effective_to": null,
-      "supersedes": []
+      "supersedes": [],
+      "ifrs_mapping_status": "mapped"
     },
     {
       "number": 43,
@@ -629,7 +662,8 @@
         3,
         9,
         29
-      ]
+      ],
+      "ifrs_mapping_status": "mapped"
     },
     {
       "number": 44,
@@ -648,7 +682,8 @@
       "effective_from": "1405/01/01",
       "supersedes": [
         21
-      ]
+      ],
+      "ifrs_mapping_status": "mapped"
     }
   ],
   "current_rules_baseline": "HYA-RULES-1405-01",
