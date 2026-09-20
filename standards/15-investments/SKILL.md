@@ -6,12 +6,16 @@ revision: 1397
 ifrs-equivalent: IAS 39/IFRS 9
 title-en: Investments
 phase: 2
-status: active
+status: blocked-current-source-gap
 source: https://thdorsan.com/sam/codificated-standards
 headings-count: 16
 clauses-count: 62
 sections-count: 16
 ---
+
+> [!CAUTION]
+> **Current-period gate (1405+): BLOCKED_SOURCE_GAP.** The bundled text in this folder is the legacy Standard 15 (its own date-of-effect section points to 1380). A revised Standard 15 approved in 1404 is applicable to periods beginning 1405/01/01 and later. Do not use this bundled text as current authority for 1405+ accounting, validation, posting, or advice until the official revised-1404 source is imported, hashed, versioned, and marked VERIFIED in the project source registry. See `docs/CURRENT_RULES_1405.md` and `docs/ARCHITECTURE.md`.
+
 # استاندارد حسابداری 15: حسابداری سرمایه‌گذاریها
 
 ## فهرست عناوین

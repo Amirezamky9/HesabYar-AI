@@ -12,6 +12,10 @@ headings-count: 0
 clauses-count: 133
 sections-count: 0
 ---
+
+> [!IMPORTANT]
+> **Current applicability:** Standard 43 is effective for financial periods beginning 1404/01/01 and later and replaces Standards 3, 9 and 29 for those periods. Resolve the reporting period before applying this Skill. See `docs/CURRENT_RULES_1405.md`.
+
 # استاندارد حسابداری 43: فهرست‌ مندرجات
 
 ## بندهای کلیدی

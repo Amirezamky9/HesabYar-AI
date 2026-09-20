@@ -24,7 +24,7 @@ Following the open-source lineage tradition established by projects like **OmniR
 **HesabYar-AI** is a direct continuation and evolution of [`seiahposh/accounting-iran-standards`](https://github.com/seiahposh/accounting-iran-standards), originally created and authored by **Vohuman (`seiahposh`)**. 
 
 We express our deepest gratitude and highest respect to **Vohuman** for the monumental effort of:
-- Curating and structuring all **35 active Iranian Accounting Standards** (استانداردهای ۳۵‌گانه حسابداری ایران) based on official Auditing Organization standards.
+- Curating and structuring a **35-standard Iranian accounting corpus** (استانداردهای حسابداری ایران). Current applicability is now period-aware: Standards 43 and 44 have explicit effective dates, and the bundled Standard 15 source is blocked for 1405+ until its revised-1404 official text is imported and verified.
 - Formulating **36 machine-readable validation rules** (`validators/rules.yaml`) across core financial statements.
 - Establishing standardized **YAML financial statement templates** (balance sheet, income statement, cash flow, equity changes).
 - Mapping Iranian standards to international standards (**IFRS / IAS equivalents**).
@@ -223,7 +223,9 @@ print(f"قواعد کنترل متقابل: {len(rules['cross_checks'])}")
 
 ---
 
-## 📊 فهرست استانداردهای ۳۵‌گانه حسابداری ایران | Iranian Accounting Standards
+## 📊 فهرست استانداردهای حسابداری ایران | Iranian Accounting Standards
+
+> **Current-period warning (1405):** this table is a catalog, not proof that every bundled source is current. Use `metadata.json` + `docs/CURRENT_RULES_1405.md`. Standard 43 applies from 1404/01/01 and replaces 3/9/29; Standard 44 applies from 1405/01/01 and replaces 21; bundled Standard 15 is legacy and blocked for 1405+ until the official revised-1404 source is verified.
 
 | شماره | عنوان استاندارد | استاندارد معادل بین‌المللی (IFRS / IAS) | دسته‌بندی |
 | :---: | :--- | :---: | :--- |
@@ -236,12 +238,11 @@ print(f"قواعد کنترل متقابل: {len(rules['cross_checks'])}")
 | **۱۱** | دارایی‌های ثابت مشهود | IAS 16 | دارایی‌ها |
 | **۱۲** | افشای اطلاعات اشخاص وابسته | IAS 24 | افشا و گزارشگری خاص |
 | **۱۳** | مخارج تأمین مالی | IAS 23 | دارایی‌ها |
-| **۱۵** | حسابداری سرمایه‌گذاری‌ها | IAS 39 / IFRS 9 | دارایی‌ها |
+| **۱۵** | حسابداری سرمایه‌گذاری‌ها — **منبع جاری ۱۴۰۵ در repo ناقص/مسدود** | نیازمند بازاعتبارسنجی نگاشت نسخه ۱۴۰۴ | دارایی‌ها |
 | **۱۶** | آثار تغییر در نرخ ارز | IAS 21 | درآمد و ارز |
 | **۱۷** | دارایی‌های نامشهود | IAS 38 | دارایی‌ها |
 | **۱۸** | صورت‌های مالی جداگانه | IAS 27 | تلفیق و سرمایه‌گذاری‌ها |
 | **۲۰** | سرمایه‌گذاری در واحدهای تجاری وابسته | IAS 28 | تلفیق و سرمایه‌گذاری‌ها |
-| **۲۱** | حسابداری اجاره‌ها (تجدیدنظر شده در استاندارد ۴۴) | IAS 17 | بدهی‌ها و تعهدات |
 | **۲۲** | گزارشگری مالی میان‌دوره‌ای | IAS 34 | افشا و گزارشگری خاص |
 | **۲۴** | گزارشگری مالی واحدهای تجاری در مرحله قبل از بهره‌برداری | — | افشا و گزارشگری خاص |
 | **۲۵** | گزارشگری بر حسب قسمت‌های مختلف | IFRS 8 | افشا و گزارشگری خاص |
@@ -261,14 +262,17 @@ print(f"قواعد کنترل متقابل: {len(rules['cross_checks'])}")
 | **۴۰** | مشارکت‌ها | IFRS 11 | تلفیق و سرمایه‌گذاری‌ها |
 | **۴۱** | افشای منافع در واحدهای تجاری دیگر | IFRS 12 | تلفیق و سرمایه‌گذاری‌ها |
 | **۴۲** | اندازه‌گیری ارزش منصفانه | IFRS 13 | دارایی‌ها و اندازه‌گیری |
-| **۴۳** | درآمد عملیاتی حاصل از قرارداد با مشتریان | IFRS 15 | درآمد و ارز |
-| **۴۴** | اجاره‌ها (جایگزین استاندارد ۲۱) | IFRS 16 | بدهی‌ها و تعهدات |
+| **۴۳** | درآمد عملیاتی حاصل از قرارداد با مشتریان — لازم‌الاجرا از ۱۴۰۴/۰۱/۰۱ | IFRS 15 | درآمد و ارز |
+| **۴۴** | اجاره‌ها — لازم‌الاجرا از ۱۴۰۵/۰۱/۰۱، جایگزین استاندارد ۲۱ | IFRS 16 | بدهی‌ها و تعهدات |
 
 ---
 
 ## 🗺️ نقشه راه توسعه | Development Roadmap
 
-- [x] **پایه‌گذاری مخزن و مستندسازی ۳۵ استاندارد حسابداری** (با تشکر از Vohuman)
+- [x] **پایه‌گذاری مخزن و مستندسازی corpus استانداردهای حسابداری** (با تشکر از Vohuman)
+- [x] **افزودن current-rules baseline برای ۱۴۰۵ و effective-date gates برای استانداردهای ۱۵/۴۳/۴۴**
+- [ ] **واردکردن و راستی‌آزمایی متن رسمی تجدیدنظر ۱۴۰۴ استاندارد ۱۵ برای دوره‌های ۱۴۰۵+**
+- [ ] **پیاده‌سازی Electronic Commercial Books export/compliance با schema profile و compliance calendar**
 - [x] **قواعد اعتبارسنجی ۳۶‌گانه و موتور اعتبارسنجی صورت‌های مالی**
 - [x] **افزودن تست‌های اتوماتیک با pytest و خط لوله CI/CD در GitHub Actions**
 - [ ] **طراحی و پیاده‌سازی سرور پروتکل کانتکست مدل (HesabYar MCP Server)**

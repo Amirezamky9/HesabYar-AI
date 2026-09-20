@@ -12,6 +12,28 @@ from config import (
 logger = logging.getLogger(__name__)
 
 
+CURRENT_OVERRIDES = {
+    15: {
+        "status": "blocked_current_source_gap",
+        "source_revision": "legacy-bundled",
+        "effective_to": "1404/12/29",
+        "current_from": "1405/01/01",
+        "current_requirement": "Import and verify the official revised-1404 Standard 15 before use for periods beginning 1405/01/01 or later.",
+    },
+    43: {
+        "status": "active",
+        "source_revision": "approved-1402",
+        "effective_from": "1404/01/01",
+        "supersedes": [3, 9, 29],
+    },
+    44: {
+        "status": "active",
+        "source_revision": "approved-1404",
+        "effective_from": "1405/01/01",
+        "supersedes": [21],
+    },
+}
+
 PHASE_NAMES = {
     1: "صورت‌های مالی پایه",
     2: "دارایی‌ها",
@@ -28,9 +50,11 @@ def generate_metadata(standards: list) -> dict:
     """تولید متادیتای کامل"""
     metadata = {
         "name": "accounting-iran-standards",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "generated_at": datetime.now().isoformat(),
         "source_url": SOURCE_URL,
+        "current_rules_baseline": "HYA-RULES-1405-01",
+        "current_rules_as_of": "1405/06/29",
         "standards_count": len(standards),
         "phases": {str(k): v for k, v in PHASE_NAMES.items()},
         "standards": [],
@@ -43,15 +67,23 @@ def generate_metadata(standards: list) -> dict:
         skill_path = STANDARDS_DIR / slug / "SKILL.md"
         md_path = STANDARDS_DIR / slug / "source" / "standard.md"
 
+        override = CURRENT_OVERRIDES.get(num, {})
         metadata["standards"].append({
             "number": num,
             "title": std["title"],
             "slug": slug,
             "ifrs_equivalent": info.get("ifrs"),
+            "ifrs_mapping_status": info.get("mapping_status", "mapped"),
             "title_en": info.get("title_en"),
             "phase": info.get("phase"),
             "phase_name": PHASE_NAMES.get(info.get("phase"), ""),
-            "status": "active",
+            "status": override.get("status", "active"),
+            "source_revision": override.get("source_revision"),
+            "effective_from": override.get("effective_from"),
+            "effective_to": override.get("effective_to"),
+            "current_from": override.get("current_from"),
+            "current_requirement": override.get("current_requirement"),
+            "supersedes": override.get("supersedes", []),
             "has_skill_md": skill_path.exists(),
             "has_markdown": md_path.exists(),
             "word_url": std.get("word_url", ""),
@@ -91,26 +123,30 @@ def generate_mapping_md(metadata: dict) -> None:
 
     for phase in sorted(by_phase.keys()):
         lines.append(f"### فاز {phase}: {PHASE_NAMES.get(phase, 'نامشخص')}\n\n")
-        lines.append("| شماره | عنوان | IFRS | عنوان انگلیسی |\n")
-        lines.append("|-------|-------|------|----------------|\n")
+        lines.append("| شماره | عنوان | IFRS | وضعیت | اجرا از | عنوان انگلیسی |\n")
+        lines.append("|-------|-------|------|--------|---------|----------------|\n")
         for std in by_phase[phase]:
             ifrs = std.get("ifrs_equivalent") or "—"
             title_en = std.get("title_en") or "—"
+            status = std.get("status") or "unknown"
+            effective_from = std.get("effective_from") or "—"
             lines.append(
-                f"| {std['number']} | {std['title']} | {ifrs} | {title_en} |\n"
+                f"| {std['number']} | {std['title']} | {ifrs} | {status} | {effective_from} | {title_en} |\n"
             )
         lines.append("\n")
 
     # جدول کامل
     lines.append("\n## جدول کامل\n\n")
-    lines.append("| شماره | عنوان | IFRS | فاز | SKILL.md |\n")
-    lines.append("|-------|-------|------|-----|----------|\n")
+    lines.append("| شماره | عنوان | IFRS | فاز | وضعیت | اجرا از | SKILL.md |\n")
+    lines.append("|-------|-------|------|-----|--------|---------|----------|\n")
     for std in metadata["standards"]:
         ifrs = std.get("ifrs_equivalent") or "—"
         phase = std.get("phase") or "—"
         skill = "✅" if std["has_skill_md"] else "❌"
+        status = std.get("status") or "unknown"
+        effective_from = std.get("effective_from") or "—"
         lines.append(
-            f"| {std['number']} | {std['title']} | {ifrs} | {phase} | {skill} |\n"
+            f"| {std['number']} | {std['title']} | {ifrs} | {phase} | {status} | {effective_from} | {skill} |\n"
         )
 
     MAPPING_FILE.write_text("".join(lines), encoding="utf-8")

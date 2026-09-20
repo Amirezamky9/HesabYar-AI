@@ -12,6 +12,10 @@ headings-count: 33
 clauses-count: 104
 sections-count: 0
 ---
+
+> [!IMPORTANT]
+> **Current applicability:** Standard 44 is effective for financial periods beginning 1405/01/01 and later and replaces Standard 21 for those periods. Resolve the reporting period before applying this Skill. See `docs/CURRENT_RULES_1405.md`.
+
 # استاندارد حسابداری 44: اجاره‌ها
 
 ## فهرست عناوین
