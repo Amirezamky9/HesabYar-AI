@@ -1,0 +1,109 @@
+# Annual Statutory Payroll & Tax Parameters: Solar Year 1404
+# Period: 1404/01/01 to 1404/12/29 (2025-03-21 to 2026-03-20)
+# Status: VERIFIED (Official Supreme Labor Council wage circular & 1404 Budget Law)
+
+metadata:
+  schema_version: "1.0"
+  year: 1404
+  effective_from: "2025-03-21"
+  effective_to: "2026-03-20"
+  source_authority: "شورای عالی کار و قانون بودجه سال ۱۴۰۴"
+  verification_status: "VERIFIED"
+  verified_by: "HesabYar Legal Standards Committee"
+  verified_at: "2025-04-01T00:00:00Z"
+
+parameters:
+  # Daily statutory minimum wage (مزد روزانه حداقل ۱۴۰۴: ۲،۳۸۸،۷۲۸ ریال)
+  daily_minimum_wage_irr:
+    value: 2388728
+    status: "VERIFIED"
+    authority_doc: "بخشنامه مزد شماره ۲۷۶ شورای عالی کار سال ۱۴۰۴"
+
+  # Other wage levels increase (سایر سطوح مزدی: ۲۲٪ به اضافه ۲۳۰،۰۲۶ ریال روزانه)
+  other_levels:
+    percentage_increase:
+      value: "0.22"
+      status: "VERIFIED"
+    daily_fixed_addition_irr:
+      value: 230026
+      status: "VERIFIED"
+
+  # Monthly housing allowance (حق مسکن ماهانه: ۹،۰۰۰،۰۰۰ ریال)
+  monthly_housing_allowance_irr:
+    value: 9000000
+    status: "VERIFIED"
+    authority_doc: "تصویب‌نامه شماره ۲۷۰۳۹/ت۶۲۵۴۲هـ هیئت وزیران"
+
+  # Monthly grocery / food allowance (بن کارگری / اقلام مصرفی: ۱۴،۰۰۰،۰۰۰ ریال)
+  monthly_grocery_allowance_irr:
+    value: 14000000
+    status: "VERIFIED"
+    authority_doc: "بند ۲ بخشنامه مزد سال ۱۴۰۴"
+
+  # Daily seniority base rate (پایه سنوات روزانه: ۷۰،۰۰۰ ریال)
+  daily_seniority_base_irr:
+    value: 70000
+    status: "VERIFIED"
+    authority_doc: "جدول پایه سنوات بخشنامه مزد سال ۱۴۰۴"
+
+  # Monthly child allowance per qualified child (۳ برابر حداقل مزد روزانه: ۷،۱۶۶،۱۸۴ ریال)
+  monthly_child_allowance_per_child_irr:
+    value: 7166184
+    formula: "3 * 2388728"
+    status: "VERIFIED"
+
+  # Monthly marriage allowance (حق تاهل ماهانه: ۵،۰۰۰،۰۰۰ ریال)
+  monthly_marriage_allowance_irr:
+    value: 5000000
+    status: "VERIFIED"
+    authority_doc: "بند ۵ بخشنامه مزد سال ۱۴۰۴"
+
+  # Social Security contribution parameters
+  social_security:
+    ceiling_multiplier: 7
+    employee_rate: "0.07"
+    employer_rate: "0.20"
+    unemployment_rate: "0.03"
+    status: "VERIFIED"
+    authority_doc: "ماده ۲۸ قانون تامین اجتماعی"
+
+  # Direct Tax Law Article 84 & 85 Salary Tax Thresholds & Brackets (قانون بودجه ۱۴۰۴)
+  salary_tax:
+    annual_exemption_ceiling_irr:
+      value: 1440000000  # 144 million Toman / year
+      status: "VERIFIED"
+      authority_doc: "بند س تبصره ۶ قانون بودجه سال ۱۴۰۴ کل کشور"
+    monthly_exemption_ceiling_irr:
+      value: 120000000   # 12 million Toman / month
+      status: "VERIFIED"
+    brackets:
+      - tier: 1
+        name: "معافیت پایه (ماده ۸۴)"
+        lower_bound_monthly_irr: 0
+        upper_bound_monthly_irr: 120000000
+        marginal_rate: "0.00"
+        status: "VERIFIED"
+      - tier: 2
+        name: "پله اول (۱۰ درصد)"
+        lower_bound_monthly_irr: 120000000
+        upper_bound_monthly_irr: 165000000
+        marginal_rate: "0.10"
+        status: "VERIFIED"
+      - tier: 3
+        name: "پله دوم (۱۵ درصد)"
+        lower_bound_monthly_irr: 165000000
+        upper_bound_monthly_irr: 270000000
+        marginal_rate: "0.15"
+        status: "VERIFIED"
+      - tier: 4
+        name: "پله سوم (۲۰ درصد)"
+        lower_bound_monthly_irr: 270000000
+        upper_bound_monthly_irr: 400000000
+        marginal_rate: "0.20"
+        status: "VERIFIED"
+      - tier: 5
+        name: "پله چهارم (۳۰ درصد)"
+        lower_bound_monthly_irr: 400000000
+        upper_bound_monthly_irr: null
+        marginal_rate: "0.30"
+        status: "VERIFIED"

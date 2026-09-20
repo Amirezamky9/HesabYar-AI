@@ -1,0 +1,115 @@
+# Annual Statutory Payroll & Tax Parameters: Solar Year 1405
+# Period: 1405/01/01 to 1405/12/29 (2026-03-21 to 2027-03-20)
+# Status: PENDING_UPDATE / DISCOVERY_ONLY (Pending official Supreme Labor Council decree & 1405 Budget Law enactment)
+
+metadata:
+  schema_version: "1.0"
+  year: 1405
+  effective_from: "2026-03-21"
+  effective_to: "2027-03-20"
+  source_authority: "شورای عالی کار و قانون بودجه کل کشور سال ۱۴۰۵"
+  verification_status: "PENDING_UPDATE"
+  verification_note: "Parameters for 1405 are pending official Supreme Labor Council publication and Cabinet housing decree. Zero hardcoded Rial values are permitted to execute in production until marked VERIFIED."
+
+parameters:
+  # Daily statutory minimum wage (مزد روزانه حداقل)
+  daily_minimum_wage_irr:
+    value: null
+    status: "PENDING_UPDATE"
+    authority_doc: "مصوبه دستمزد شورای عالی کار برای سال ۱۴۰۵"
+
+  # Other wage levels increase (سایر سطوح مزدی)
+  other_levels:
+    percentage_increase:
+      value: null
+      status: "PENDING_UPDATE"
+    daily_fixed_addition_irr:
+      value: null
+      status: "PENDING_UPDATE"
+
+  # Monthly housing allowance (حق مسکن ماهانه - نیازمند تصویب هیئت وزیران)
+  monthly_housing_allowance_irr:
+    value: null
+    status: "PENDING_UPDATE"
+    authority_doc: "تصویب‌نامه هیئت وزیران موضوع کمک‌هزینه مسکن کارگران مشمول قانون کار سال ۱۴۰۵"
+
+  # Monthly grocery / food allowance (بن کارگری / اقلام مصرفی)
+  monthly_grocery_allowance_irr:
+    value: null
+    status: "PENDING_UPDATE"
+    authority_doc: "مصوبه شورای عالی کار"
+
+  # Daily seniority base rate (پایه سنوات روزانه برای کارگران با بیش از یک سال سابقه)
+  daily_seniority_base_irr:
+    value: null
+    status: "PENDING_UPDATE"
+    authority_doc: "بخشنامه مزد سال ۱۴۰۵"
+
+  # Monthly child allowance per qualified child (کمک عائله‌مندی / حق اولاد به ازای هر فرزند)
+  # Standard formula: 3 * daily_minimum_wage_irr
+  monthly_child_allowance_per_child_irr:
+    formula: "3 * daily_minimum_wage_irr"
+    status: "DERIVED"
+
+  # Monthly marriage allowance (حق تاهل ماهانه)
+  monthly_marriage_allowance_irr:
+    value: null
+    status: "PENDING_UPDATE"
+    authority_doc: "مصوبه شورای عالی کار"
+
+  # Social Security contribution ceiling multiplier (سقف دستمزد مشمول بیمه)
+  # Standard multiplier: 7 times minimum wage
+  social_security:
+    ceiling_multiplier: 7
+    employee_rate: "0.07"
+    employer_rate: "0.20"
+    unemployment_rate: "0.03"
+    status: "VERIFIED"
+    authority_doc: "ماده ۲۸ قانون تامین اجتماعی و ماده ۵ قانون بیمه بیکاری"
+
+  # Direct Tax Law Article 84 & 85 Salary Tax Thresholds & Brackets (قانون بودجه ۱۴۰۵)
+  salary_tax:
+    annual_exemption_ceiling_irr:
+      value: null
+      status: "PENDING_UPDATE"
+      authority_doc: "بند مالیات بر حقوق تبصره احکام بودجه سال ۱۴۰۵ کل کشور"
+    monthly_exemption_ceiling_irr:
+      formula: "annual_exemption_ceiling_irr / 12"
+      status: "DERIVED"
+    brackets:
+      - tier: 1
+        name: "معافیت پایه (ماده ۸۴)"
+        lower_bound_monthly_irr: 0
+        upper_bound_monthly_irr: null  # Evaluated from monthly_exemption_ceiling
+        marginal_rate: "0.00"
+        status: "PENDING_UPDATE"
+      - tier: 2
+        name: "پله اول مالیاتی"
+        lower_bound_monthly_irr: null
+        upper_bound_monthly_irr: null
+        marginal_rate: "0.10"
+        status: "PENDING_UPDATE"
+      - tier: 3
+        name: "پله دوم مالیاتی"
+        lower_bound_monthly_irr: null
+        upper_bound_monthly_irr: null
+        marginal_rate: "0.15"
+        status: "PENDING_UPDATE"
+      - tier: 4
+        name: "پله سوم مالیاتی"
+        lower_bound_monthly_irr: null
+        upper_bound_monthly_irr: null
+        marginal_rate: "0.20"
+        status: "PENDING_UPDATE"
+      - tier: 5
+        name: "پله چهارم مالیاتی"
+        lower_bound_monthly_irr: null
+        upper_bound_monthly_irr: null
+        marginal_rate: "0.25"
+        status: "PENDING_UPDATE"
+      - tier: 6
+        name: "پله پنجم مازاد"
+        lower_bound_monthly_irr: null
+        upper_bound_monthly_irr: null
+        marginal_rate: "0.30"
+        status: "PENDING_UPDATE"

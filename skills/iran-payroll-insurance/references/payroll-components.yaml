@@ -1,0 +1,329 @@
+# Canonical Iranian Payroll Component Matrix
+# Version: 1.5.0
+# Authority: Labor Law, Social Security Law, Direct Tax Law, Supreme Labor Council Decrees
+schema_version: "1.0"
+description: "Multi-axis classification matrix for standard Iranian payroll components. Strict rejection of is_insurance_assessable == is_taxable."
+
+components:
+  - code: "BASE_WAGE"
+    name_fa: "مزد شغل / پایه"
+    name_en: "Basic Job Wage"
+    classification: "EARNING"
+    formula_key: "daily_base_wage * worked_days"
+    is_statutory: true
+    axes:
+      is_wage_base: true
+      is_insurance_assessable: true
+      is_taxable: true
+      is_overtime_base: true
+      is_night_base: true
+      is_shift_base: true
+      is_friday_base: true
+      is_severance_base: true
+      is_eidi_base: true
+      is_leave_settlement_base: true
+      is_employer_cost: false
+
+  - code: "SENIORITY_BONUS"
+    name_fa: "پایه سنوات"
+    name_en: "Seniority Bonus"
+    classification: "EARNING"
+    formula_key: "daily_seniority_rate * worked_days"
+    is_statutory: true
+    axes:
+      is_wage_base: true
+      is_insurance_assessable: true
+      is_taxable: true
+      is_overtime_base: true
+      is_night_base: true
+      is_shift_base: true
+      is_friday_base: true
+      is_severance_base: true
+      is_eidi_base: true
+      is_leave_settlement_base: true
+      is_employer_cost: false
+
+  - code: "HOUSING_ALLOWANCE"
+    name_fa: "حق مسکن"
+    name_en: "Housing Allowance"
+    classification: "EARNING"
+    formula_key: "monthly_housing_allowance / period_days * worked_days"
+    is_statutory: true
+    axes:
+      is_wage_base: false
+      is_insurance_assessable: true
+      is_taxable: false
+      is_overtime_base: false
+      is_night_base: false
+      is_shift_base: false
+      is_friday_base: false
+      is_severance_base: false
+      is_eidi_base: false
+      is_leave_settlement_base: false
+      is_employer_cost: false
+
+  - code: "GROCERY_ALLOWANCE"
+    name_fa: "بن کارگری / خواربار"
+    name_en: "Food and Grocery Voucher"
+    classification: "EARNING"
+    formula_key: "monthly_grocery_allowance / period_days * worked_days"
+    is_statutory: true
+    axes:
+      is_wage_base: false
+      is_insurance_assessable: true
+      is_taxable: false
+      is_overtime_base: false
+      is_night_base: false
+      is_shift_base: false
+      is_friday_base: false
+      is_severance_base: false
+      is_eidi_base: false
+      is_leave_settlement_base: false
+      is_employer_cost: false
+
+  - code: "CHILD_ALLOWANCE"
+    name_fa: "حق اولاد / کمک عائله‌مندی"
+    name_en: "Child Allowance"
+    classification: "EARNING"
+    formula_key: "3 * daily_minimum_wage * qualified_children_count"
+    is_statutory: true
+    axes:
+      is_wage_base: false
+      is_insurance_assessable: false
+      is_taxable: true
+      is_overtime_base: false
+      is_night_base: false
+      is_shift_base: false
+      is_friday_base: false
+      is_severance_base: false
+      is_eidi_base: false
+      is_leave_settlement_base: false
+      is_employer_cost: false
+
+  - code: "MARRIAGE_ALLOWANCE"
+    name_fa: "حق تاهل"
+    name_en: "Marriage Allowance"
+    classification: "EARNING"
+    formula_key: "monthly_marriage_allowance / period_days * worked_days"
+    is_statutory: true
+    axes:
+      is_wage_base: false
+      is_insurance_assessable: true
+      is_taxable: true
+      is_overtime_base: false
+      is_night_base: false
+      is_shift_base: false
+      is_friday_base: false
+      is_severance_base: false
+      is_eidi_base: false
+      is_leave_settlement_base: false
+      is_employer_cost: false
+
+  - code: "OVERTIME_PAY"
+    name_fa: "فوق‌العاده اضافه کاری"
+    name_en: "Overtime Pay"
+    classification: "EARNING"
+    formula_key: "overtime_hours * (hourly_wage_base * 1.40)"
+    is_statutory: true
+    axes:
+      is_wage_base: false
+      is_insurance_assessable: true
+      is_taxable: true
+      is_overtime_base: false
+      is_night_base: false
+      is_shift_base: false
+      is_friday_base: false
+      is_severance_base: false
+      is_eidi_base: false
+      is_leave_settlement_base: false
+      is_employer_cost: false
+
+  - code: "SHIFT_PAY"
+    name_fa: "فوق‌العاده نوبت کاری"
+    name_en: "Shift Work Pay"
+    classification: "EARNING"
+    formula_key: "monthly_wage_base * shift_coefficient"
+    is_statutory: true
+    axes:
+      is_wage_base: false
+      is_insurance_assessable: true
+      is_taxable: true
+      is_overtime_base: false
+      is_night_base: false
+      is_shift_base: false
+      is_friday_base: false
+      is_severance_base: false
+      is_eidi_base: false
+      is_leave_settlement_base: false
+      is_employer_cost: false
+
+  - code: "NIGHT_PREMIUM"
+    name_fa: "فوق‌العاده شب کاری"
+    name_en: "Night Work Premium"
+    classification: "EARNING"
+    formula_key: "night_hours * (hourly_wage_base * 0.35)"
+    is_statutory: true
+    axes:
+      is_wage_base: false
+      is_insurance_assessable: true
+      is_taxable: true
+      is_overtime_base: false
+      is_night_base: false
+      is_shift_base: false
+      is_friday_base: false
+      is_severance_base: false
+      is_eidi_base: false
+      is_leave_settlement_base: false
+      is_employer_cost: false
+
+  - code: "FRIDAY_PREMIUM"
+    name_fa: "فوق‌العاده جمعه کاری"
+    name_en: "Friday Work Premium"
+    classification: "EARNING"
+    formula_key: "friday_hours * (hourly_wage_base * 0.40)"
+    is_statutory: true
+    axes:
+      is_wage_base: false
+      is_insurance_assessable: true
+      is_taxable: true
+      is_overtime_base: false
+      is_night_base: false
+      is_shift_base: false
+      is_friday_base: false
+      is_severance_base: false
+      is_eidi_base: false
+      is_leave_settlement_base: false
+      is_employer_cost: false
+
+  - code: "MISSION_ALLOWANCE"
+    name_fa: "فوق‌العاده ماموریت"
+    name_en: "Mission Allowance"
+    classification: "EARNING"
+    formula_key: "mission_days * daily_mission_rate"
+    is_statutory: true
+    axes:
+      is_wage_base: false
+      is_insurance_assessable: false
+      is_taxable: false
+      is_overtime_base: false
+      is_night_base: false
+      is_shift_base: false
+      is_friday_base: false
+      is_severance_base: false
+      is_eidi_base: false
+      is_leave_settlement_base: false
+      is_employer_cost: false
+
+  - code: "PERFORMANCE_BONUS"
+    name_fa: "پاداش بهره‌وری / کارانه"
+    name_en: "Performance / Productivity Bonus"
+    classification: "EARNING"
+    formula_key: "evaluated_performance_amount"
+    is_statutory: false
+    axes:
+      is_wage_base: false
+      is_insurance_assessable: true
+      is_taxable: true
+      is_overtime_base: false
+      is_night_base: false
+      is_shift_base: false
+      is_friday_base: false
+      is_severance_base: false
+      is_eidi_base: false
+      is_leave_settlement_base: false
+      is_employer_cost: false
+
+  - code: "EIDI_BONUS"
+    name_fa: "عیدی و پاداش سالانه"
+    name_en: "Annual Eidi Bonus"
+    classification: "EARNING"
+    formula_key: "min(60 * daily_base_wage, 90 * daily_min_wage) * (worked_days / 365)"
+    is_statutory: true
+    axes:
+      is_wage_base: false
+      is_insurance_assessable: false
+      is_taxable: true
+      is_overtime_base: false
+      is_night_base: false
+      is_shift_base: false
+      is_friday_base: false
+      is_severance_base: false
+      is_eidi_base: false
+      is_leave_settlement_base: false
+      is_employer_cost: false
+
+  - code: "SEVERANCE_PAY"
+    name_fa: "حق سنوات / پایان خدمت"
+    name_en: "Severance Pay"
+    classification: "EARNING"
+    formula_key: "final_monthly_base_wage * service_years"
+    is_statutory: true
+    axes:
+      is_wage_base: false
+      is_insurance_assessable: false
+      is_taxable: false
+      is_overtime_base: false
+      is_night_base: false
+      is_shift_base: false
+      is_friday_base: false
+      is_severance_base: false
+      is_eidi_base: false
+      is_leave_settlement_base: false
+      is_employer_cost: false
+
+  - code: "LEAVE_SETTLEMENT"
+    name_fa: "بازخرید مانده مرخصی"
+    name_en: "Unused Leave Settlement"
+    classification: "EARNING"
+    formula_key: "remaining_leave_days * daily_base_wage"
+    is_statutory: true
+    axes:
+      is_wage_base: false
+      is_insurance_assessable: false
+      is_taxable: false
+      is_overtime_base: false
+      is_night_base: false
+      is_shift_base: false
+      is_friday_base: false
+      is_severance_base: false
+      is_eidi_base: false
+      is_leave_settlement_base: false
+      is_employer_cost: false
+
+  - code: "EMPLOYER_INS_20"
+    name_fa: "بیمه سهم کارفرما (۲۰٪)"
+    name_en: "Employer Social Security (20%)"
+    classification: "EMPLOYER_CONTRIBUTION"
+    formula_key: "assessable_earnings * 0.20"
+    is_statutory: true
+    axes:
+      is_wage_base: false
+      is_insurance_assessable: false
+      is_taxable: false
+      is_overtime_base: false
+      is_night_base: false
+      is_shift_base: false
+      is_friday_base: false
+      is_severance_base: false
+      is_eidi_base: false
+      is_leave_settlement_base: false
+      is_employer_cost: true
+
+  - code: "UNEMPLOYMENT_INS_3"
+    name_fa: "بیمه بیکاری (۳٪)"
+    name_en: "Unemployment Insurance (3%)"
+    classification: "EMPLOYER_CONTRIBUTION"
+    formula_key: "assessable_earnings * 0.03"
+    is_statutory: true
+    axes:
+      is_wage_base: false
+      is_insurance_assessable: false
+      is_taxable: false
+      is_overtime_base: false
+      is_night_base: false
+      is_shift_base: false
+      is_friday_base: false
+      is_severance_base: false
+      is_eidi_base: false
+      is_leave_settlement_base: false
+      is_employer_cost: true
