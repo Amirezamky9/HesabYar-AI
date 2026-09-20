@@ -59,10 +59,10 @@ jobs:
         run: uv run pytest -v
 
       - name: Check metadata
-        run: python scripts/check_metadata.py
+        run: uv run python scripts/check_metadata.py
 
       - name: Verify skill files
-        run: python scripts/verify_skill_files.py
+        run: uv run python scripts/verify_skill_files.py
 
       - name: Legacy validator sample check
-        run: python scripts/validator.py tests/sample-data.json --format markdown
+        run: uv run python scripts/validator.py tests/sample-data.json --format markdown
