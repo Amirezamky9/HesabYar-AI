@@ -1,6 +1,6 @@
 {
   "name": "accounting-iran-standards",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "generated_at": "2026-09-18T10:29:35.764167",
   "source_url": "https://thdorsan.com/sam/codificated-standards",
   "standards_count": 35,
@@ -27,7 +27,11 @@
       "has_skill_md": true,
       "has_markdown": true,
       "word_url": "https://thdorsan.com/storage/content/421-s1w.doc",
-      "pdf_url": "https://thdorsan.com/storage/content/421-s1p.pdf"
+      "pdf_url": "https://thdorsan.com/storage/content/421-s1p.pdf",
+      "source_revision": null,
+      "effective_from": null,
+      "effective_to": null,
+      "supersedes": []
     },
     {
       "number": 2,
@@ -41,7 +45,11 @@
       "has_skill_md": true,
       "has_markdown": true,
       "word_url": "https://thdorsan.com/storage/content/421-s2w.doc",
-      "pdf_url": "https://thdorsan.com/storage/content/421-s2p.pdf"
+      "pdf_url": "https://thdorsan.com/storage/content/421-s2p.pdf",
+      "source_revision": null,
+      "effective_from": null,
+      "effective_to": null,
+      "supersedes": []
     },
     {
       "number": 4,
@@ -55,7 +63,11 @@
       "has_skill_md": true,
       "has_markdown": true,
       "word_url": "https://thdorsan.com/storage/content/421-s4w.doc",
-      "pdf_url": "https://thdorsan.com/storage/content/421-s4p.pdf"
+      "pdf_url": "https://thdorsan.com/storage/content/421-s4p.pdf",
+      "source_revision": null,
+      "effective_from": null,
+      "effective_to": null,
+      "supersedes": []
     },
     {
       "number": 5,
@@ -69,7 +81,11 @@
       "has_skill_md": true,
       "has_markdown": true,
       "word_url": "https://thdorsan.com/storage/content/421-s5w.doc",
-      "pdf_url": "https://thdorsan.com/storage/content/421-s5p.pdf"
+      "pdf_url": "https://thdorsan.com/storage/content/421-s5p.pdf",
+      "source_revision": null,
+      "effective_from": null,
+      "effective_to": null,
+      "supersedes": []
     },
     {
       "number": 8,
@@ -83,7 +99,11 @@
       "has_skill_md": true,
       "has_markdown": true,
       "word_url": "https://thdorsan.com/storage/content/421-s8w.doc",
-      "pdf_url": "https://thdorsan.com/storage/content/421-s8p.pdf"
+      "pdf_url": "https://thdorsan.com/storage/content/421-s8p.pdf",
+      "source_revision": null,
+      "effective_from": null,
+      "effective_to": null,
+      "supersedes": []
     },
     {
       "number": 10,
@@ -97,7 +117,11 @@
       "has_skill_md": true,
       "has_markdown": true,
       "word_url": "https://thdorsan.com/storage/content/421-s10w.doc",
-      "pdf_url": "https://thdorsan.com/storage/content/421-s10p.pdf"
+      "pdf_url": "https://thdorsan.com/storage/content/421-s10p.pdf",
+      "source_revision": null,
+      "effective_from": null,
+      "effective_to": null,
+      "supersedes": []
     },
     {
       "number": 11,
@@ -111,7 +135,11 @@
       "has_skill_md": true,
       "has_markdown": true,
       "word_url": "https://thdorsan.com/storage/content/421-s11w.doc",
-      "pdf_url": "https://thdorsan.com/storage/content/421-s11p.pdf"
+      "pdf_url": "https://thdorsan.com/storage/content/421-s11p.pdf",
+      "source_revision": null,
+      "effective_from": null,
+      "effective_to": null,
+      "supersedes": []
     },
     {
       "number": 12,
@@ -125,7 +153,11 @@
       "has_skill_md": true,
       "has_markdown": true,
       "word_url": "https://thdorsan.com/storage/content/421-s12w.docx",
-      "pdf_url": "https://thdorsan.com/storage/content/421-s12p.pdf"
+      "pdf_url": "https://thdorsan.com/storage/content/421-s12p.pdf",
+      "source_revision": null,
+      "effective_from": null,
+      "effective_to": null,
+      "supersedes": []
     },
     {
       "number": 13,
@@ -139,7 +171,11 @@
       "has_skill_md": true,
       "has_markdown": true,
       "word_url": "https://thdorsan.com/storage/content/421-s13w.doc",
-      "pdf_url": "https://thdorsan.com/storage/content/421-s13p.pdf"
+      "pdf_url": "https://thdorsan.com/storage/content/421-s13p.pdf",
+      "source_revision": null,
+      "effective_from": null,
+      "effective_to": null,
+      "supersedes": []
     },
     {
       "number": 15,
@@ -149,11 +185,16 @@
       "title_en": "Investments",
       "phase": 2,
       "phase_name": "دارایی‌ها",
-      "status": "active",
+      "status": "blocked_current_source_gap",
       "has_skill_md": true,
       "has_markdown": true,
       "word_url": "https://thdorsan.com/storage/content/421-s15w.doc",
-      "pdf_url": "https://thdorsan.com/storage/content/421-s15p.pdf"
+      "pdf_url": "https://thdorsan.com/storage/content/421-s15p.pdf",
+      "source_revision": "legacy-bundled",
+      "effective_to": "1404/12/29",
+      "current_from": "1405/01/01",
+      "current_requirement": "Import and verify the official revised-1404 Standard 15 before use for periods beginning 1405/01/01 or later.",
+      "supersedes": []
     },
     {
       "number": 16,
@@ -167,7 +208,11 @@
       "has_skill_md": true,
       "has_markdown": true,
       "word_url": "https://thdorsan.com/storage/content/421-s16w.docx",
-      "pdf_url": "https://thdorsan.com/storage/content/421-s16p.pdf"
+      "pdf_url": "https://thdorsan.com/storage/content/421-s16p.pdf",
+      "source_revision": null,
+      "effective_from": null,
+      "effective_to": null,
+      "supersedes": []
     },
     {
       "number": 17,
@@ -181,7 +226,11 @@
       "has_skill_md": true,
       "has_markdown": true,
       "word_url": "https://thdorsan.com/storage/content/421-s17w.doc",
-      "pdf_url": "https://thdorsan.com/storage/content/421-s17p.pdf"
+      "pdf_url": "https://thdorsan.com/storage/content/421-s17p.pdf",
+      "source_revision": null,
+      "effective_from": null,
+      "effective_to": null,
+      "supersedes": []
     },
     {
       "number": 18,
@@ -195,7 +244,11 @@
       "has_skill_md": true,
       "has_markdown": true,
       "word_url": "https://thdorsan.com/storage/content/421-s18w.doc",
-      "pdf_url": "https://thdorsan.com/storage/content/421-s18p.pdf"
+      "pdf_url": "https://thdorsan.com/storage/content/421-s18p.pdf",
+      "source_revision": null,
+      "effective_from": null,
+      "effective_to": null,
+      "supersedes": []
     },
     {
       "number": 20,
@@ -209,7 +262,11 @@
       "has_skill_md": true,
       "has_markdown": true,
       "word_url": "https://thdorsan.com/storage/content/421-s20w.docx",
-      "pdf_url": "https://thdorsan.com/storage/content/421-s20p.pdf"
+      "pdf_url": "https://thdorsan.com/storage/content/421-s20p.pdf",
+      "source_revision": null,
+      "effective_from": null,
+      "effective_to": null,
+      "supersedes": []
     },
     {
       "number": 22,
@@ -223,7 +280,11 @@
       "has_skill_md": true,
       "has_markdown": true,
       "word_url": "https://thdorsan.com/storage/content/421-s22w.docx",
-      "pdf_url": "https://thdorsan.com/storage/content/421-s22p.pdf"
+      "pdf_url": "https://thdorsan.com/storage/content/421-s22p.pdf",
+      "source_revision": null,
+      "effective_from": null,
+      "effective_to": null,
+      "supersedes": []
     },
     {
       "number": 24,
@@ -237,7 +298,11 @@
       "has_skill_md": true,
       "has_markdown": true,
       "word_url": "https://thdorsan.com/storage/content/421-s24w.doc",
-      "pdf_url": "https://thdorsan.com/storage/content/421-s24p.pdf"
+      "pdf_url": "https://thdorsan.com/storage/content/421-s24p.pdf",
+      "source_revision": null,
+      "effective_from": null,
+      "effective_to": null,
+      "supersedes": []
     },
     {
       "number": 25,
@@ -251,7 +316,11 @@
       "has_skill_md": true,
       "has_markdown": true,
       "word_url": "https://thdorsan.com/storage/content/421-s25w.doc",
-      "pdf_url": "https://thdorsan.com/storage/content/421-s25p.pdf"
+      "pdf_url": "https://thdorsan.com/storage/content/421-s25p.pdf",
+      "source_revision": null,
+      "effective_from": null,
+      "effective_to": null,
+      "supersedes": []
     },
     {
       "number": 26,
@@ -265,7 +334,11 @@
       "has_skill_md": true,
       "has_markdown": true,
       "word_url": "https://thdorsan.com/storage/content/421-s26w.doc",
-      "pdf_url": "https://thdorsan.com/storage/content/421-s26p.pdf"
+      "pdf_url": "https://thdorsan.com/storage/content/421-s26p.pdf",
+      "source_revision": null,
+      "effective_from": null,
+      "effective_to": null,
+      "supersedes": []
     },
     {
       "number": 27,
@@ -279,7 +352,11 @@
       "has_skill_md": true,
       "has_markdown": true,
       "word_url": "https://thdorsan.com/storage/content/421-s27w.doc",
-      "pdf_url": "https://thdorsan.com/storage/content/421-s27p.pdf"
+      "pdf_url": "https://thdorsan.com/storage/content/421-s27p.pdf",
+      "source_revision": null,
+      "effective_from": null,
+      "effective_to": null,
+      "supersedes": []
     },
     {
       "number": 28,
@@ -293,7 +370,11 @@
       "has_skill_md": true,
       "has_markdown": true,
       "word_url": "https://thdorsan.com/storage/content/421-s28w.doc",
-      "pdf_url": "https://thdorsan.com/storage/content/421-s28p.pdf"
+      "pdf_url": "https://thdorsan.com/storage/content/421-s28p.pdf",
+      "source_revision": null,
+      "effective_from": null,
+      "effective_to": null,
+      "supersedes": []
     },
     {
       "number": 30,
@@ -307,7 +388,11 @@
       "has_skill_md": true,
       "has_markdown": true,
       "word_url": "https://thdorsan.com/storage/content/421-s30w.doc",
-      "pdf_url": "https://thdorsan.com/storage/content/421-s30p.pdf"
+      "pdf_url": "https://thdorsan.com/storage/content/421-s30p.pdf",
+      "source_revision": null,
+      "effective_from": null,
+      "effective_to": null,
+      "supersedes": []
     },
     {
       "number": 31,
@@ -321,7 +406,11 @@
       "has_skill_md": true,
       "has_markdown": true,
       "word_url": "https://thdorsan.com/storage/content/421-s31w.doc",
-      "pdf_url": "https://thdorsan.com/storage/content/421-s31p.pdf"
+      "pdf_url": "https://thdorsan.com/storage/content/421-s31p.pdf",
+      "source_revision": null,
+      "effective_from": null,
+      "effective_to": null,
+      "supersedes": []
     },
     {
       "number": 32,
@@ -335,7 +424,11 @@
       "has_skill_md": true,
       "has_markdown": true,
       "word_url": "https://thdorsan.com/storage/content/421-s32w.doc",
-      "pdf_url": "https://thdorsan.com/storage/content/421-s32p.pdf"
+      "pdf_url": "https://thdorsan.com/storage/content/421-s32p.pdf",
+      "source_revision": null,
+      "effective_from": null,
+      "effective_to": null,
+      "supersedes": []
     },
     {
       "number": 33,
@@ -349,7 +442,11 @@
       "has_skill_md": true,
       "has_markdown": true,
       "word_url": "https://thdorsan.com/storage/content/421-s33w.doc",
-      "pdf_url": "https://thdorsan.com/storage/content/421-s33p.pdf"
+      "pdf_url": "https://thdorsan.com/storage/content/421-s33p.pdf",
+      "source_revision": null,
+      "effective_from": null,
+      "effective_to": null,
+      "supersedes": []
     },
     {
       "number": 34,
@@ -363,7 +460,11 @@
       "has_skill_md": true,
       "has_markdown": true,
       "word_url": "https://thdorsan.com/storage/content/421-s34w.doc",
-      "pdf_url": "https://thdorsan.com/storage/content/421-s34p.pdf"
+      "pdf_url": "https://thdorsan.com/storage/content/421-s34p.pdf",
+      "source_revision": null,
+      "effective_from": null,
+      "effective_to": null,
+      "supersedes": []
     },
     {
       "number": 35,
@@ -377,7 +478,11 @@
       "has_skill_md": true,
       "has_markdown": true,
       "word_url": "https://thdorsan.com/storage/content/421-s35w.docx",
-      "pdf_url": "https://thdorsan.com/storage/content/421-s35p.pdf"
+      "pdf_url": "https://thdorsan.com/storage/content/421-s35p.pdf",
+      "source_revision": null,
+      "effective_from": null,
+      "effective_to": null,
+      "supersedes": []
     },
     {
       "number": 36,
@@ -391,7 +496,11 @@
       "has_skill_md": true,
       "has_markdown": true,
       "word_url": "https://thdorsan.com/storage/content/421-s36w.docx",
-      "pdf_url": "https://thdorsan.com/storage/content/421-s36p.pdf"
+      "pdf_url": "https://thdorsan.com/storage/content/421-s36p.pdf",
+      "source_revision": null,
+      "effective_from": null,
+      "effective_to": null,
+      "supersedes": []
     },
     {
       "number": 37,
@@ -405,7 +514,11 @@
       "has_skill_md": true,
       "has_markdown": true,
       "word_url": "https://thdorsan.com/storage/content/421-s37w.docx",
-      "pdf_url": "https://thdorsan.com/storage/content/421-s37p.pdf"
+      "pdf_url": "https://thdorsan.com/storage/content/421-s37p.pdf",
+      "source_revision": null,
+      "effective_from": null,
+      "effective_to": null,
+      "supersedes": []
     },
     {
       "number": 38,
@@ -419,7 +532,11 @@
       "has_skill_md": true,
       "has_markdown": true,
       "word_url": "https://thdorsan.com/storage/content/421-s38w.docx",
-      "pdf_url": "https://thdorsan.com/storage/content/421-s38p.pdf"
+      "pdf_url": "https://thdorsan.com/storage/content/421-s38p.pdf",
+      "source_revision": null,
+      "effective_from": null,
+      "effective_to": null,
+      "supersedes": []
     },
     {
       "number": 39,
@@ -433,7 +550,11 @@
       "has_skill_md": true,
       "has_markdown": true,
       "word_url": "https://thdorsan.com/storage/content/421-s39w.docx",
-      "pdf_url": "https://thdorsan.com/storage/content/421-s39p.pdf"
+      "pdf_url": "https://thdorsan.com/storage/content/421-s39p.pdf",
+      "source_revision": null,
+      "effective_from": null,
+      "effective_to": null,
+      "supersedes": []
     },
     {
       "number": 40,
@@ -447,7 +568,11 @@
       "has_skill_md": true,
       "has_markdown": true,
       "word_url": "https://thdorsan.com/storage/content/421-s40w.docx",
-      "pdf_url": "https://thdorsan.com/storage/content/421-s40p.pdf"
+      "pdf_url": "https://thdorsan.com/storage/content/421-s40p.pdf",
+      "source_revision": null,
+      "effective_from": null,
+      "effective_to": null,
+      "supersedes": []
     },
     {
       "number": 41,
@@ -461,7 +586,11 @@
       "has_skill_md": true,
       "has_markdown": true,
       "word_url": "https://thdorsan.com/storage/content/421-s41w.docx",
-      "pdf_url": "https://thdorsan.com/storage/content/421-s41p.pdf"
+      "pdf_url": "https://thdorsan.com/storage/content/421-s41p.pdf",
+      "source_revision": null,
+      "effective_from": null,
+      "effective_to": null,
+      "supersedes": []
     },
     {
       "number": 42,
@@ -475,7 +604,11 @@
       "has_skill_md": true,
       "has_markdown": true,
       "word_url": "https://thdorsan.com/storage/content/421-s42w.docx",
-      "pdf_url": "https://thdorsan.com/storage/content/421-s42p.pdf"
+      "pdf_url": "https://thdorsan.com/storage/content/421-s42p.pdf",
+      "source_revision": null,
+      "effective_from": null,
+      "effective_to": null,
+      "supersedes": []
     },
     {
       "number": 43,
@@ -489,7 +622,14 @@
       "has_skill_md": true,
       "has_markdown": true,
       "word_url": "https://thdorsan.com/storage/content/421-s43w.docx",
-      "pdf_url": "https://thdorsan.com/storage/content/421-s43p.pdf"
+      "pdf_url": "https://thdorsan.com/storage/content/421-s43p.pdf",
+      "source_revision": "approved-1402",
+      "effective_from": "1404/01/01",
+      "supersedes": [
+        3,
+        9,
+        29
+      ]
     },
     {
       "number": 44,
@@ -503,7 +643,14 @@
       "has_skill_md": true,
       "has_markdown": true,
       "word_url": "https://thdorsan.com/storage/content/421-s44w.docx",
-      "pdf_url": "https://thdorsan.com/storage/content/421-s44p.pdf"
+      "pdf_url": "https://thdorsan.com/storage/content/421-s44p.pdf",
+      "source_revision": "approved-1404",
+      "effective_from": "1405/01/01",
+      "supersedes": [
+        21
+      ]
     }
-  ]
+  ],
+  "current_rules_baseline": "HYA-RULES-1405-01",
+  "current_rules_as_of": "1405/06/29"
 }
