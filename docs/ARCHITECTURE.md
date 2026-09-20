@@ -1,10 +1,10 @@
 # HesabYar-AI — Final Implementation Architecture
 
 **Architecture ID:** HYA-A1-FINAL  
-**Version:** 1.3.0-FROZEN  
+**Version:** 1.4.0-FROZEN  
 **Date:** 2026-09-20  
 **State:** `FROZEN_IMPLEMENTATION`  
-**Scope:** R0/R1 implementation foundation for the accounting ledger, standards validation, versioned Iranian tax policy, electronic invoice/Moadian integration, document intake, advisory analytics, and MCP interface.
+**Scope:** R0/R1 implementation foundation for the accounting ledger, standards validation, versioned Iranian tax policy, electronic commercial books, electronic invoice/Moadian integration, document intake, advisory analytics, and MCP interface.
 
 > This is the **single normative architecture document for implementation**.
 >
@@ -28,6 +28,7 @@ The system has four different kinds of truth and they MUST stay separate:
 2. **Accounting standards** — versioned professional rules with source provenance.
 3. **Tax/legal policy** — effective-dated, source-backed, changeable rules.
 4. **External government protocol behavior** — versioned integration contracts that are untrusted until verified against an official technical specification.
+5. **Regulatory filing/export obligations** — versioned schemas plus compliance-calendar events; never inferred from ledger structure alone.
 
 The LLM/MCP layer is an orchestration interface. It is **never** the source of financial truth, legal truth, authorization, tenant identity, or arithmetic.
 
@@ -110,6 +111,10 @@ The coding agent MUST NOT implement the following old statements as executable f
 | Seven invoice patterns are timeless enums | Prohibited. Invoice type/pattern/schema belong to a versioned Moadian protocol profile. |
 | SHA-256 audit hashes alone provide legal non-repudiation | Prohibited claim. They provide tamper evidence only unless a separate trust/signature model establishes non-repudiation. |
 | “35 standards present” means full standards compliance coverage | Prohibited claim. Corpus availability and executable validation coverage are separate metrics. |
+| Bundled Standard 15 is current for 1405 | Prohibited. The bundled source is legacy; current-period use is blocked until the official revised-1404 source is imported and verified. |
+| Standard 21 remains the current lease standard in 1405 | Prohibited. Standard 44 applies to periods beginning 1405/01/01 and replaces Standard 21 for those periods. |
+| Paper purchase invoices remain automatically VAT-credit-bearing after 1404/10/01 | Prohibited. VAT-credit evidence must follow the active effective-dated electronic-invoice rule and buyer-workspace status. |
+| An internal double-entry ledger alone satisfies 1405 electronic commercial-book obligations | Prohibited. Electronic-book filing/export is a separate versioned compliance boundary. |
 
 ---
 
@@ -127,6 +132,8 @@ R0 MUST provide:
 - trial balance and core financial-statement validation;
 - versioned accounting-standard metadata and provenance;
 - versioned Iranian tax-policy registry;
+- versioned compliance calendar;
+- electronic commercial-books export/compliance boundary;
 - invoice drafting and schema validation;
 - a local Moadian simulator driven only by verified fixtures;
 - an external submission architecture using transactional outbox + reconciliation;
@@ -241,6 +248,10 @@ src/hesabyar/
       decisions.py
       handlers.py
       ports.py
+    electronic_books/
+      models.py
+      export_profile.py
+      ports.py
     invoices/
       entities.py
       state_machine.py
@@ -267,6 +278,10 @@ src/hesabyar/
     tax_policy/
       source_registry.py
       rule_repository.py
+    electronic_books/
+      profile_registry.py
+      exporter.py
+      calendar.py
     moadian/
       protocol_profiles.py
       simulator.py
@@ -534,6 +549,17 @@ Example: Standard 22 and Standard 35 must never be inferred only from file names
 
 Standard 44/leases is effective-dated and must be treated by revision, not as a timeless fact.
 
+### 9.1.1 Current 1405 source gates
+
+The implementation MUST enforce these repository gates before standards validation:
+
+- Standard 43: applicable for periods beginning 1404/01/01 and later; supersedes Standards 3, 9 and 29 for those periods.
+- Standard 44: applicable for periods beginning 1405/01/01 and later; supersedes Standard 21 for those periods.
+- Standard 15: bundled repository source is legacy. For periods beginning 1405/01/01 and later, return `STANDARD_SOURCE_BLOCKED` until the official revised-1404 text is imported, snapshotted, hashed and VERIFIED.
+- Standard 35 handles income-tax/deferred-tax accounting; Standard 22 is interim reporting.
+
+These gates are also reflected in `metadata.json` and `docs/CURRENT_RULES_1405.md`.
+
 ## 9.2 Validator replacement
 
 The existing validator has two prohibited behaviors:
@@ -703,9 +729,82 @@ If cap data is stale or unknown, production submission fails closed according to
 
 The engine MUST NOT auto-create corrective invoices after a cap change.
 
+## 10.6 Current 1405 policy families
+
+R0/R1 policy registry MUST be able to represent, without hard-coding:
+
+- annual VAT parameters and exemptions/special rates;
+- Article 84 and Article 101 annual thresholds;
+- Article 100 performance-year vs filing-year thresholds/deadlines;
+- Article 6 sales-cap rules and evidence freshness;
+- VAT input-credit eligibility tied to electronic-invoice/workspace evidence for applicable periods;
+- tax-loss carryforward under the verified applicable Direct Tax Law source;
+- electronic commercial-books filing deadlines;
+- the 1404 anti-speculation/capital-gains law as a **TRANSITIONAL** policy family.
+
+The anti-speculation/capital-gains family MUST remain inactive until the applicable operational/effective conditions, executive rules and system-readiness requirements are verified. Enactment alone is not sufficient to activate calculations.
+
 ---
 
-# 11. Invoice domain and Moadian protocol profiles
+# 11. Electronic commercial books compliance
+
+Electronic commercial books are a separate regulatory-output boundary over the authoritative ledger.
+
+## 11.1 Required model
+
+Each export profile contains:
+
+```text
+profile_id
+authority
+source_id
+schema_version
+effective_from
+effective_to
+status = DRAFT | VERIFIED | ACTIVE | RETIRED
+field_mapping_version
+validation_version
+```
+
+Each compliance-calendar event contains:
+
+```text
+event_id
+obligation_type
+affected_period
+taxpayer_population
+deadline
+source_id
+status
+supersedes_event_id
+```
+
+Deadlines are data. Do not hard-code calendar dates in application conditionals.
+
+## 11.2 Export contract
+
+An electronic-books export is immutable and reproducible from:
+
+- tenant;
+- fiscal period/cutoff;
+- ledger revision/hash;
+- export profile version;
+- source version;
+- generated timestamp.
+
+The export boundary MUST NOT mutate ledger postings.
+
+If the required active schema/profile for a filing period is missing or unverified, return `BOOKS_PROFILE_UNVERIFIED`.
+
+## 11.3 1405 current requirement
+
+Current 1405 notices demonstrate that electronic commercial-books upload is operational and deadline-driven. Therefore this is an R0 compliance requirement, not a future roadmap placeholder.
+
+The project MUST implement the boundary and calendar before claiming 1405 filing readiness.
+
+---
+
+# 12. Invoice domain and Moadian protocol profiles
 
 ## 11.1 Separate business invoice from protocol payload
 
@@ -778,7 +877,7 @@ Do not copy v1.1 crypto prose into code without an official profile fixture.
 
 ---
 
-# 12. External submission workflow
+# 13. External submission workflow
 
 External tax submission is an irreversible side effect and MUST use a transactional outbox.
 
@@ -852,7 +951,7 @@ Manual intervention is available for unresolved ambiguity.
 
 ---
 
-# 13. Document intake
+# 14. Document intake
 
 Documents are untrusted input.
 
@@ -906,7 +1005,7 @@ Enforce:
 
 ---
 
-# 14. MCP/API boundary
+# 15. MCP/API boundary
 
 ## 14.1 Transport
 
@@ -1017,7 +1116,7 @@ Rendered Markdown is presentation output and must not be the canonical machine c
 
 ---
 
-# 15. Application command contract
+# 16. Application command contract
 
 Every mutating application command carries:
 
@@ -1054,7 +1153,7 @@ Posted/accounting immutable records do not use update-in-place semantics.
 
 ---
 
-# 16. Security and secrets
+# 17. Security and secrets
 
 ## 16.1 Private keys
 
@@ -1100,7 +1199,7 @@ R0 does not implement auto-post even if the environment variable exists; the fla
 
 ---
 
-# 17. Audit architecture
+# 18. Audit architecture
 
 ## 17.1 Audit events
 
@@ -1147,7 +1246,7 @@ Store:
 
 ---
 
-# 18. Database model — minimum required tables
+# 19. Database model — minimum required tables
 
 The old nine-table SQLite DDL is superseded.
 
@@ -1176,6 +1275,10 @@ legal_sources
 legal_rules
 legal_rule_versions
 policy_decisions
+
+electronic_book_profiles
+compliance_calendar_events
+electronic_book_exports
 
 moadian_protocol_profiles
 invoice_drafts
@@ -1218,7 +1321,7 @@ Tests MUST attempt cross-tenant ID substitution and prove failure.
 
 ---
 
-# 19. Error taxonomy
+# 20. Error taxonomy
 
 Use stable application error codes.
 
@@ -1238,6 +1341,7 @@ Use stable application error codes.
 - `RULE_SOURCE_UNVERIFIED`
 - `RULE_INPUT_MISSING`
 - `STANDARD_REVISION_UNKNOWN`
+- `STANDARD_SOURCE_BLOCKED`
 
 ## 19.3 Tax policy
 
@@ -1246,7 +1350,14 @@ Use stable application error codes.
 - `POLICY_DATE_NOT_COVERED`
 - `POLICY_REVIEW_REQUIRED`
 
-## 19.4 Moadian
+## 20.4 Electronic books
+
+- `BOOKS_PROFILE_UNVERIFIED`
+- `BOOKS_PERIOD_NOT_COVERED`
+- `BOOKS_EXPORT_VALIDATION_FAILED`
+- `COMPLIANCE_DEADLINE_UNKNOWN`
+
+## 20.5 Moadian
 
 - `PROTOCOL_PROFILE_NOT_ACTIVE`
 - `PROTOCOL_SCHEMA_UNSUPPORTED`
@@ -1262,7 +1373,7 @@ Do not invent government “official error codes” in the simulator. If a fixtu
 
 ---
 
-# 20. Moadian simulator contract
+# 21. Moadian simulator contract
 
 The simulator is not a fantasy replica.
 
@@ -1287,7 +1398,7 @@ CI never calls production tax endpoints.
 
 ---
 
-# 21. Deployment architecture
+# 22. Deployment architecture
 
 One codebase, two production processes:
 
@@ -1346,7 +1457,7 @@ Requires all:
 
 ---
 
-# 22. Observability
+# 23. Observability
 
 Structured logs contain:
 
@@ -1379,7 +1490,7 @@ Tracing may propagate standard trace context, but observability must not become 
 
 ---
 
-# 23. CI quality gates
+# 24. CI quality gates
 
 A PR cannot merge if any required gate fails.
 
@@ -1472,7 +1583,7 @@ document
 
 ---
 
-# 24. Migration from the current repository
+# 25. Migration from the current repository
 
 The coding agent MUST preserve the useful standards corpus while replacing the prototype runtime architecture.
 
@@ -1501,7 +1612,7 @@ The coding agent MUST preserve the useful standards corpus while replacing the p
 
 ---
 
-# 25. Implementation sequence and stop gates
+# 26. Implementation sequence and stop gates
 
 The coding agent works in this exact order.
 
@@ -1547,7 +1658,19 @@ Deliver:
 
 **STOP GATE F2:** no production policy result can run without a verified applicable source.
 
-## Stage F3 — Invoice domain
+## Stage F3 — Electronic commercial books
+
+Deliver:
+
+- compliance-calendar registry;
+- versioned electronic-books export profiles;
+- deterministic export from posted ledger cutoff;
+- immutable export artifact hash/manifest;
+- export validation and current-period source provenance.
+
+**STOP GATE F3:** no claim of 1405 electronic-books readiness unless an applicable VERIFIED export profile and deadline source are active.
+
+## Stage F4 — Invoice domain
 
 Deliver:
 
@@ -1557,9 +1680,9 @@ Deliver:
 - protocol-profile registry;
 - schema validation without network.
 
-**STOP GATE F3:** no production gateway code until profile activation rules and approval invalidation tests are green.
+**STOP GATE F4:** no production gateway code until profile activation rules and approval invalidation tests are green.
 
-## Stage F4 — Moadian verification + simulator
+## Stage F5 — Moadian verification + simulator
 
 Deliver:
 
@@ -1571,9 +1694,9 @@ Deliver:
 - gateway interface;
 - outbox/reconciliation.
 
-**STOP GATE F4:** production gateway remains disabled until official protocol source is VERIFIED and contract tests pass.
+**STOP GATE F5:** production gateway remains disabled until official protocol source is VERIFIED and contract tests pass.
 
-## Stage F5 — MCP
+## Stage F6 — MCP
 
 Deliver:
 
@@ -1585,11 +1708,11 @@ Deliver:
 - local write tools;
 - `submit_approved_invoice`.
 
-**STOP GATE F5:** remote security tests green; no legacy SSE.
+**STOP GATE F6:** remote security tests green; no legacy SSE.
 
-## Stage F6 — Production Moadian adapter
+## Stage F7 — Production Moadian adapter
 
-Deliver only if F4/F5 complete:
+Deliver only if F5/F6 complete:
 
 - verified crypto/tax ID behavior;
 - allowlisted endpoint adapter;
@@ -1597,9 +1720,9 @@ Deliver only if F4/F5 complete:
 - reconciliation;
 - manual operational runbook.
 
-**STOP GATE F6:** owner-controlled production enablement only.
+**STOP GATE F7:** owner-controlled production enablement only.
 
-## Stage F7 — Advisory analytics
+## Stage F8 — Advisory analytics
 
 After deterministic foundations:
 
@@ -1612,7 +1735,7 @@ No advisory feature may write ledger or submit invoices.
 
 ---
 
-# 26. Coding-agent prohibitions
+# 27. Coding-agent prohibitions
 
 The coding agent MUST NOT:
 
@@ -1642,7 +1765,7 @@ The coding agent MUST NOT:
 
 ---
 
-# 27. Definition of Done for any critical feature
+# 28. Definition of Done for any critical feature
 
 A critical feature is complete only if:
 
@@ -1663,7 +1786,7 @@ A critical feature is complete only if:
 
 ---
 
-# 28. Source verification notes from the final review
+# 29. Source verification notes from the final review
 
 These notes explain architecture choices. They are not substitutes for source snapshots in production.
 
@@ -1685,13 +1808,18 @@ Public search surfaced a Tir 1405 electronic-invoice instruction described as ve
 
 Because the official authority copy was not pinned inside this repository during architecture review, the profile remains unverified until implementation Stage F4 obtains the official document and snapshot.
 
-## 28.3 Accounting standards
+## 29.3 Accounting standards
 
 The repository correctly identifies Standard 35 as Income Taxes, while Standard 22 is Interim Financial Reporting.
 
+Final 1405 audit additionally found:
+- Standard 43 is effective for periods beginning 1404/01/01 and later and replaces 3/9/29.
+- Standard 44 is effective for periods beginning 1405/01/01 and later and replaces Standard 21.
+- the bundled Standard 15 source is legacy and must be blocked for 1405+ until the official revised-1404 source is imported and verified.
+
 Accounting standards are revision/effective-date sensitive. The corpus must therefore be revisioned, not treated as a timeless set of 35 files.
 
-## 28.4 Tax law
+## 29.4 Tax law
 
 Current review confirms why tax logic must be effective-dated:
 
@@ -1699,16 +1827,19 @@ Current review confirms why tax logic must be effective-dated:
 - Article 138 bis eligibility contains conditions beyond a simple assumed-rate multiplication.
 - loss carryforward must be tied to the verified applicable legal basis rather than the old “Article 140” label.
 - Article 6 rules and annual thresholds are changeable and must be source-versioned.
+- from 1404/10/01, current reviewed guidance ties buyer VAT input-credit evidence to electronic invoices registered in the buyer workspace and buyer confirmation for the applicable population/period.
+- 1405 electronic commercial-books obligations require a dedicated versioned export/compliance boundary and compliance calendar.
+- the 1404 anti-speculation/capital-gains legislation adds a new transitional policy family whose activation depends on verified rollout/effective conditions.
 
 ---
 
-# 29. Final architecture freeze
+# 30. Final architecture freeze
 
 Implementation status:
 
 ```text
 ARCHITECTURE_ID = HYA-A1-FINAL
-ARCHITECTURE_VERSION = 1.3.0-FROZEN
+ARCHITECTURE_VERSION = 1.4.0-FROZEN
 ARCHITECTURE_STATE = FROZEN_IMPLEMENTATION
 IMPLEMENTATION_AUTHORIZED = YES
 PRODUCTION_MOADIAN_AUTHORIZED = NO
@@ -1716,6 +1847,6 @@ PRODUCTION_MOADIAN_AUTHORIZED = NO
 
 Coding is authorized for **Stage F0 Foundation**.
 
-Production Moadian transmission remains blocked until Stage F4 verification and Stage F6 owner-controlled enablement.
+Production Moadian transmission remains blocked until Stage F5 verification and Stage F7 owner-controlled enablement.
 
 **There are no implicit implementation decisions outside this file. When something is not specified here, choose the simplest design that preserves these invariants; do not invent legal/protocol behavior.**
