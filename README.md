@@ -1,283 +1,311 @@
+# 🏛️ HesabYar-AI | حساب‌یار
 
-# 📚 مهارت استانداردهای حسابداری ایران
-
-> مجموعه‌ای جامع از ۳۵ استاندارد حسابداری ایران برای طراحی و پیاده‌سازی نرم‌افزارهای حسابداری، آموزش، و حسابرسی.
+> **دستیار هوش مصنوعی حسابداری ایران و سرور پروتکل کانتکست مدل (MCP) سامانه مؤدیان**  
+> **Iranian AI Accountant & Moadian Tax System MCP Server**
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
-[![Standards](https://img.shields.io/badge/Standards-35-orange)](standards/)
+[![Standards](https://img.shields.io/badge/Standards-35%20Active-orange)](standards/)
+[![Validation Rules](https://img.shields.io/badge/Validation%20Rules-36%20Automated-brightgreen)](validators/)
 [![IFRS](https://img.shields.io/badge/IFRS-Compatible-purple)](mappings/ifrs-to-iranian.md)
+[![MCP Protocol](https://img.shields.io/badge/MCP-Ready-teal)](SKILL.md)
+[![Upstream](https://img.shields.io/badge/Upstream-seiahposh%2Faccounting--iran--standards-blueviolet)](https://github.com/seiahposh/accounting-iran-standards)
 
 ---
 
-## 🎯 معرفی
+## 📜 Lineage & Acknowledgments | شجره‌نامه متن‌باز و تقدیرنامه
 
-این پروژه، یک **مهارت (Skill)** کامل برای طراحی و پیاده‌سازی نرم‌افزارهای حسابداری منطبق با استانداردهای ایران است. شامل:
+> *"Standing on the shoulders of giants."*  
+> *«ایستادن بر شانه‌های غول‌ها: پیشرفت متن‌باز بر پایه کار ارزشمند پیشگامان شکل می‌گیرد.»*
 
-- ✅ **۳۵ استاندارد فعال** حسابداری ایران
-- ✅ **مفاهیم نظری** گزارشگری مالی
-- ✅ **قالب‌های آماده** صورت‌های مالی
-- ✅ **موتور اعتبارسنجی** با ۳۶ قاعده
-- ✅ **تطابق با IFRS** برای تمام استانداردها
-- ✅ **اسکریپت‌های خودکار** برای دانلود و پردازش
+Following the open-source lineage tradition established by projects like **OmniRoute** and **9router**, **HesabYar-AI** proudly acknowledges its origin and foundational architecture.
+
+### Upstream Origin | ریشه پروژه
+**HesabYar-AI** is a direct continuation and evolution of [`seiahposh/accounting-iran-standards`](https://github.com/seiahposh/accounting-iran-standards), originally created and authored by **Vohuman (`seiahposh`)**. 
+
+We express our deepest gratitude and highest respect to **Vohuman** for the monumental effort of:
+- Curating and structuring all **35 active Iranian Accounting Standards** (استانداردهای ۳۵‌گانه حسابداری ایران) based on official Auditing Organization standards.
+- Formulating **36 machine-readable validation rules** (`validators/rules.yaml`) across core financial statements.
+- Establishing standardized **YAML financial statement templates** (balance sheet, income statement, cash flow, equity changes).
+- Mapping Iranian standards to international standards (**IFRS / IAS equivalents**).
+- Developing the initial automated scraping, document conversion, and validation pipeline in Python.
+
+### Original Author & Upstream Credits
+- **Original Project:** [seiahposh/accounting-iran-standards](https://github.com/seiahposh/accounting-iran-standards)
+- **Original Author & Creator:** Vohuman ([@seiahposh](https://github.com/seiahposh))
+- **Email:** `seiahposh@yahoo.com`
+- **Contact:** `09128005969`
+- **License:** MIT License (Copyright © 2026 Vohuman)
+
+All upstream copyright notices, licensing terms, and author attributions are preserved in full accordance with the MIT License.
+
+### External Acknowledgments | سایر تقدیرها
+- **سازمان حسابرسی ایران (Audit Organization of Iran):** برای تدوین استانداردهای رسمی حسابداری
+- **thdorsan.com:** منبع دریافت اسناد تجدیدنظرشده استانداردهای حسابداری
+- **Pandoc & LibreOffice:** ابزارهای تبدیل اسناد استاندارد به Markdown ساختاریافته
 
 ---
 
-## 🚀 شروع سریع
+## 🎯 معرفی پروژه | Project Overview
 
-### نصب پیش‌نیازها
+### فارسی (Persian)
+**حساب‌یار (HesabYar-AI)** یک اکوسیستم متن‌باز جامع برای حسابداری هوشمند، انطباق با استانداردهای حسابداری ایران و اتصال مستقیم به **سامانه مؤدیان مالیاتی** از طریق پروتکل کانتکست مدل (**MCP - Model Context Protocol**) است.
 
-```bash
-# ۱. نصب Pandoc
-# Windows:
-winget install --id JohnMacFarlane.Pandoc
-# macOS:
-brew install pandoc
-# Linux:
-sudo apt-get install pandoc
+هدف حساب‌یار این است که موتور دانشی استانداردهای حسابداری ایران را به مغز متفکر مدل‌های زبانی بزرگ (LLMها نظیر Claude و GPT) متصل کرده و بستری استاندارد، قابل اتکا و ماشین‌خوان برای اتوماسیون حسابداری، حسابرسی، صدور صورتحساب و ارسال به سامانه مؤدیان فراهم کند.
 
-# ۲. نصب LibreOffice
-# Windows:
-winget install TheDocumentFoundation.LibreOffice
-# macOS:
-brew install --cask libreoffice
-# Linux:
-sudo apt-get install libreoffice
+### English
+**HesabYar-AI** is an open-source Iranian AI Accountant ecosystem and Model Context Protocol (MCP) server. It equips Large Language Models (Claude, GPT, local LLMs) with deep, structured domain knowledge of Iranian Accounting Standards, automated financial statement validation, and native integration capabilities for the **Moadian Tax System** (سامانه مؤدیان).
 
-# ۳. نصب پکیج‌های پایتون
-pip install -r requirements.txt
-اعتبارسنجی صورت‌های مالی
-bash
-# اعتبارسنجی نمونه
-python scripts/validator.py tests/sample-data.json --format markdown
+---
 
-# خروجی:
-# کل قواعد: 36
-# موفق: 36 ✅
-# وضعیت کلی: ✅ معتبر
-دانلود مجدد استانداردها
-bash
-# دانلود همه ۳۵ استاندارد
-python scripts/main.py
+## 🌟 ارکان و قابلیت‌های کلیدی | Key Pillars & Capabilities
 
-# فقط استانداردهای خاص
-python scripts/main.py --only 1 2 34
-📁 ساختار پروژه
-text
-accounting-iran-standards/
-├── SKILL.md                          # فایل اصلی مهارت
-├── README.md                         # این فایل
-├── metadata.json                     # متادیتای ۳۵ استاندارد
+### ۱. 🤖 دستیار هوش مصنوعی حسابداری (AI Accountant Assistant)
+- **پرسش و پاسخ تخصصی:** پاسخ به پرسش‌های پیچیده حسابداری، مالیاتی و حسابرسی بر مبنای استانداردهای لازم‌الاجرای ایران.
+- **تفسیر و راهنمای استانداردها:** بررسی تفاوت‌های استانداردهای ایران با استانداردهای بین‌المللی گزارشگری مالی (IFRS).
+- **ثبت‌های حسابداری خودکار:** پیشنهاد و اعتبارسنجی کدهای آرتیکل حسابداری مطابق با سرفصل‌های استاندارد.
+
+### ۲. 🏛️ اتصال به سامانه مؤدیان و مالیات (Moadian Tax System Integration)
+- **صورتحساب الکترونیکی:** ساخت و اعتبارسنجی قالب‌های صورتحساب الکترونیکی سامانه مؤدیان (انواع الگوهای ۱ تا ۷ فروش، صادرات، طلا، قرارداد و...).
+- **محاسبات مالیاتی:** محاسبه خودکار ارزش افزوده (VAT)، عوارض، معافیت‌ها و انطباق با قوانین پایانه‌های فروشگاهی.
+- **امضای دیجیتال و توکن:** ساختار آماده برای اتصال امن به کارپوشه مؤدیان مالیاتی.
+
+### ۳. 🔌 سرور پروتکل کانتکست مدل (MCP Server)
+- **ابزارهای استاندارد (MCP Tools):** قابلیت استعلام قواعد، اعتبارسنجی ترازنامه، صورت سود و زیان و گردش وجوه نقد مستقیماً از داخل کلاینت‌های هوش مصنوعی (مانند Claude Desktop، Cursor یا Agentها).
+- **منابع و پرامپت‌ها (MCP Resources & Prompts):** دسترسی مستقیم مدل به ۳۵ استاندارد فعال و تعاریف کلیدی بدون نیاز به بارگذاری دستی فایل‌ها.
+
+### ۴. 📐 موتور اعتبارسنجی و تطابق مالی (Financial Validation Engine)
+- **۳۶ قاعده محاسباتی خودکار:** کنترل عدم مغایرت‌های ترازنامه، برابری سود سهام، مطابقت سود خالص با تغییرات حقوق مالکانه و جریان وجوه نقد.
+- **قالب‌های ساختاریافته YAML:** صورت وضعیت مالی، صورت سود و زیان، سود و زیان جامع، تغییرات حقوق مالکانه و یادداشت‌های همراه.
+
+---
+
+## 📁 ساختار پروژه | Project Structure
+
+```text
+HesabYar-AI/
+├── SKILL.md                          # فایل راهنمای مهارت و پرامپت سیستم
+├── README.md                         # مستندات معرفی، شجره‌نامه و راهنمای پروژه
+├── metadata.json                     # متادیتای ۳۵ استاندارد فعال حسابداری
 ├── requirements.txt                  # وابستگی‌های پایتون
+├── LICENSE                           # مجوز متن‌باز MIT (حفظ حقوق پدیدآورنده اصلی)
 │
-├── core/                             # مفاهیم مشترک
-│   ├── definitions.md                # تعاریف عناصر
-│   ├── materiality.md                # اهمیت
-│   ├── going-concern.md              # تداوم فعالیت
-│   └── concepts.md                   # مفاهیم نظری
+├── core/                             # مبانی نظری و مفاهیم بنیادین
+│   ├── definitions.md                # تعاریف عناصر صورت‌های مالی
+│   ├── materiality.md                # مفهوم اهمیت در گزارشگری
+│   ├── going-concern.md              # فرض تداوم فعالیت
+│   └── concepts.md                   # مفاهیم نظری گزارشگری مالی
 │
-├── standards/                        # ۳۵ استاندارد فعال
-│   ├── 01-presentation/
-│   │   ├── SKILL.md                  # خلاصه استاندارد
-│   │   └── source/
-│   │       ├── standard.md           # متن کامل
-│   │       ├── standard.docx         # Word
-│   │       └── standard.pdf          # PDF
-│   ├── 02-cash-flow/
-│   └── ... (تا 44-leases)
+├── standards/                        # مخزن ۳۵ استاندارد حسابداری ایران
+│   ├── 01-presentation/              # استاندارد ۱: ارائه صورت‌های مالی
+│   │   ├── SKILL.md                  # چکیده اجرایی استاندارد
+│   │   └── source/                   # متن کامل (Markdown، Word و PDF)
+│   ├── 02-cash-flow/                 # استاندارد ۲: صورت جریان‌های نقدی
+│   └── ...                           # سایر استانداردها تا ۴۴
 │
-├── templates/                        # قالب‌های آماده
-│   ├── financial-statements/
+├── templates/                        # قالب‌های استاندارد صورت‌های مالی
+│   ├── financial-statements/         # قالب‌های YAML ساختاریافته
 │   │   ├── balance-sheet.yaml        # صورت وضعیت مالی
 │   │   ├── income-statement.yaml     # صورت سود و زیان
 │   │   ├── comprehensive-income.yaml # صورت سود و زیان جامع
 │   │   ├── equity-changes.yaml       # صورت تغییرات حقوق مالکانه
 │   │   └── cash-flow.yaml            # صورت جریان‌های نقدی
-│   ├── notes/
-│   │   ├── structure.md              # ساختار یادداشت‌ها
-│   │   └── accounting-policies.md    # رویه‌های حسابداری
-│   └── disclosures/
-│       └── estimates-uncertainty.md  # عدم اطمینان برآوردها
+│   ├── notes/                        # ساختار یادداشت‌های توضیحی همراه
+│   └── disclosures/                  # افشاهای الزامی
 │
-├── validators/                       # اعتبارسنجی
-│   ├── rules.yaml                    # ۳۶ قاعده ماشین‌خوان
-│   └── cross-standard/
+├── validators/                       # قوانین و منطق اعتبارسنجی
+│   ├── rules.yaml                    # ۳۶ قاعده اعتبارسنجی ماشین‌خوان
+│   └── cross-standard/               # کنترل‌های متقابل بین‌صورت‌های مالی
 │       ├── balance-check.md          # اعتبارسنجی ترازنامه
-│       ├── income-statement.md       # اعتبارسنجی سود و زیان
-│       ├── comprehensive-income.md   # اعتبارسنجی OCI
-│       ├── equity-changes.md         # اعتبارسنجی حقوق مالکانه
-│       ├── cash-flow.md              # اعتبارسنجی جریان نقدی
-│       └── cross-checks.md           # اعتبارسنجی بین صورت‌ها
+│       ├── income-statement.md       # اعتبارسنجی صورت سود و زیان
+│       ├── cash-flow.md              # اعتبارسنجی جریان‌های نقدی
+│       └── cross-checks.md           # چک‌های تقاطعی بین صورت‌ها
 │
-├── mappings/                         # تطابق با IFRS
-│   └── ifrs-to-iranian.md
+├── mappings/                         # جداول تطابق استانداردهای ایران با IFRS
+│   └── ifrs-to-iranian.md            # نگاشت متناظر با استانداردهای IAS / IFRS
 │
-├── scripts/                          # اسکریپت‌های خودکار
-│   ├── config.py                     # تنظیمات
-│   ├── scraper.py                    # استخراج لینک‌ها
-│   ├── downloader.py                 # دانلود فایل‌ها
-│   ├── converter.py                  # تبدیل Word به Markdown
-│   ├── processor.py                  # تولید SKILL.md
-│   ├── metadata_generator.py         # تولید metadata
-│   ├── validator.py                  # موتور اعتبارسنجی
-│   └── main.py                       # اجرای کل pipeline
+├── scripts/                          # ابزارها و اسکریپت‌های پردازش
+│   ├── config.py                     # پیکربندی و مسیرها
+│   ├── validator.py                  # موتور اعتبارسنجی صورت‌های مالی
+│   ├── metadata_generator.py         # تولید متادیتای استانداردها
+│   ├── converter.py                  # تبدیل اسناد Word به Markdown
+│   ├── scraper.py                    # دریافت اسناد از منابع رسمی
+│   ├── downloader.py                 # ابزار دانلود خودکار
+│   └── main.py                       # خط لوله (Pipeline) کامل
 │
-├── tests/                            # تست‌ها
-│   └── sample-data.json              # داده نمونه
-│
-└── logs/                             # لاگ‌های pipeline
-    └── pipeline.log
-📊 فهرست ۳۵ استاندارد
-فاز ۱: صورت‌های مالی پایه
-#	عنوان	IFRS
-۱	ارائه صورت‌های مالی	IAS 1
-۲	صورت جریان‌های نقدی	IAS 7
-۳۴	رویه‌های حسابداری	IAS 8
-۳۵	مالیات بر درآمد	IAS 12
-فاز ۲: دارایی‌ها
-#	عنوان	IFRS
-۸	موجودی مواد و کالا	IAS 2
-۱۰	کمک‌های بلاعوض دولت	IAS 20
-۱۱	دارایی‌های ثابت مشهود	IAS 16
-۱۳	مخارج تأمین مالی	IAS 23
-۱۵	سرمایه‌گذاری‌ها	IAS 39/IFRS 9
-۱۷	دارایی‌های نامشهود	IAS 38
-۳۲	کاهش ارزش دارایی‌ها	IAS 36
-۴۲	اندازه‌گیری ارزش منصفانه	IFRS 13
-فاز ۳: بدهی‌ها و تعهدات
-#	عنوان	IFRS
-۴	ذخایر و بدهی‌های احتمالی	IAS 37
-۵	رویدادهای بعد از ترازنامه	IAS 10
-۳۳	مزایای بازنشستگی	IAS 19
-۴۴	اجاره‌ها	IFRS 16
-فاز ۴: درآمد و ارز
-#	عنوان	IFRS
-۱۶	تغییر نرخ ارز	IAS 21
-۲۶	فعالیت‌های کشاورزی	IAS 41
-۴۳	درآمد از قرارداد	IFRS 15
-فاز ۵: تلفیق و سرمایه‌گذاری‌ها
-#	عنوان	IFRS
-۱۸	صورت‌های مالی جداگانه	IAS 27
-۲۰	واحدهای وابسته	IAS 28
-۳۸	ترکیب‌های تجاری	IFRS 3
-۳۹	صورت‌های تلفیقی	IFRS 10
-۴۰	مشارکت‌ها	IFRS 11
-۴۱	افشای منافع	IFRS 12
-فاز ۶: افشا و گزارشگری خاص
-#	عنوان	IFRS
-۱۲	اشخاص وابسته	IAS 24
-۲۲	گزارشگری میان‌دوره‌ای	IAS 34
-۲۴	قبل از بهره‌برداری	—
-۲۵	قسمت‌های مختلف	IFRS 8
-۳۰	سود هر سهم	IAS 33
-۳۱	غیرجاری برای فروش	IFRS 5
-فاز ۷: صنایع خاص
-#	عنوان	IFRS
-۲۷	مزایای بازنشستگی	IAS 26
-۲۸	بیمه عمومی	IFRS 4/17
-فاز ۸: ابزارهای مالی
-#	عنوان	IFRS
-۳۶	ابزارهای مالی: ارائه	IAS 32
-۳۷	ابزارهای مالی: افشا	IFRS 7
-🧪 تست و اعتبارسنجی
-تست سریع
-bash
-# اجرای موتور اعتبارسنجی روی داده نمونه
+└── tests/                            # آزمون‌های خودکار
+    ├── test_validator.py             # آزمون‌های موتور اعتبارسنجی با pytest
+    └── sample-data.json              # داده‌های نمونه صورت‌های مالی
+```
+
+---
+
+## 🚀 شروع سریع | Quick Start
+
+### ۱. نصب پیش‌نیازها
+
+```bash
+# کلون کردن مخزن
+git clone https://github.com/Amirezamky9/HesabYar-AI.git
+cd HesabYar-AI
+
+# ایجاد و فعال‌سازی محیط مجازی
+python3 -m venv .venv
+source .venv/bin/activate  # در ویندوز: .venv\Scripts\activate
+
+# نصب وابستگی‌های پایتون
+pip install -r requirements.txt
+```
+
+> **توجه:** برای اجرای اسکریپت‌های تبدیل اسناد اولیه، ابزارهای `pandoc` و `libreoffice` مورد نیاز است. اما برای اجرای موتور اعتبارسنجی و تست‌ها، صرفاً وابستگی‌های پایتون کافی است.
+
+### ۲. اجرای آزمون‌های موتور اعتبارسنجی
+
+```bash
+# اجرای تست‌های واحد با pytest
+pytest tests/ -v
+
+# خروجی:
+# 21 passed
+```
+
+### ۳. اعتبارسنجی داده‌های نمونه صورت مالی
+
+```bash
+# اعتبارسنجی با فرمت متنی (Markdown)
 python scripts/validator.py tests/sample-data.json --format markdown
 
-# خروجی: ۳۶ قاعده، ۳۶ موفق، ✅ معتبر
-خروجی JSON
-bash
+# اعتبارسنجی و صدور گزارش خروجی در قالب JSON
 python scripts/validator.py tests/sample-data.json --format json -o report.json
-خروجی Markdown
-bash
-python scripts/validator.py tests/sample-data.json --format markdown -o report.md
-🔧 نحوه استفاده در نرم‌افزار
-۱. خواندن قواعد اعتبارسنجی
-python
+```
+
+---
+
+## 💻 نحوه استفاده در کد پایتون | Python SDK Usage
+
+### اعتبارسنجی صورت‌های مالی با موتور محاسباتی
+
+```python
+import json
+from pathlib import Path
+from scripts.validator import FinancialValidator
+
+# بارگذاری داده‌های صورت‌های مالی
+sample_data = json.loads(Path("tests/sample-data.json").read_text(encoding="utf-8"))
+
+validator = FinancialValidator()
+report = validator.validate_all(
+    balance_sheet=sample_data.get("balance_sheet"),
+    income_statement=sample_data.get("income_statement"),
+    cash_flow=sample_data.get("cash_flow"),
+    equity_changes=sample_data.get("equity_changes"),
+)
+
+if report.is_valid:
+    print("✅ تمامی ۳۶ قاعده اعتبارسنجی رعایت شده است.")
+else:
+    print(f"❌ تعداد خطاها: {len(report.errors)}")
+    for error in report.errors:
+        print(f"  - [{error.rule_id}] {error.message}")
+```
+
+### خواندن قواعد اعتبارسنجی ماشین‌خوان
+
+```python
 import yaml
 from pathlib import Path
 
 rules = yaml.safe_load(Path("validators/rules.yaml").read_text(encoding="utf-8"))
-print(f"تعداد قواعد: {len(rules['balance_sheet']) + len(rules['income_statement']) + ...}")
-۲. استفاده از موتور اعتبارسنجی
-python
-from scripts.validator import FinancialValidator
+print(f"قواعد ترازنامه: {len(rules['balance_sheet'])}")
+print(f"قواعد سود و زیان: {len(rules['income_statement'])}")
+print(f"قواعد کنترل متقابل: {len(rules['cross_checks'])}")
+```
 
-validator = FinancialValidator()
+---
 
-report = validator.validate_all(
-    balance_sheet=my_balance_sheet,
-    income_statement=my_income_statement,
-    cash_flow=my_cash_flow,
-)
+## 📊 فهرست استانداردهای ۳۵‌گانه حسابداری ایران | Iranian Accounting Standards
 
-if report.is_valid:
-    print("✅ صورت‌های مالی معتبر است")
-else:
-    for error in report.errors:
-        print(f"❌ {error.rule_id}: {error.message}")
-۳. استفاده از قالب‌ها
-python
-import yaml
-from pathlib import Path
+| شماره | عنوان استاندارد | استاندارد معادل بین‌المللی (IFRS / IAS) | دسته‌بندی |
+| :---: | :--- | :---: | :--- |
+| **۱** | ارائه صورت‌های مالی | IAS 1 | صورت‌های مالی پایه |
+| **۲** | صورت جریان‌های نقدی | IAS 7 | صورت‌های مالی پایه |
+| **۴** | ذخایر، بدهی‌های احتمالی و دارایی‌های احتمالی | IAS 37 | بدهی‌ها و تعهدات |
+| **۵** | رویدادهای بعد از دوره گزارشگری | IAS 10 | بدهی‌ها و تعهدات |
+| **۸** | حسابداری موجودی مواد و کالا | IAS 2 | دارایی‌ها |
+| **۱۰** | حسابداری کمک‌های بلاعوض دولت | IAS 20 | دارایی‌ها |
+| **۱۱** | دارایی‌های ثابت مشهود | IAS 16 | دارایی‌ها |
+| **۱۲** | افشای اطلاعات اشخاص وابسته | IAS 24 | افشا و گزارشگری خاص |
+| **۱۳** | مخارج تأمین مالی | IAS 23 | دارایی‌ها |
+| **۱۵** | حسابداری سرمایه‌گذاری‌ها | IAS 39 / IFRS 9 | دارایی‌ها |
+| **۱۶** | آثار تغییر در نرخ ارز | IAS 21 | درآمد و ارز |
+| **۱۷** | دارایی‌های نامشهود | IAS 38 | دارایی‌ها |
+| **۱۸** | صورت‌های مالی جداگانه | IAS 27 | تلفیق و سرمایه‌گذاری‌ها |
+| **۲۰** | سرمایه‌گذاری در واحدهای تجاری وابسته | IAS 28 | تلفیق و سرمایه‌گذاری‌ها |
+| **۲۱** | حسابداری اجاره‌ها (تجدیدنظر شده در استاندارد ۴۴) | IAS 17 | بدهی‌ها و تعهدات |
+| **۲۲** | گزارشگری مالی میان‌دوره‌ای | IAS 34 | افشا و گزارشگری خاص |
+| **۲۴** | گزارشگری مالی واحدهای تجاری در مرحله قبل از بهره‌برداری | — | افشا و گزارشگری خاص |
+| **۲۵** | گزارشگری بر حسب قسمت‌های مختلف | IFRS 8 | افشا و گزارشگری خاص |
+| **۲۶** | فعالیت‌های کشاورزی | IAS 41 | درآمد و ارز |
+| **۲۷** | طرح‌های مزایای بازنشستگی | IAS 26 | صنایع خاص |
+| **۲۸** | فعالیت‌های بیمه عمومی | IFRS 4 / IFRS 17 | صنایع خاص |
+| **۳۰** | سود هر سهم | IAS 33 | افشا و گزارشگری خاص |
+| **۳۱** | دارایی‌های غیرجاری نگهداری‌شده برای فروش و عملیات متوقف‌شده | IFRS 5 | افشا و گزارشگری خاص |
+| **۳۲** | کاهش ارزش دارایی‌ها | IAS 36 | دارایی‌ها |
+| **۳۳** | مزایای بازنشستگی کارکنان | IAS 19 | بدهی‌ها و تعهدات |
+| **۳۴** | رویه‌های حسابداری، تغییر در برآوردهای حسابداری و اشتباهات | IAS 8 | صورت‌های مالی پایه |
+| **۳۵** | مالیات بر درآمد | IAS 12 | صورت‌های مالی پایه |
+| **۳۶** | ابزارهای مالی: ارائه | IAS 32 | ابزارهای مالی |
+| **۳۷** | ابزارهای مالی: افشا | IFRS 7 | ابزارهای مالی |
+| **۳۸** | ترکیب‌های تجاری | IFRS 3 | تلفیق و سرمایه‌گذاری‌ها |
+| **۳۹** | صورت‌های مالی تلفیقی | IFRS 10 | تلفیق و سرمایه‌گذاری‌ها |
+| **۴۰** | مشارکت‌ها | IFRS 11 | تلفیق و سرمایه‌گذاری‌ها |
+| **۴۱** | افشای منافع در واحدهای تجاری دیگر | IFRS 12 | تلفیق و سرمایه‌گذاری‌ها |
+| **۴۲** | اندازه‌گیری ارزش منصفانه | IFRS 13 | دارایی‌ها و اندازه‌گیری |
+| **۴۳** | درآمد عملیاتی حاصل از قرارداد با مشتریان | IFRS 15 | درآمد و ارز |
+| **۴۴** | اجاره‌ها (جایگزین استاندارد ۲۱) | IFRS 16 | بدهی‌ها و تعهدات |
 
-template = yaml.safe_load(
-    Path("templates/financial-statements/balance-sheet.yaml").read_text(encoding="utf-8")
-)
+---
 
-# ساختار قالب رو ببین
-for section in template["structure"]:
-    print(section["section"])
-📚 مستندات بیشتر
-SKILL.md — فایل اصلی مهارت
+## 🗺️ نقشه راه توسعه | Development Roadmap
 
-core/definitions.md — تعاریف عناصر
+- [x] **پایه‌گذاری مخزن و مستندسازی ۳۵ استاندارد حسابداری** (با تشکر از Vohuman)
+- [x] **قواعد اعتبارسنجی ۳۶‌گانه و موتور اعتبارسنجی صورت‌های مالی**
+- [x] **افزودن تست‌های اتوماتیک با pytest و خط لوله CI/CD در GitHub Actions**
+- [ ] **طراحی و پیاده‌سازی سرور پروتکل کانتکست مدل (HesabYar MCP Server)**
+- [ ] **اتصال به الگوهای صورتحساب الکترونیکی سامانه مؤدیان (Moadian Invoices)**
+- [ ] **پکیج رسمی پایتون (`pip install hesabyar-ai`)**
+- [ ] **ابزار خط فرمان (CLI) حساب‌یار برای ممیزی سریع فایل‌های مالی**
+- [ ] **عامل‌های هوشمند چندگانه (Multi-Agent Workflows) برای حسابرسی و بستن حساب‌ها**
 
-core/materiality.md — اهمیت
+---
 
-core/going-concern.md — تداوم فعالیت
+## 🤝 مشارکت در توسعه | Contributing
 
-core/concepts.md — مفاهیم نظری
+ما صمیمانه از همکاری توسعه‌دهندگان، حسابداران خبره، مشاوران مالیاتی و متخصصان هوش مصنوعی استقبال می‌کنیم!
+برای مشارکت:
 
-mappings/ifrs-to-iranian.md — تطابق با IFRS
+1. این مخزن را **Fork** کنید.
+2. یک شاخه جدید بسازید (`git checkout -b feature/amazing-feature`).
+3. تغییرات خود را Commit کنید (`git commit -m 'feat: add moadian invoice validator'`).
+4. شاخه را Push کنید (`git push origin feature/amazing-feature`).
+5. یک **Pull Request** ارسال نمایید.
 
-🤝 مشارکت
-از مشارکت شما استقبال می‌کنیم! برای مشارکت:
+---
 
-Fork کنید
+## 📄 مجوز | License
 
-Branch جدید بسازید (git checkout -b feature/amazing-feature)
+این پروژه تحت مجوز **[MIT License](LICENSE)** منتشر شده است.  
+کلیه حقوق معنوی اثر مبنا متعلق به **Vohuman** و مخزن بالادستی [accounting-iran-standards](https://github.com/seiahposh/accounting-iran-standards) است و مطابق شروط مجوز MIT، کپی‌رایت اصلی در این پروژه محفوظ می‌باشد.
 
-Commit کنید (git commit -m 'Add amazing feature')
+---
 
-Push کنید (git push origin feature/amazing-feature)
+## 📞 ارتباط و پشتیبانی | Contact & Support
 
-Pull Request بسازید
+- **سازنده و مؤلف مخزن مبنا (Upstream Creator):** Vohuman (`seiahposh`)
+  - 📧 Email: `seiahposh@yahoo.com`
+  - 📱 تماس: `09128005969`
+  - 🐙 Upstream GitHub: [seiahposh/accounting-iran-standards](https://github.com/seiahposh/accounting-iran-standards)
+- **مخزن و توسعه‌دهنده HesabYar-AI:** [Amirezamky9/HesabYar-AI](https://github.com/Amirezamky9/HesabYar-AI)
+  - 🐛 گزارش باگ و پیشنهادات: [GitHub Issues](https://github.com/Amirezamky9/HesabYar-AI/issues)
 
-📄 مجوز
-این پروژه تحت مجوز MIT منتشر می‌شود. جزئیات در LICENSE.
-
-🙏 تقدیر
-سازمان حسابرسی ایران — برای استانداردهای رسمی
-
-thdorsan.com — برای منبع دانلود
-
-Pandoc — برای تبدیل Word به Markdown
-
-LibreOffice — برای تبدیل .doc به .docx
-
-📞 09128005969 
-GitHub Issues: برای گزارش باگ و پیشنهاد
-
-ایمیل: seiahposh@yahoo.com
-
-📊 آمار
-مورد	تعداد
-استانداردها	۳۵
-خطوط Markdown	~۳۰,۰۰۰
-قواعد اعتبارسنجی	۳۶
-قالب‌های صورت مالی	۵
-کامیت‌ها	۱۱+
-حجم پروژه	~۵۰ MB
-⭐ اگه این پروژه به کارت اومد، ستاره بده! ⭐
+⭐ اگر این پروژه برای شما مفید است، لطفاً به این مخزن و مخزن بالادستی ستاره دهید! ⭐

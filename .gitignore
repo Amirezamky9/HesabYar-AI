@@ -1,5 +1,10 @@
-﻿# Python
+# ==============================================================================
+# HesabYar-AI .gitignore
+# ==============================================================================
+
+# 1. Python & Environment Artifacts
 __pycache__/
+*.py[cod]
 *.pyc
 *.pyo
 *.pyd
@@ -7,26 +12,56 @@ __pycache__/
 venv/
 env/
 .pytest_cache/
+.coverage
+htmlcov/
 
-# Logs
+# 2. Sensitive Data, Certificates & Credentials (CRITICAL for Moadian)
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.crt
+*.cer
+*.p12
+*.pfx
+*.jks
+secrets/
+credentials/
+*token*
+auth.json
+
+# 3. Claude & Agent Scaffolding
+CLAUDE.md
+claude.md
+.claude/
+.claude*
+.gstack/
+.gstack*
+.agents/
+
+# 4. Hermes Scaffolding & State
+HERMES.md
+.hermes/
+.hermes*
+
+# 5. Workspace, Scratch & Logs
+.scratch/
+*.log
 logs/*.log
-
-# IDE
-.vscode/
-.idea/
+*.tmp
+*.bak
 *.swp
 *.swo
 
-# OS
-Thumbs.db
+# 6. Operating System & Editor Files
+.vscode/
+.idea/
 .DS_Store
+Thumbs.db
 desktop.ini
 
-# Temp
-*.tmp
-*.bak
-
-# Large source files (اختیاری)
+# 7. Upstream & Large Source Document Exclusions
 standards/*/source/*.doc
 standards/*/source/*.pdf
 standards/*/source/media/
