@@ -201,7 +201,7 @@ class FinancialValidator:
     def _safe_get(self, data: Any, path: str, default: Any = 0) -> Any:
         """
         دریافت امن مقدار از ساختار تودرتو
-        پشتیبانی از: obj.attr, obj['key'], obj[0]
+        پشتیبانی فقط از Mapping / dict
         """
         if data is None:
             return default
@@ -215,8 +215,6 @@ class FinancialValidator:
 
             if isinstance(current, (dict, Mapping)):
                 current = current.get(part, default)
-            elif hasattr(current, part):
-                current = getattr(current, part, default)
             else:
                 return default
 

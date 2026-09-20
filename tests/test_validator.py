@@ -260,13 +260,47 @@ class TestSafeGet:
         assert validator._safe_get(data, "a.b") == {"c": 42}
         assert validator._safe_get(data, "x.y", default=None) is None
 
-    def test_attr_access(self, validator):
-        class Obj:
+    def test_arbitrary_object_attribute_traversal_forbidden(self, validator):
+        class CustomObj:
             def __init__(self):
-                self.x = 10
-        obj = Obj()
-        assert validator._safe_get(obj, "x") == 10
-        assert validator._safe_get(obj, "y", default=0) == 0
+                self.attribute = "forbidden_value"
+                self.nested = {"key": "val"}
+
+        obj = CustomObj()
+        assert validator._safe_get(obj, "attribute", default="safe_default") == "safe_default"
+        assert validator._safe_get(obj, "nested.key", default=None) is None
+        assert validator._safe_get(obj, "nonexistent", default=0) == 0
+
+    def test_property_getter_never_invoked(self, validator):
+        class ExplodingObj:
+            def __init__(self):
+                self.accessed = False
+
+            @property
+            def dangerous(self):
+                self.accessed = True
+                raise RuntimeError("Property invoked!")
+
+        obj = ExplodingObj()
+        result = validator._safe_get(obj, "dangerous", default="fallback")
+        assert result == "fallback"
+        assert obj.accessed is False
+
+    def test_private_and_dunder_paths_rejected(self, validator):
+        data = {
+            "__class__": "injected_class",
+            "__dict__": "injected_dict",
+            "_secret": "classified",
+            "nested": {
+                "__class__": "nested_class",
+                "_internal": "internal_val",
+            },
+        }
+        assert validator._safe_get(data, "__class__", default=None) is None
+        assert validator._safe_get(data, "__dict__", default="safe") == "safe"
+        assert validator._safe_get(data, "_secret", default=0) == 0
+        assert validator._safe_get(data, "nested.__class__", default=None) is None
+        assert validator._safe_get(data, "nested._internal", default=0) == 0
 
 
 class TestFormulaEvaluation:
