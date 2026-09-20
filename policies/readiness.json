@@ -1,0 +1,40 @@
+{
+  "schema_version": "1.0",
+  "architecture_revision": "HY-ARCH-1.2.0-R1",
+  "reviewed_baseline": "06c99b58e01f3341f981eb16b334d3f1ed84a10c",
+  "manifest_kind": "design_contract_not_runtime_enforcement",
+  "architecture_status": "FOUNDATION_IMPLEMENTATION_READY",
+  "runtime_status": "NOT_IMPLEMENTED",
+  "production_status": "BLOCKED",
+  "default_environment": "offline",
+  "capability_defaults": {
+    "financial_effects_enabled": false,
+    "moadian_network_enabled": false,
+    "automatic_tax_treatment_enabled": false,
+    "legacy_validator_may_authorize_effects": false
+  },
+  "implementation_order": [
+    "F0",
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "F5",
+    "F6"
+  ],
+  "activation_requires": [
+    "implemented_feature_with_negative_tests",
+    "trusted_authorization_and_approval",
+    "rule_and_protocol_evidence_for_relevant_feature",
+    "operational_acceptance",
+    "owner_release_approval"
+  ],
+  "knowledge_index_exclusions": [
+    "docs/archive/**",
+    "docs/research_tax_inflation.md"
+  ],
+  "notes": [
+    "Existing standard summaries require individual source/version review before regulatory activation.",
+    "Passing reference SQL tests does not activate any runtime capability."
+  ]
+}

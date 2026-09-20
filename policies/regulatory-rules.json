@@ -1,0 +1,111 @@
+{
+  "schema_version": "1.0",
+  "status": "UNVERIFIED_TEMPLATE",
+  "active_rules": [],
+  "required_activation_fields": [
+    "rule_id",
+    "version",
+    "effective_from",
+    "effective_to_or_open_ended",
+    "jurisdiction",
+    "taxpayer_scope",
+    "source_url",
+    "source_document_version",
+    "source_sha256",
+    "source_paragraph",
+    "reviewer",
+    "reviewed_at",
+    "applicability_policy",
+    "rounding_policy_if_numeric",
+    "test_evidence"
+  ],
+  "pending_review": [
+    {
+      "id": "VAT",
+      "status": "UNVERIFIED",
+      "topic": "Rates, exemptions, product classification and effective tax periods",
+      "source": null,
+      "activation_allowed": false
+    },
+    {
+      "id": "SALES_CAP",
+      "status": "UNVERIFIED",
+      "topic": "Article 6 authority observations, eligibility, deadlines and correction rules",
+      "source": null,
+      "activation_allowed": false
+    },
+    {
+      "id": "BANK_TRANSACTIONS",
+      "status": "UNVERIFIED",
+      "topic": "Income characterization and current evidentiary rules; no safe-harbor assumption",
+      "source": null,
+      "activation_allowed": false
+    },
+    {
+      "id": "ARTICLE_100",
+      "status": "UNVERIFIED",
+      "topic": "Annual scope, thresholds and installment conditions",
+      "source": null,
+      "activation_allowed": false
+    },
+    {
+      "id": "LOSSES",
+      "status": "UNVERIFIED",
+      "topic": "Correct statutory basis, eligibility and carryforward utilization",
+      "source": null,
+      "activation_allowed": false
+    },
+    {
+      "id": "DEFERRED_TAX",
+      "status": "UNVERIFIED",
+      "topic": "Correct accounting standard and recognition conditions",
+      "source": null,
+      "activation_allowed": false
+    },
+    {
+      "id": "FINANCING",
+      "status": "UNVERIFIED",
+      "topic": "Actual contract, paid profit, purpose, duration and deductibility evidence",
+      "source": null,
+      "activation_allowed": false
+    },
+    {
+      "id": "RD_CREDIT",
+      "status": "UNVERIFIED",
+      "topic": "Approved projects/costs, allocation and double-benefit prevention",
+      "source": null,
+      "activation_allowed": false
+    },
+    {
+      "id": "REVALUATION",
+      "status": "UNVERIFIED",
+      "topic": "Accounting and fiscal consequences without categorical asset prohibition",
+      "source": null,
+      "activation_allowed": false
+    },
+    {
+      "id": "EXPORT_FX",
+      "status": "UNVERIFIED",
+      "topic": "Export eligibility and currency/settlement requirements",
+      "source": null,
+      "activation_allowed": false
+    },
+    {
+      "id": "PENALTIES",
+      "status": "UNVERIFIED",
+      "topic": "Current statutory definitions; no autonomous guilt or punishment determination",
+      "source": null,
+      "activation_allowed": false
+    },
+    {
+      "id": "MOADIAN_PROTOCOL",
+      "status": "UNVERIFIED",
+      "topic": "Official version, fields, TaxID, canonicalization, crypto, endpoints, independent vectors",
+      "source": null,
+      "activation_allowed": false
+    }
+  ],
+  "on_missing_or_ambiguous_rule": "REVIEW_REQUIRED",
+  "historical_decisions": "keep_pinned_rule_versions",
+  "unverified_research_is_executable": false
+}

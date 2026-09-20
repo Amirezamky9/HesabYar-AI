@@ -1,0 +1,25 @@
+name: Architecture contracts
+on:
+  pull_request:
+    branches: [master, main]
+  push:
+    branches: [master, main, 'architecture/**']
+permissions:
+  contents: read
+jobs:
+  reference-ledger:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check SQLite capability
+        run: python -c "import sqlite3; assert sqlite3.sqlite_version_info >= (3,37,0), sqlite3.sqlite_version"
+      - name: Run offline reference contracts (not application certification)
+        run: python -m unittest discover -s tests/architecture -p 'test_*.py' -v
+      - name: Check manifests
+        run: |
+          python -m json.tool policies/readiness.json > /dev/null
+          python -m json.tool policies/regulatory-rules.json > /dev/null
