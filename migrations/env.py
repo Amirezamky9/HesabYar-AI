@@ -26,12 +26,19 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
+DEFAULT_DB_URL = "postgresql+psycopg://hesabyar:hesabyar_pass@hesabyar-postgres:5432/hesabyar_test"
+
+
 def _get_url() -> str:
     """Resolve the database URL from environment or settings, falling back to alembic.ini."""
     # Direct env var (CI, Docker, or local override) takes priority.
     env_url = os.environ.get("HESABYAR_DATABASE_URL")
     if env_url:
         return env_url
+
+    ini_url = config.get_main_option("sqlalchemy.url")
+    if ini_url:
+        return ini_url
 
     # Fall back to the application settings module.
     try:
@@ -40,8 +47,8 @@ def _get_url() -> str:
         settings = get_settings()
         return settings.database.sqlalchemy_url
     except Exception:
-        # Last resort: use the value from alembic.ini.
-        return config.get_main_option("sqlalchemy.url", "")
+        # Last resort: use the default fallback.
+        return DEFAULT_DB_URL
 
 
 def run_migrations_offline() -> None:

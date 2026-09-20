@@ -9,6 +9,7 @@ These tests run against a live PostgreSQL instance and verify:
 
 from __future__ import annotations
 
+import os
 import uuid
 from collections.abc import Generator
 
@@ -23,7 +24,10 @@ from hesabyar.infrastructure.persistence.postgres.models import (
     TenantModel,
 )
 
-TEST_DB_URL = "postgresql+psycopg://hesabyar:hesabyar_pass@127.0.0.1:15445/hesabyar_test"
+TEST_DB_URL = os.getenv(
+    "HESABYAR_DATABASE_URL",
+    "postgresql+psycopg://hesabyar:hesabyar_pass@hesabyar-postgres:5432/hesabyar_test",
+)
 
 
 @pytest.fixture(scope="module")

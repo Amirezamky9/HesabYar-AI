@@ -26,6 +26,7 @@ class TestConfig:
         assert "postgresql+psycopg://" in settings.database.sqlalchemy_url
 
     def test_environment_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("HESABYAR_DATABASE_URL", raising=False)
         monkeypatch.setenv("HESABYAR_ENV", "production")
         monkeypatch.setenv("HESABYAR_DATABASE__POOL_SIZE", "20")
         monkeypatch.setenv("HESABYAR_DATABASE__URL", "postgresql://user:pass@db:5432/prod")
