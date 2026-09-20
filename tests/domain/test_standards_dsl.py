@@ -14,7 +14,10 @@ Covers:
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 from hesabyar.domain.standards.dsl import (
+    evaluate_expression,
     evaluate_formula,
     evaluate_rule,
 )
@@ -273,3 +276,120 @@ class TestValidationReport:
         report.add(evaluate_rule("R1", "a == missing_field", {"a": 1}))
         assert report.is_valid is False
         assert report.errors == 1
+
+
+# ==============================================================================
+# Decimal precision preservation & Zero float policy
+# ==============================================================================
+
+
+class TestDecimalPrecision:
+    def test_decimal_precision_preservation(self) -> None:
+        """0.1 + 0.2 == 0.3 must hold with Decimal (which fails with binary float)."""
+        context = {
+            "a": Decimal("0.1"),
+            "b": Decimal("0.2"),
+            "c": Decimal("0.3"),
+        }
+        assert evaluate_formula("a + b == c", context) is True
+        assert evaluate_expression("a + b", context) == Decimal("0.3")
+
+    def test_decimal_fractional_precision(self) -> None:
+        """Verify high-precision decimals are preserved without float truncation."""
+        context = {
+            "val1": Decimal("1000000000.123456789"),
+            "val2": Decimal("2000000000.987654321"),
+            "expected": Decimal("3000000001.111111110"),
+        }
+        assert evaluate_formula("val1 + val2 == expected", context) is True
+
+    def test_decimal_division_exactness(self) -> None:
+        context = {
+            "num": Decimal("1"),
+            "den": Decimal("4"),
+            "expected": Decimal("0.25"),
+        }
+        assert evaluate_formula("num / den == expected", context) is True
+        assert evaluate_expression("num / den", context) == Decimal("0.25")
+
+
+# ==============================================================================
+# Nested field traversal via dot notation (Mapping/dict only)
+# ==============================================================================
+
+
+class TestNestedFieldTraversal:
+    def test_nested_dict_access_single_level(self) -> None:
+        context = {
+            "balance_sheet": {
+                "cash_and_equivalents": Decimal("500"),
+                "total_assets": Decimal("500"),
+            }
+        }
+        assert evaluate_formula("balance_sheet.cash_and_equivalents == balance_sheet.total_assets", context) is True
+        assert evaluate_expression("balance_sheet.cash_and_equivalents", context) == Decimal("500")
+
+    def test_nested_dict_access_multi_level(self) -> None:
+        context = {
+            "equity_changes": {
+                "closing_balance": {
+                    "total_equity": Decimal("1000"),
+                }
+            },
+            "target": Decimal("1000"),
+        }
+        assert evaluate_formula("equity_changes.closing_balance.total_equity == target", context) is True
+        assert evaluate_expression("equity_changes.closing_balance.total_equity", context) == Decimal("1000")
+
+    def test_nested_dict_sum(self) -> None:
+        context = {
+            "statement": {
+                "items": [
+                    {"amount": Decimal("100")},
+                    {"amount": Decimal("200")},
+                ]
+            },
+            "total": Decimal("300"),
+        }
+        assert evaluate_formula("sum(statement.items) == total", context) is True
+
+
+# ==============================================================================
+# Strict attribute access restriction: non-dict traversal rejected fail-closed
+# ==============================================================================
+
+
+class TestStrictAttributeAccessRestriction:
+    def test_attribute_access_on_primitive_rejected(self) -> None:
+        """Accessing attributes on integer or primitive fails closed."""
+        result = evaluate_rule("SEC012", "x.__class__ == 1", {"x": 10})
+        assert result.outcome == RuleOutcome.ERROR
+
+    def test_attribute_access_on_custom_object_rejected(self) -> None:
+        """Arbitrary getattr on custom class instance is strictly forbidden."""
+        class MockAccount:
+            balance = Decimal("100")
+
+        context = {"account": MockAccount()}
+        result = evaluate_rule("SEC013", "account.balance == 100", context)
+        assert result.outcome == RuleOutcome.ERROR
+        assert "Mapping/dict" in result.message or "Attribute" in result.message
+
+    def test_attribute_access_on_builtin_object_rejected(self) -> None:
+        """Accessing attributes on built-in objects (e.g. string/list methods) is forbidden."""
+        context = {"s": "hello"}
+        result = evaluate_rule("SEC014", "s.upper == 1", context)
+        assert result.outcome == RuleOutcome.ERROR
+
+    def test_private_attribute_access_on_dict_rejected(self) -> None:
+        """Accessing private or dunder attributes on dict is forbidden."""
+        context = {"d": {"key": 1}}
+        result = evaluate_rule("SEC015", "d.__class__ == 1", context)
+        assert result.outcome == RuleOutcome.ERROR
+
+    def test_missing_nested_key_fails_closed(self) -> None:
+        context = {"balance_sheet": {"cash": 100}}
+        result = evaluate_rule("BS010", "balance_sheet.missing_field == 100", context)
+        assert result.outcome == RuleOutcome.ERROR
+        assert "not found" in result.message.lower() or "missing" in result.message.lower()
+

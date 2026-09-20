@@ -232,7 +232,7 @@ class TestFinancialValidator:
         assert report.is_valid, f"داده نمونه معتبر نیست: {[e.rule_id for e in report.errors]}"
 
     def test_sample_data_all_pass(self, validator, sample_data):
-        """همه ۳۶ قاعده باید پاس بشن"""
+        """تمام ۳۶ قاعده در داده نمونه ارزیابی شده و بدون خطا هستند (۳۲ موفق، ۴ غیرقابل اعمال)"""
         report = validator.validate_all(
             balance_sheet=sample_data["balance_sheet"],
             income_statement=sample_data["income_statement"],
@@ -241,9 +241,13 @@ class TestFinancialValidator:
             cash_flow=sample_data.get("cash_flow"),
         )
 
+        assert report.total_rules == 36
+        assert report.passed == 32
+        assert report.not_applicable == 4
         assert report.failed == 0, f"قواعد ناموفق: {[e.rule_id for e in report.errors + report.warnings]}"
         assert len(report.errors) == 0
         assert len(report.warnings) == 0
+        assert report.is_valid is True
 
 
 # ==================== تست‌های کمکی ====================
@@ -408,7 +412,7 @@ class TestValidatorFailClosed:
 
         assert result.passed is False
         assert result.severity == Severity.ERROR
-        assert result.message == "Mandatory rule missing executable formula or requirement"
+        assert result.message == "Rule missing executable formula or requirement"
 
         report = ValidationReport()
         report.add(result)
@@ -416,14 +420,15 @@ class TestValidatorFailClosed:
         assert len(report.errors) == 1
 
     def test_non_mandatory_missing_formula_or_error_does_not_fail_report(self, validator):
-        """قاعده غیراجباری (warning/info) در صورت خطا گزارش را invalid نمی‌کند"""
+        """قاعده غیراجباری (warning/info) در صورت خطا گزارش را invalid نمی‌کند اما passed=False می‌شود"""
         rule_missing = {
             "id": "WARN001",
             "description": "هشدار بدون فرمول",
             "severity": "warning",
         }
         res_missing = validator._validate_rule(rule_missing, {}, "custom")
-        assert res_missing.passed is True
+        assert res_missing.passed is False
+        assert res_missing.message == "Rule missing executable formula or requirement"
 
         rule_err = {
             "id": "WARN002",
@@ -432,12 +437,63 @@ class TestValidatorFailClosed:
             "severity": "warning",
         }
         res_err = validator._validate_rule(rule_err, {}, "custom")
-        assert res_err.passed is True
+        assert res_err.passed is False
+        assert "Formula evaluation error:" in res_err.message
 
         report = ValidationReport()
         report.add(res_missing)
         report.add(res_err)
         assert report.is_valid is True
+        assert len(report.warnings) == 2
+        assert report.failed == 2
+
+    def test_warning_rule_evaluation_error_never_passed(self, validator):
+        """خطای ارزیابی در قاعده اخطار هرگز نباید passed=True باشد و گزارش معتبر می‌ماند"""
+        rule = {
+            "id": "WARN003",
+            "description": "هشدار تقسیم بر صفر",
+            "formula": "assets / zero_divisor",
+            "severity": "warning",
+            "message": "هشدار نسبت",
+        }
+        context = {"assets": 100, "zero_divisor": 0}
+        result = validator._validate_rule(rule, context, "custom")
+
+        assert result.passed is False
+        assert result.severity == Severity.WARNING
+        assert "Formula evaluation error:" in result.message
+
+        report = ValidationReport()
+        report.add(result)
+        assert report.is_valid is True
+        assert len(report.warnings) == 1
+        assert len(report.errors) == 0
+        assert report.failed == 1
+
+    def test_not_applicable_never_marked_pass(self, validator):
+        """قاعده غیرقابل اعمال نباید به عنوان PASS شمرده شود"""
+        rule = {
+            "id": "NA001",
+            "description": "قاعده مخصوص روش مستقیم",
+            "formula": "cash_from_operations > 0",
+            "applies_to": "direct",
+            "severity": "error",
+        }
+        # داده با روش indirect است
+        context = {"classification_method": "indirect", "cash_from_operations": 100}
+        result = validator._validate_rule(rule, context, "custom")
+
+        assert result.passed is False
+        assert result.not_applicable is True
+        assert "Skipped" in result.message
+
+        report = ValidationReport()
+        report.add(result)
+        assert report.is_valid is True
+        assert report.passed == 0
+        assert report.failed == 0
+        assert report.not_applicable == 1
+        assert len(report.errors) == 0
 
 
 if __name__ == "__main__":
