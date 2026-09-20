@@ -1,1126 +1,1721 @@
-# سند جامع معماری سیستم حساب‌یار (HesabYar-AI)
-## ایجنت هوشمند و سرور پروتکل کانتکست مدل (FastMCP) حسابدار رسمی، محاسبات تورمی و سامانه مؤدیان مالیاتی ایران
+# HesabYar-AI — Final Implementation Architecture
 
-> **نسخه سند:** 1.1.0-R0  
-> **تاریخ بازنگری و تدوین:** ۳۰ شهریور ۱۴۰۵ (2026-09-20)  
-> **وضعیت سند:** مصوب بر اساس نتایج مصاحبه‌های مرز تصمیم‌گیری راند اول و دوم (Frontier Decision-Tree Rounds 1 & 2) و دانشنامه پژوهشی مالیات و تورم (`docs/research_tax_inflation.md`)  
-> **دامنه کاربرد:** هسته محاسباتی دفاتر دوبل، درگاه امن سامانه مؤدیان، پایش سقف ماده ۶، مهندسی سپرهای مالیاتی، تحلیل حسابداری تورمی و سرور FastMCP  
+**Architecture ID:** HYA-A1-FINAL  
+**Version:** 1.3.0-FROZEN  
+**Date:** 2026-09-20  
+**State:** `FROZEN_IMPLEMENTATION`  
+**Scope:** R0/R1 implementation foundation for the accounting ledger, standards validation, versioned Iranian tax policy, electronic invoice/Moadian integration, document intake, advisory analytics, and MCP interface.
 
----
-
-## ۱. مشخصات کلان و بیانیه مأموریت (Executive Mission & Vision)
-
-پروژه **حساب‌یار (HesabYar-AI)** یک زیرساخت نرم‌افزاری پیشرفته و ایجنت هوشمند است که بر بستر **پروتکل کانتکست مدل (Model Context Protocol - FastMCP)** طراحی شده تا شکاف میان هوش محاسباتی مدل‌های زبانی بزرگ (LLMs) و الزامات صلب، ریاضی و حقوقی **نظام مالی، حسابداری و مالیاتی جمهوری اسلامی ایران** را پوشش دهد.
-
-حساب‌یار مدل‌های زبانی را به یک **حسابدار رسمی و مشاور ارشد مالیاتی** تبدیل می‌کند که مجهز به ابزارهای قطعی (Deterministic)، پایگاه‌داده اسناد حسابداری دوبل با تفصیلی شناور، کلاینت بومی رمزنگاری سامانه مؤدیان (JWS/JWE)، موتور پایش سقف فروش ماده ۶، تحلیل‌گر سپرهای قانونی مالیاتی، هشداردهنده سود موهوم تورمی، و بازرس انطباق با **۳۵ استاندارد حسابداری ایران** است.
-
-### اهداف بنیادی سامانه در نسخه 1.1.0-R0
-
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│                   HesabYar-AI Core Mission Pillars                     │
-├───────────────────────────────────┬────────────────────────────────────┤
-│ 1. حاکمیت قطعی داده‌ها (Zero-Error) │ 2. درگاه امن سامانه مؤدیان (JWS/JWE)│
-│    مهار توهم LLM با گاردریل ریاضی    │    تولید TaxID، امضا و ارسال بسته  │
-├───────────────────────────────────┼────────────────────────────────────┤
-│ 3. دفاتر دوبل با تفصیلی شناور      │ 4. پایش سقف فروش مجاز ماده ۶       │
-│    کدینگ ۴ سطحی و سید خودکار استاندارد│    جلوگیری از رد اعتبار ارزش افزوده│
-├───────────────────────────────────┼────────────────────────────────────┤
-│ 5. سپرهای مالیاتی و حسابداری تورمی │ 6. شفافیت حقوقی و اصل عدم انکار     │
-│    ماده ۱۳۸ مکرر، جهش تولید و زیان  │    دفتر وقایع انتقال فقط-افزودنی   │
-└───────────────────────────────────┴────────────────────────────────────┘
-```
-
-1. **حاکمیت داده و کنترل قطعی (Deterministic Enforcement):** مدل‌های زبانی بزرگ ماهیتی احتمالات‌محور دارند، در حالی که اسناد مالیاتی و ثبتی نیازمند قطعیت مطلق و انحراف صفر هستند. تمام محاسبات مالی، ارزش افزوده، چکسام ورهوف و توازن بدهکار/بستانکار در پشت درزهای نرم‌افزاری سخت‌گیرانه اجرا شده و مدل زبانی صرفاً هماهنگ‌کننده منطقی جریان کار است.
-2. **اتصال امن و بومی به سامانه مؤدیان (Native Cryptographic Gateway):** پیاده‌سازی مستقل و سبک استانداردهای امنیتی سازمان امور مالیاتی کشور بدون وابستگی به بسته‌های غیررسمی؛ شامل تولید شناسه یکتای ۲۲ رقمی با الگوریتم ورهوف، امضای نامتقارن JWS RS256، رمزنگاری متقارن بسته با کلید تصادفی ۲۵۶ بیتی AES-GCM و پوشش کلید متقارن با کلید عمومی دارایی (RSA-OAEP-256).
-3. **دفاتر مالی دوبل با معماری تفصیلی شناور ماتریسی (Floating Tafsili):** جداسازی جدول سه‌سطحی حساب‌های گروه، کل و معین از جدول تفصیلی‌های شناور به منظور بازتاب دقیق رویه‌های شرکتی ایران و بارگذاری خودکار کدینگ استاندارد از فایل هسته.
-4. **موتور پایش بلادرنگ سقف مجاز فروش ماده ۶:** محاسبه خودکار ضریب ۵ برابری فروش دوره مشابه سال قبل یا معافیت ماده ۱۰۱، اعمال اهرم ۱۰ برابری واریز نقدی در ارزش افزوده ۱۰٪، مدیریت تضامین چک صیادی و مسدودسازی پیش‌پرواز فاکتورها جهت جلوگیری از پدیده مخرب «عدول از حد مجاز» و سلب اعتبار مالیاتی خریدار.
-5. **مهندسی سپرهای مالیاتی قانونی و مهار سود موهوم تورمی:** ارائه ماژول تخصصی جهت کشف و ثبت سپرهای قانونی نظیر سود آورده نقدی شرکا (ماده ۱۳۸ مکرر ق.م.م)، اعتبار مالیاتی ریال‌به‌ریال تحقیق و توسعه (مواد ۱۱ و ۱۳ قانون جهش تولید دانش‌بنیان)، انتقال زیان سنواتی (ماده ۱۴۰) و هشدار پدیده ذوب سرمایه در گردش ناشی از ممنوعیت LIFO در استاندارد ۸.
-6. **اصل عدم انکار و شفافیت حسابرسی (Audit Trail & Non-Repudiation):** ایجاد دفتر کل وقایع انتقال فقط-افزودنی برای کلیه تراکنش‌های ارسالی به سامانه مؤدیان با ثبت هش SHA-256، پیش‌نمایش امضا و کد خطاها.
+> This is the **single normative architecture document for implementation**.
+>
+> The coding agent MUST implement from this file. It MUST NOT infer implementation rules from `docs/research_tax_inflation.md`, the old architecture text, README prose, examples, or external blog posts.
+>
+> If any other repository file conflicts with this document, **this document wins**. A future architecture change is valid only when both:
+> 1. this file is version-bumped and updated; and
+> 2. a new ADR records the reason.
+>
+> No ADR, research note, commit message, README section, or code comment may silently override this file.
 
 ---
 
-## ۲. اصول مهندسی نرم‌افزار، ماژول‌های عمیق و درزهای معماری (Codebase Design Principles & Seams)
+# 0. Executive decision
 
-معماری نرم‌افزاری حساب‌یار بر مبنای اصل **ماژول‌های عمیق (Deep Modules)** برگرفته از آموزه‌های جان اوسترهوت (John Ousterhout) و متدولوژی درزهای نرم‌افزاری مایکل فیذرز (Michael Feathers) بنا نهاده شده است.
+HesabYar-AI will be implemented as a **modular monolith with explicit domain boundaries and ports/adapters**.
 
-### الف) واژه‌نامه تخصصی مهندسی معماری (Glossary)
+The system has four different kinds of truth and they MUST stay separate:
 
-برای حفظ انسجام مفهومی در سراسر پایه‌کد و گفتگوها، تعاریف زیر به عنوان زبان مشترک رعایت می‌شوند:
+1. **Accounting invariants** — deterministic and transactional.
+2. **Accounting standards** — versioned professional rules with source provenance.
+3. **Tax/legal policy** — effective-dated, source-backed, changeable rules.
+4. **External government protocol behavior** — versioned integration contracts that are untrusted until verified against an official technical specification.
 
-- **ماژول (Module):** واحدی ساختاری مستقل با یک رابط کاربری مشخص و یک پیاده‌سازی درونی (شامل توابع، کلاس‌ها یا پکیج‌های افقی).
-- **رابط کاربری (Interface):** تمامی اطلاعات، قراردادها، امضاها، ثابت‌ها، قیود ترتیبی، شیوه‌های بازگشت خطا و مشخصات عملکردی که فراخواننده برای استفاده از ماژول باید بداند.
-- **پیاده‌سازی (Implementation):** بدنه و سازوکار کدنویسی درون ماژول که از دید فراخواننده پنهان است.
-- **درز (Seam):** مکانی راهبردی در معماری که رفتار سیستم را بدون نیاز به ویرایش در همان نقطه می‌توان تغییر داد (جایی که رابط ماژول مستقر است).
-- **آداپتور (Adapter):** شیء یا کدی عینی که در محل درز می‌نشیند و قرارداد رابط را برآورده می‌سازد.
-- **عمق (Depth):** نسبت اهرم خروجی به سادگی رابط. ماژولی عمیق است که بیشترین رفتار و پیچیدگی را پشت کوچک‌ترین و تمیزترین رابط پنهان کند.
-- **اهرم (Leverage):** توانمندی و عملکرد عظیمی که فراخواننده با یادگیری یک رابط ساده به دست می‌آورد.
-- **تمرکز تغییرات (Locality):** تجمیع تغییرات، باگ‌ها و تست‌ها در یک مکان واحد بدون سرایت به فراخواننده‌ها.
+The LLM/MCP layer is an orchestration interface. It is **never** the source of financial truth, legal truth, authorization, tenant identity, or arithmetic.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│          FastMCP Tools Layer (رابط بسیار باریک و متمرکز)      │
-│  audit_balance | record_journal | submit_moadian | ...      │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│              Architectural Seams (درزهای انتزاعی سیستم)       │
-│                                                             │
-│  LedgerRepo   MoadianClient   SalesCapEngine   TaxShields   │
-│  ┌──────────┐ ┌─────────────┐ ┌──────────────┐ ┌──────────┐ │
-│  │SQLite WAL│ │Crypto Engine│ │Art 6 Monitor │ │Shields   │ │
-│  │& Seeding │ │(JWS/JWE/Tax)│ │& Pre-Flight  │ │& Meltdown│ │
-│  └──────────┘ └─────────────┘ └──────────────┘ └──────────┘ │
-│                                                             │
-│            پیاده‌سازی عمیق و ریاضیات حاکمیتی (Deep Engine)    │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### ب) درزهای شش‌گانه معماری (The Six Architectural Seams)
-
-1. **درز دفاتر مالی (`LedgerRepository Seam`):**
-   - *رابط:* پروتکل انتزاعی ثبت سند دوبل، دریافت گردش حساب‌ها، تراز آزمایشی و مدیریت کدینگ ۴ سطحی.
-   - *آداپتورها:* `SQLiteLedgerRepository` (پیش‌فرض با WAL و کلید خارجی) و در آینده آداپتورهای سازمانی مانند `PostgresLedgerRepository` یا وب‌سرویس نرم‌افزارهای شرکتی (سپیدار، راهکاران).
-2. **درز کلاینت مالیاتی (`MoadianClient Seam`):**
-   - *رابط:* ارسال فاکتور، مدیریت نشست، امضای JWS، رمزنگاری JWE، و استعلام کارپوشه.
-   - *آداپتورها:* `NativeMoadianClient` (محیط عملیاتی) و `LocalMoadianSimulator` (محیط تست آفلاین و CI/CD).
-3. **درز پایش سقف مجاز فروش ماده ۶ (`SalesCapEngine Seam`):**
-   - *رابط:* محاسبه سقف فصلی، ردیابی فروش جاری، احتساب پرداخت‌های نقدی و چک‌های صیادی، و بلوکه‌سازی پیش‌پرواز.
-   - *آداپتورها:* `DatabaseSalesCapEngine` متصل به جدول `moadian_sales_caps`.
-4. **درز سپرهای مالیاتی و تورم (`TaxShieldsEngine Seam`):**
-   - *رابط:* محاسبه سود موهوم تورمی موجودی‌ها، هزینه مالی آورده نقدی (ماده ۱۳۸ مکرر)، اعتبار مالیاتی R&D (ماده ۱۱) و استهلاک زیان سنواتی (ماده ۱۴۰).
-   - *آداپتورها:* `StandardTaxShieldsEngine` متصل به جدول `tax_shields_ledger`.
-5. **درز اعتبارسنجی استانداردها (`StandardsValidator Seam`):**
-   - *رابط:* ارزیابی صورت‌های مالی در برابر ۳۶ قاعده ماتریسی استاندارد ۱ و سایر استانداردهای حسابداری.
-   - *آداپتورها:* `YamlRulesValidator` بارگذاری‌کننده قوانین از `validators/rules.yaml`.
-6. **درز استخراج اسناد (`InvoiceParser Seam`):**
-   - *رابط:* دریافت بایت‌های فاکتور (PDF یا تصویر) و خروجی مدل داده‌ای نرمال‌شده.
-   - *آداپتورها:* `VectorPdfParser` (سریع با PyMuPDF/pdfplumber) و `VisionInvoiceParser` (هوش مصنوعی دیداری / Surya OCR).
-
-### ج) آزمون حذف (Deletion Test)
-
-در صورت حذف هر یک از این ماژول‌های عمیق (به ویژه `MoadianClient`، `SalesCapEngine` یا `LedgerRepository`)، پیچیدگی کد از بین نمی‌رود، بلکه صدها خط منطق اعتبارسنجی چکسام، رمزنگاری نامتقارن، محاسبات اهرم سقف ماده ۶ و کنترل توازن مالی به سرتاسر کلاینت‌ها و ابزارها نشت می‌کند. حضور این ماژول‌ها ضامن تمرکز تغییرات و آرامش فراخواننده است.
+The system is designed to fail closed on financial, legal, security, and transmission uncertainty.
 
 ---
 
-## ۳. مدل دامنه و واژه‌نامه فراگیر (Domain Modeling & Ubiquitous Language)
+# 1. Authority hierarchy and source policy
 
-انطباق صددرصدی با ادبیات رسمی سازمان حسابرسی کشور، قانون مالیات‌های مستقیم (ق.م.م)، قانون پایانه‌های فروشگاهی و سامانه مؤدیان و قانون مالیات بر ارزش افزوده ۱۴۰۰ الزامی است:
+## 1.1 Repository authority order
 
-| واژه استاندارد فارسی | معادل انگلیسی / فنی | مرجع قانونی / استانداردی | تعریف دقیق در دامنه حساب‌یار |
-| :--- | :--- | :--- | :--- |
-| **ترازنامه (صورت وضعیت مالی)** | Balance Sheet | استاندارد حسابداری شماره ۱ | گزارش وضعیت مالی منعکس‌کننده دارایی‌ها = بدهی‌ها + حقوق مالکانه در یک تاریخ معین. |
-| **سند حسابداری (برگه روزنامه)** | Journal Voucher | آیین‌نامه تحریر دفاتر | رکورد رسمی ثبت رویداد مالی متشکل از آرتیکل‌های متوازن بدهکار و بستانکار. |
-| **تفصیلی شناور (ماتریسی)** | Floating Tafsili | رویه نوین حسابداری ایران | کدینگ یکتای اشخاص، بانک‌ها، پروژه‌ها و مراکز هزینه که می‌تواند به معین‌های مختلف متصل گردد. |
-| **شناسه یکتای مالیاتی** | TaxID | دستورالعمل فنی مؤدیان | رشته ۲۲ کاراکتری تولیدشده با حافظه مالیاتی، روزهای سپری‌شده، شماره سریال و رقم ورهوف. |
-| **شناسه کالا و خدمات** | StuffID | پایگاه شناسه کالا و خدمت | کد ۱۳ رقمی تخصیص‌یافته به کالا یا خدمات جهت رصد زنجیره تأمین و مالیات ارزش افزوده. |
-| **سقف مجاز فروش (ماده ۶)** | Article 6 Sales Cap | ماده ۶ قانون پایانه‌ها و تسهیل | حداکثر فروش مجاز فصلی برابر با ۵ برابر فروش متناظر سال قبل یا ۵ برابر معافیت ماده ۱۰۱. |
-| **عدول از حد مجاز** | Cap Exceeded Status | کارپوشه سامانه مؤدیان | صدور فاکتور فراتر از سقف ماده ۶ که موجب سلب اعتبار مالیاتی ارزش افزوده خریدار می‌شود. |
-| **مالیات بر ارزش افزوده** | Value Added Tax (VAT) | بند ر تبصره ۶ بودجه ۱۴۰۳ | نرخ عمومی ۱۰٪ (شامل ۹٪ پایه قانونی و ۱٪ سهم متناسب‌سازی حقوق بازنشستگان). |
-| **صورتحساب ارجاعی** | Reference Invoice | دستورالعمل صورتحساب مؤدیان | صورتحساب‌های وابسته شامل اصلاحی (کد ۲)، ابطالی (کد ۳) و برگشت از فروش (کد ۴) با عطف به فاکتور اصلی. |
-| **اصل عدم انکار** | Non-Repudiation | قوانین تجارت الکترونیک و مالیات | تضمین حقوقی ارسال و دریافت پیام با امضای دیجیتال و ثبت غیرقابل تغییر در دفتر وقایع. |
-| **سپر مالیاتی آورده نقدی** | Equity Financing Shield | ماده ۱۳۸ مکرر ق.م.م | شناسایی سود انتظاری شورای پول و اعتبار (~۲۳٪) برای آورده نقدی شرکا به عنوان هزینه مالی قابل قبول. |
-| **اعتبار مالیاتی تحقیق و توسعه** | R&D Tax Credit | مواد ۱۱ و ۱۳ جهش تولید دانش‌بنیان | کسر ۱۰۰٪ ریال‌به‌ریال مخارج تحقیق و توسعه تأییدشده از قبض مالیات عملکرد مؤدی. |
-| **سود موهوم تورمی** | Phantom Profit / Holding Gain | استاندارد حسابداری شماره ۸ | سود اسمی ناشی از ارزشیابی موجودی به روش FIFO در تورم مزمن که منجر به ذوب سرمایه در گردش می‌شود. |
-| **ذوب سرمایه در گردش** | Working Capital Meltdown | حسابداری تورمی | ناتوانی بنگاه در بازتأمین فیزیکی موجودی انبار به دلیل پرداخت مالیات عملکرد بر سودهای کاذب تورمی. |
-| **جرائم مالیاتی ماده ۲۷۴** | Article 274 Tax Crimes | ماده ۲۷۴ اصلاحی ق.م.م | فهرست هشت‌گانه تخلفات کیفری مالیاتی (فاکتور صوری، کتمان درآمد و...) مستوجب حبس تعزیری درجه ۶. |
-| **سامانه سنیم** | ITAS (SANIM) | سازمان امور مالیاتی | هسته پردازش مالیاتی کشور و موتور تحلیل ریسک (طبقه‌بندی پرونده‌ها به سبز، زرد و قرمز). |
-| **سامانه سیاق** | SAYAQ System | قوه قضائیه و بانک مرکزی | سامانه یکپارچه احکام قضایی جهت توقیف و انسداد آنی حساب‌های بانکی بدهکاران مالیاتی قطعی. |
-| **ریال ایران (IRR)** | Iranian Rial | واحد پولی استاندارد | تنها یکای مجاز ذخیره‌سازی مبالغ در سراسر کدهای برنامه و پایگاه‌داده به صورت اعداد صحیح بزرگ. |
+For implementation decisions, use this order:
+
+1. `docs/ARCHITECTURE.md` — this file.
+2. Accepted tests that implement this file.
+3. Current source code that passes those tests.
+4. Versioned source snapshots registered by the legal/standards/protocol registries.
+5. README and operational documentation.
+6. Research notes and examples.
+
+Items 5–6 are explanatory only. They are not normative.
+
+## 1.2 External source hierarchy
+
+For legal/tax/accounting/protocol facts:
+
+1. Official statute, regulation, circular, technical specification, or Accounting Standards Organization/Audit Organization publication.
+2. Official archive/copy with identifiable document number/version/date.
+3. Trusted secondary copy used only to locate an official source.
+4. Commentary/blog/social media — discovery evidence only; never executable truth.
+
+A source is not `VERIFIED` merely because multiple websites repeat it.
+
+## 1.3 Required source record
+
+Every legal, standards, and Moadian protocol source used by production logic MUST have:
+
+```text
+source_id
+domain = tax | accounting_standard | moadian_protocol
+authority
+document_number_or_version
+title
+published_at
+effective_from
+effective_to
+retrieved_at
+canonical_url
+snapshot_uri
+sha256
+verification_status = DRAFT | VERIFIED | RETIRED | DISPUTED
+verified_by
+verified_at
+notes
+```
+
+Production logic may only use source versions with `verification_status=VERIFIED`.
+
+Live URLs are not reproducible evidence. A hash-addressed snapshot is required.
 
 ---
 
-## ۴. معماری لایه پروتکل FastMCP و الگوی پاسخ دوگانه (FastMCP Protocol & Dual-Payload UX)
+# 2. Mandatory corrections to v1.1 assumptions
 
-ارتباط ایجنت با سرور حساب‌یار از طریق چارچوب پرسرعت **FastMCP** برقرار می‌گردد.
+The coding agent MUST NOT implement the following old statements as executable facts.
 
-### الف) حالت‌های ترانسپورت دوگانه (Dual Transport Modes)
+| Old assumption | Final rule |
+|---|---|
+| Tax-loss carryforward = “Article 140” | Do not encode this label. Use a versioned tax policy based on the verified legal source applicable to `as_of_date`; current research points to Article 148(12), but the active source record controls. |
+| Deferred tax under Iranian Standard 22 | Wrong. Income taxes/deferred tax belong to Standard 35. Standard 22 is interim financial reporting. |
+| Article 274 contains eight offences | Do not hard-code a count. Current reviewed text contains seven items; production uses a verified source version. |
+| Bank inflows below a numeric threshold are safe from tax review | Prohibited assumption. Thresholds are risk signals, not a safe harbour or proof of taxability/non-taxability. |
+| 100 inflows + 35 million toman automatically makes income taxable | Prohibited. It may only be a versioned risk signal if the relevant rule is verified for the requested date. |
+| Article 138 bis = principal × assumed 23% automatic tax deduction | Prohibited. Eligibility, participatory contract, actual/allowable return, retention period, payment, and evidence are distinct predicates. |
+| “Phantom profit / working-capital meltdown” is a posting rule | Prohibited. It is advisory scenario analysis only. |
+| VAT rate is forever 10% | Prohibited. VAT is an effective-dated tax parameter. |
+| Article 6 cash prepayment always gives a fixed 10× cap increase | Prohibited as a timeless rule. It must be computed from the active verified legal rule and VAT treatment. |
+| Article 6 over-cap invoice must always be rejected and auto-corrected | Prohibited. The engine may advise or block according to a verified active policy, but it never auto-creates a corrective invoice from research prose. |
+| Moadian TaxID/JWS/JWE/endpoints from v1.1 are already verified | Prohibited. They are integration hypotheses until pinned to an official protocol profile and contract-tested. |
+| Seven invoice patterns are timeless enums | Prohibited. Invoice type/pattern/schema belong to a versioned Moadian protocol profile. |
+| SHA-256 audit hashes alone provide legal non-repudiation | Prohibited claim. They provide tamper evidence only unless a separate trust/signature model establishes non-repudiation. |
+| “35 standards present” means full standards compliance coverage | Prohibited claim. Corpus availability and executable validation coverage are separate metrics. |
 
-1. **حالت ورودی/خروجی استاندارد (`stdio`):**
-   - حالت پیش‌فرض برای اجرای ایزوله و بومی در کلاینت‌های دسکتاپ نظیر **Claude Desktop**، **Cursor**، **Zed** و **Windsurf**.
-   - امنیت کامل لوله‌های سیستمی (OS Pipes) بدون نیاز به باز کردن پورت شبکه یا عبور از فایروال.
-2. **حالت رویدادهای ارسالی سرور (`sse`):**
-   - راه‌اندازی با پارامتر `--transport sse --port 8000`.
-   - استقرار در سرورهای ابری سازمانی، اتصال به بات‌های پیام‌رسان (بله و تلگرام) و گردش کارهای اتوماسیون مالی.
+---
 
-### ب) الگوی پاسخ دوگانه هیبریدی (Dual-Payload Response Format)
+# 3. R0 goals and explicit non-goals
 
-برای حل تعارض میان خوانایی بصری برای کاربر و قابلیت اطمینان برنامه‌نویسی برای هوش مصنوعی، خروجی تمامی ابزارهای سیستم در قالب ساختار سه‌جزئی استاندارد زیر بازگردانده می‌شود:
+## 3.1 R0 goals
+
+R0 MUST provide:
+
+- a production-grade double-entry ledger;
+- multi-tenant isolation;
+- fiscal years and posting periods;
+- chart of accounts and floating tafsili dimensions;
+- draft/review/post/reversal workflow;
+- trial balance and core financial-statement validation;
+- versioned accounting-standard metadata and provenance;
+- versioned Iranian tax-policy registry;
+- invoice drafting and schema validation;
+- a local Moadian simulator driven only by verified fixtures;
+- an external submission architecture using transactional outbox + reconciliation;
+- local MCP over stdio;
+- remote MCP over Streamable HTTP;
+- authentication/authorization for every remote request;
+- complete audit events for mutations;
+- explicit human approval before production tax submission;
+- deterministic money/date arithmetic;
+- tests for all critical invariants.
+
+## 3.2 R0 non-goals
+
+R0 MUST NOT:
+
+- implement microservices;
+- auto-file or auto-submit tax invoices without human approval;
+- make criminal/legal conclusions about a user or transaction;
+- auto-classify all bank inflows as revenue;
+- implement OCR output as trusted ledger data;
+- implement unverified Moadian protocol details;
+- provide a generic Python-expression rule engine;
+- use LLM arithmetic as a financial control;
+- use legacy HTTP+SSE as a new remote MCP transport;
+- add a Rust port;
+- implement every Moadian invoice pattern before verified schemas exist;
+- claim complete tax/legal compliance solely from passing software checks.
+
+Rust, advanced multi-agent workflows, and automated tax planning are post-R1 concerns.
+
+---
+
+# 4. Fixed technology baseline
+
+The coding agent MUST use this baseline unless this file is changed.
+
+## 4.1 Language and packaging
+
+- Python: **3.12**
+- Packaging/environment: **uv**
+- Project metadata: `pyproject.toml`
+- Exact dependency resolution: committed `uv.lock`
+- Source layout: `src/hesabyar/`
+- Type checking: `pyright`
+- Lint/format: `ruff`
+- Tests: `pytest` + `hypothesis`
+
+No production dependency may remain unpinned in the lockfile.
+
+## 4.2 MCP
+
+Use the **official MCP Python SDK v2** and its `MCPServer` API.
+
+Protocol target: **MCP 2026-07-28**, while allowing the official SDK's normal compatibility negotiation for older clients.
+
+Transports:
+
+- local: `stdio`
+- remote: **Streamable HTTP**
+- legacy HTTP+SSE: **not implemented in R0**
+
+The old v1.1 `--transport sse` design is superseded.
+
+## 4.3 Persistence
+
+Canonical R0 persistence:
+
+- **PostgreSQL 16+**
+- SQLAlchemy 2.x
+- Alembic migrations
+- psycopg 3
+- PostgreSQL integration tests in CI
+
+SQLite from the old architecture is **not the production datastore** and its old DDL MUST NOT be copied. A future local SQLite adapter requires a separate ADR after R0.
+
+## 4.4 Core libraries
+
+- Pydantic v2 for boundary schemas
+- `decimal.Decimal` for rates/quantities/FX calculations
+- Python `int` for IRR money in domain objects
+- `httpx` for allowed external HTTP adapters
+- `cryptography` only where required by a verified Moadian protocol profile
+
+No pandas/numpy dependency is required for the core ledger.
+
+---
+
+# 5. Physical module layout and dependency rules
+
+Required target layout:
+
+```text
+src/hesabyar/
+  domain/
+    common/
+      money.py
+      dates.py
+      ids.py
+      errors.py
+      result.py
+    ledger/
+      entities.py
+      value_objects.py
+      services.py
+      ports.py
+    standards/
+      models.py
+      rules.py
+      ports.py
+    tax_policy/
+      models.py
+      decisions.py
+      handlers.py
+      ports.py
+    invoices/
+      entities.py
+      state_machine.py
+      ports.py
+    documents/
+      models.py
+      ports.py
+
+  application/
+    commands/
+    queries/
+    services/
+    authorization.py
+    transaction.py
+
+  infrastructure/
+    persistence/
+      postgres/
+        models.py
+        repositories.py
+        uow.py
+    standards/
+      registry.py
+    tax_policy/
+      source_registry.py
+      rule_repository.py
+    moadian/
+      protocol_profiles.py
+      simulator.py
+      gateway.py
+      key_provider.py
+    documents/
+      parsers.py
+      storage.py
+    auth/
+      claims.py
+
+  interfaces/
+    mcp/
+      server.py
+      tools_read.py
+      tools_write.py
+      tools_tax.py
+    cli/
+      main.py
+
+  worker/
+    outbox_worker.py
+    reconciliation_worker.py
+
+tests/
+  unit/
+  property/
+  integration/
+  contract/
+  e2e/
+
+alembic/
+docs/
+```
+
+## 5.1 Dependency direction
+
+Allowed:
+
+```text
+interfaces -> application -> domain
+worker     -> application -> domain
+infrastructure -> domain ports
+application -> domain ports
+```
+
+Forbidden:
+
+- domain importing MCP;
+- domain importing SQLAlchemy;
+- domain importing HTTP clients;
+- domain importing OCR/LLM SDKs;
+- domain reading environment variables;
+- repositories calling MCP;
+- an MCP tool directly calling SQLAlchemy models;
+- tax-policy code posting ledger entries;
+- document parser directly posting ledger entries.
+
+All infrastructure is reached through ports.
+
+---
+
+# 6. Core value objects and arithmetic
+
+## 6.1 Money
+
+`MoneyIRR`:
+
+- underlying value: Python `int`;
+- unit: IRR only;
+- no implicit toman conversion;
+- no float constructor;
+- explicit add/subtract/compare;
+- multiplication by rates goes through Decimal and an explicit rounding policy.
+
+Database money columns: `BIGINT`.
+
+User-facing toman conversion belongs to presentation only.
+
+## 6.2 Decimal quantities and rates
+
+Use `Decimal` for:
+
+- quantity;
+- VAT rate;
+- discounts expressed as rate;
+- FX rate;
+- percentages;
+- tax rates.
+
+Database type: `NUMERIC` with an explicitly chosen precision/scale.
+
+Binary float is forbidden in financial domain models and database writes.
+
+## 6.3 Rounding
+
+Every policy calculation MUST name a rounding rule.
+
+No implicit `round()` in legal/financial computations.
+
+A policy result includes:
+
+```text
+rounding_mode
+rounding_scale
+rounding_source_rule_version
+```
+
+## 6.4 Dates
+
+Persist:
+
+- event timestamps: `TIMESTAMPTZ`, UTC;
+- legal/accounting dates: PostgreSQL `DATE` as canonical Gregorian date;
+- Jalali representation: computed/presented or stored only as additional display/source data when legally necessary.
+
+Never use a Jalali text field as the only canonical date.
+
+---
+
+# 7. Tenant and actor model
+
+## 7.1 Tenant isolation
+
+Every business object belongs to a tenant.
+
+`tenant_id` MUST exist on:
+
+- fiscal years;
+- posting periods;
+- accounts;
+- tafsili entities;
+- account-tafsili links;
+- vouchers and lines;
+- approvals;
+- invoice drafts/lines;
+- submission/outbox records;
+- documents/extractions;
+- policy decisions;
+- audit events.
+
+Global legal/source registries may have nullable tenant scope only when the record is truly shared.
+
+## 7.2 Tenant identity is not a tool argument
+
+For remote MCP, `tenant_id` and `actor_id` are derived from validated authentication claims.
+
+The model/user MUST NOT be able to switch tenant by passing `tenant_id` to a tool.
+
+For stdio, tenant/actor are loaded from a trusted local profile/configuration, not LLM text.
+
+## 7.3 Roles/scopes
+
+Minimum scopes:
+
+```text
+hesabyar.read
+hesabyar.ledger.draft
+hesabyar.ledger.post
+hesabyar.tax.draft
+hesabyar.tax.submit
+hesabyar.admin
+```
+
+The application layer checks authorization. UI/MCP wrappers are not the security boundary.
+
+---
+
+# 8. Ledger bounded context
+
+The ledger is deterministic and transactionally authoritative.
+
+## 8.1 Required entities
+
+- Tenant
+- FiscalYear
+- PostingPeriod
+- Account
+- Tafsili
+- AccountTafsiliLink
+- Voucher
+- VoucherLine
+- VoucherApproval
+- NumberSequence
+
+## 8.2 Account hierarchy
+
+Support group / kol / moein and floating tafsili association.
+
+The old schema documented “matrix tafsili” but did not create the required link table. R0 MUST include a real many-to-many `account_tafsili_links` table with validity dates/status if needed.
+
+A tafsili may be linked to multiple eligible moein accounts.
+
+## 8.3 Voucher states
+
+```text
+DRAFT -> REVIEW_REQUIRED -> APPROVED -> POSTED
+  |           |               |
+  +-> VOID    +-> REJECTED    +-> approval expires if draft hash changes
+
+POSTED -> REVERSED
+```
+
+Rules:
+
+- only DRAFT may be edited;
+- any material edit invalidates prior approval;
+- POSTED is immutable;
+- correction = reversal voucher + replacement voucher;
+- deletion of POSTED records is forbidden;
+- a reversal references the original voucher;
+- a voucher has at least two lines;
+- every line is one-sided: debit XOR credit;
+- all amounts are non-negative;
+- posted sum(debit) == sum(credit);
+- total must be > 0;
+- every account is active and belongs to the same tenant;
+- required tafsili must be supplied and linked to the account;
+- posting date must be inside an open period.
+
+## 8.4 Database enforcement
+
+Do not rely only on Pydantic.
+
+PostgreSQL must enforce:
+
+- foreign keys;
+- tenant-aware unique constraints;
+- unique `(tenant_id, fiscal_year_id, voucher_number)`;
+- line one-sided CHECK constraints;
+- no update/delete of posted vouchers/lines through normal application DB role;
+- transaction-time validation that a voucher is balanced before POSTED state is committed.
+
+Use a DB constraint trigger or equivalent transaction-safe enforcement for the cross-row balance invariant.
+
+## 8.5 Sequence allocation
+
+Never use `MAX(voucher_number)+1`.
+
+Use a sequence/allocation row keyed by tenant + fiscal year and lock it transactionally (`SELECT ... FOR UPDATE` or an equivalent safe allocator).
+
+---
+
+# 9. Accounting standards bounded context
+
+The existing standards corpus is a knowledge asset, not proof of current compliance.
+
+## 9.1 Standard version registry
+
+Each standard/revision MUST carry:
+
+```text
+standard_number
+title
+revision_id
+published_at
+effective_from
+effective_to
+source_id
+status
+supersedes_revision_id
+```
+
+Example: Standard 22 and Standard 35 must never be inferred only from file names; their registered revision controls applicability.
+
+Standard 44/leases is effective-dated and must be treated by revision, not as a timeless fact.
+
+## 9.2 Validator replacement
+
+The existing validator has two prohibited behaviors:
+
+1. Python `eval()` on rule expressions.
+2. returning PASS when a formula cannot be evaluated.
+
+Both MUST be removed during Phase 0.
+
+## 9.3 Rule DSL
+
+Do not store arbitrary executable expressions.
+
+Use a closed, typed rule schema. Example:
+
+```yaml
+id: BS001
+type: equation
+left:
+  field: total_assets
+right:
+  add:
+    - field: total_liabilities
+    - field: total_equity
+tolerance:
+  absolute_irr: 0
+severity: error
+standard_refs:
+  - standard: 1
+    revision: "..."
+    paragraph: "..."
+```
+
+Allowed operations are explicitly implemented by code:
+
+- field;
+- constant;
+- add;
+- subtract;
+- multiply;
+- divide with zero guard;
+- sum_items;
+- compare;
+- all/any;
+- conditional applicability.
+
+No `eval`, `exec`, Jinja expression execution, or dynamic Python import.
+
+## 9.4 Validation result states
+
+A rule result is one of:
+
+- `PASS`
+- `FAIL`
+- `NOT_APPLICABLE`
+- `ERROR`
+
+`NOT_APPLICABLE` is not counted as pass.
+
+For a mandatory rule, `ERROR` makes the overall report invalid.
+
+An unknown field or unevaluable formula must never become PASS.
+
+## 9.5 Coverage
+
+Report separately:
+
+- standards available in corpus;
+- standards with machine-readable rules;
+- rules executed;
+- rules passed;
+- rules failed;
+- rules not applicable;
+- rule errors.
+
+Do not advertise “35 standards validated” unless executable coverage actually supports that statement.
+
+---
+
+# 10. Tax/legal policy bounded context
+
+Tax policy is versioned decision support, not hard-coded application logic.
+
+## 10.1 Required public interface
 
 ```python
-class DualPayloadResponse(BaseModel):
-    summary_markdown: str = Field(
-        ..., 
-        description="گزارش راست‌به‌چپ شکیل با جدول‌های متنی و جداکننده سه رقمی ریال جهت نمایش مستقیم به کاربر"
-    )
-    data: dict = Field(
-        ..., 
-        description="داده‌های خام تایپ‌شده با مقادیر قطعی عددی (int) و شناسه‌ها برای زنجیره‌سازی ابزارها توسط مدل"
-    )
-    status: str = Field(
-        ..., 
-        description="وضعیت سیستمی شامل SUCCESS, WARNING, ERROR"
-    )
-    error_code: Optional[str] = Field(
-        default=None, 
-        description="کد خطای استاندارد سامانه در صورت بروز خطا نظیر E1001 یا E2004"
-    )
+evaluate(
+    policy_id: PolicyId,
+    facts: PolicyFacts,
+    as_of_date: date,
+) -> PolicyDecision
 ```
 
-#### مزایای استراتژیک الگوی دوگانه:
-- **صرفه‌جویی چشمگیر در توکن‌ها:** مدل زبانی ناچار به بازتولید جداول تراز آزمایشی یا فاکتور با فرمت‌های سنگین متنی نیست؛ کلاینت بخش `summary_markdown` را مستقیماً رندر می‌کند.
-- **دقت ریاضی ۱۰۰٪ در زنجیره‌سازی:** فیلد `data` حاوی شناسه‌های مالیاتی خام و مبالغ عددی قطعی بدون ویرگول یا نماد است که مانع از خطای استخراج متن توسط هوش مصنوعی در مراحل بعدی می‌شود.
+`as_of_date` is required.
 
-### ج) استقرار و بسته‌بندی تک‌دستوری
+## 10.2 PolicyDecision
 
-به لطف سازمان‌دهی با `pyproject.toml` و ابزار `uv`، استقرار سرور با یک دستور انجام می‌پذیرد:
+Must contain:
 
-```bash
-# اجرای فوری در کلاینت‌های محلی
-uvx hesabyar-mcp
-
-# اجرای سرور بر بستر وب با پروتکل SSE
-uvx hesabyar-mcp --transport sse --port 8000
+```text
+decision_id
+policy_id
+as_of_date
+outcome = ALLOW | BLOCK | ELIGIBLE | INELIGIBLE | NEEDS_EVIDENCE | RULE_UNVERIFIED | REVIEW_REQUIRED
+calculation
+assumptions
+missing_evidence
+warnings
+source_versions
+logic_version
+input_hash
+created_at
+requires_professional_review
 ```
 
-نمونه تنظیمات اتصال در `claude_desktop_config.json`:
+## 10.3 Rule storage vs logic code
+
+Legal text/parameters are data; executable logic is typed code.
+
+Do not store Python expressions in the database.
+
+Each policy handler declares the legal rule versions it supports.
+
+A legal change that changes logic requires:
+
+1. new source snapshot;
+2. new legal rule version;
+3. updated typed handler or parameters;
+4. golden tests;
+5. reviewer activation.
+
+## 10.4 High-risk policy outputs
+
+The following outputs MUST be advisory/reviewable and never direct legal conclusions:
+
+- bank-transaction classification;
+- suspected tax evasion;
+- Article 274 risk;
+- tax-shield eligibility when evidence is incomplete;
+- Article 100 eligibility;
+- Article 6 cap when authoritative current data is missing.
+
+The application says “potential compliance risk” or “needs evidence”, not “crime committed” or “tax definitely owed” unless a deterministic statutory calculation is fully supported by verified facts.
+
+## 10.5 Article 6 design
+
+Article 6 is a policy module, not a hard-coded formula in invoice code.
+
+Inputs include, as applicable:
+
+- period;
+- taxpayer status;
+- verified prior-period values;
+- active legal parameters;
+- payments/guarantees/purchases only when verified by allowed evidence;
+- current remote/cached cap snapshot and its timestamp.
+
+Output states:
+
+- `ALLOW`
+- `BLOCK`
+- `UNKNOWN_STALE_DATA`
+- `NEEDS_EVIDENCE`
+- `REVIEW_REQUIRED`
+
+If cap data is stale or unknown, production submission fails closed according to the active policy.
+
+The engine MUST NOT auto-create corrective invoices after a cap change.
+
+---
+
+# 11. Invoice domain and Moadian protocol profiles
+
+## 11.1 Separate business invoice from protocol payload
+
+The canonical business object is `InvoiceDraft`.
+
+The external wire payload is generated by a `MoadianProtocolProfile`.
+
+Do not make the business domain mirror one specific government JSON version.
+
+## 11.2 Protocol profile registry
+
+Each Moadian profile includes:
+
+```text
+profile_id
+official_document_version
+source_id
+effective_from
+effective_to
+schema_version
+status = DRAFT | VERIFIED | ACTIVE | RETIRED
+endpoint_profile
+crypto_profile
+tax_id_profile
+invoice_schema_refs
+error_catalog_version
+activated_by
+activated_at
+```
+
+Production gateway accepts only `ACTIVE` profiles.
+
+## 11.3 Current discovery note
+
+Publicly discoverable material in September 2026 points to an electronic-invoice instruction identified as **version 7.9, Tir 1405**, with changed fields/rules including “invoice sending rule”, “note 1”, “note 2”, and revisions around reference/corrective/return invoices.
+
+This is a **discovery signal**, not sufficient production authority by itself.
+
+Before Moadian production implementation, obtain the official technical document, store its snapshot/hash, mark it VERIFIED, and write contract fixtures from that exact version.
+
+The coding agent MUST NOT implement v1.1 V6/V7 assumptions merely because they are already described in the repository.
+
+## 11.4 Invoice schema
+
+Do not represent invoice patterns as a timeless Python enum `1..7`.
+
+Store/validate:
+
+```text
+protocol_profile_id
+invoice_type_code
+pattern_code
+lifecycle_code
+schema_payload
+```
+
+Typed convenience models may exist for common patterns, but the registry is authoritative.
+
+Unsupported profile/type/pattern combination => `PROTOCOL_SCHEMA_UNSUPPORTED` before transmission.
+
+## 11.5 TaxID and cryptography
+
+`TaxId` is an opaque domain value.
+
+Generation/checksum format is implemented inside the active protocol adapter only after official verification.
+
+The architecture does **not** prescribe Verhoeff, epoch base, memory-ID layout, JWS algorithm, JWE algorithm, or endpoint path until the active profile specifies them.
+
+Do not copy v1.1 crypto prose into code without an official profile fixture.
+
+---
+
+# 12. External submission workflow
+
+External tax submission is an irreversible side effect and MUST use a transactional outbox.
+
+## 12.1 Invoice state machine
+
+```text
+DRAFT
+  -> VALIDATION_FAILED
+  -> VALIDATED
+  -> APPROVAL_REQUIRED
+  -> APPROVED
+  -> QUEUED
+  -> SUBMITTING
+  -> SUBMITTED
+  -> ACCEPTED
+  -> REJECTED
+  -> PENDING_RECONCILIATION
+
+APPROVED -> DRAFT only by creating a new draft version; approval is invalidated.
+```
+
+No arbitrary state assignment is allowed.
+
+## 12.2 Human approval
+
+R0 production submission requires a human/operator approval record for the **exact canonical payload hash**.
+
+The model-facing MCP server does **not** expose a tool that can grant its own tax-submission approval.
+
+Approval is created through a trusted operator CLI/admin surface authenticated with `hesabyar.tax.submit` or a stronger approval role.
+
+If draft content changes after approval, approval is invalid.
+
+## 12.3 Transactional outbox
+
+`submit_approved_invoice` does not perform the remote POST inline.
+
+It:
+
+1. validates tenant/actor/scope;
+2. verifies active protocol profile;
+3. verifies exact approved draft hash;
+4. writes an outbox message in the same DB transaction;
+5. returns `QUEUED` + `submission_job_id`.
+
+A worker reads the outbox and performs transmission.
+
+This prevents the “remote succeeded but local transaction crashed” ambiguity from being handled by blind resubmission.
+
+## 12.4 Delivery semantics
+
+Do not claim exactly-once network delivery.
+
+Design for:
+
+- at-least-once worker execution;
+- business-level idempotency;
+- deterministic payload hash;
+- stable submission identity;
+- reconciliation before retry after ambiguous remote outcomes.
+
+An ambiguous timeout after sending becomes `PENDING_RECONCILIATION`, not immediate blind retry.
+
+## 12.5 Reconciliation
+
+The worker records immutable status events.
+
+Reconciliation compares local state with the remote status API according to the active protocol profile.
+
+Manual intervention is available for unresolved ambiguity.
+
+---
+
+# 13. Document intake
+
+Documents are untrusted input.
+
+## 13.1 Pipeline
+
+```text
+RAW_FILE
+  -> STORED
+  -> EXTRACTED_CANDIDATE
+  -> FIELD_VALIDATED
+  -> REVIEW_REQUIRED
+  -> APPROVED_DRAFT
+  -> optional ledger/invoice application command
+```
+
+## 13.2 Required provenance
+
+Store:
+
+- original file SHA-256;
+- MIME type detected from content, not filename only;
+- size;
+- parser name/version;
+- extraction timestamp;
+- field-level source/provenance;
+- extraction confidence;
+- reviewer/approval;
+- resulting draft IDs.
+
+OCR/parser output is never automatically a posted voucher.
+
+## 13.3 Prompt-injection boundary
+
+Text extracted from invoices/PDFs is data.
+
+It MUST NOT be concatenated into system/developer instructions or treated as agent instructions.
+
+Parser text cannot request tool execution, change tenant, change policy, or authorize a mutation.
+
+## 13.4 File security
+
+Enforce:
+
+- size limits;
+- MIME allowlist;
+- decompression/page limits;
+- parser timeouts;
+- isolated temporary storage;
+- no shell execution from document content;
+- no arbitrary URL fetch initiated by embedded document links.
+
+---
+
+# 14. MCP/API boundary
+
+## 14.1 Transport
+
+Local:
+
+```text
+stdio
+```
+
+Remote:
+
+```text
+Streamable HTTP /mcp
+TLS at reverse proxy
+MCP protocol target 2026-07-28
+```
+
+Do not build new R0 functionality on legacy SSE.
+
+## 14.2 Authentication
+
+Every remote MCP request is authenticated.
+
+Preferred architecture:
+
+- external OIDC/OAuth authorization server or trusted gateway;
+- Bearer access token validation;
+- issuer/audience/expiry/scope validation;
+- tenant and actor derived from claims;
+- no self-issued ad-hoc auth protocol.
+
+Follow the current MCP authorization specification supported by the official SDK.
+
+## 14.3 Host and origin security
+
+For remote Streamable HTTP:
+
+- explicit host allowlist;
+- origin validation where applicable;
+- DNS-rebinding protections;
+- request body limits;
+- rate limiting;
+- reverse-proxy TLS;
+- no binding to public `0.0.0.0` without auth and configured allowed hosts.
+
+## 14.4 Tool classes
+
+### Read-only tools
+
+- `system_capabilities`
+- `trial_balance`
+- `validate_financial_statements`
+- `evaluate_tax_policy`
+- `validate_invoice_draft`
+- `get_submission_status`
+- `get_audit_event`
+
+### Local mutation tools
+
+- `create_voucher_draft`
+- `update_voucher_draft`
+- `request_voucher_review`
+- `post_approved_voucher`
+- `create_invoice_draft`
+- `update_invoice_draft`
+- `request_invoice_review`
+
+### External side-effect tool
+
+- `submit_approved_invoice`
+
+There is no model-facing `approve_invoice_submission` tool in R0.
+
+## 14.5 Tool arguments
+
+Never accept from model input:
+
+- tenant identity;
+- actor identity;
+- actor role;
+- arbitrary database path;
+- private-key path;
+- arbitrary Moadian endpoint URL;
+- arbitrary executable policy code.
+
+These come from trusted configuration/context.
+
+## 14.6 Response envelope
+
+Canonical structured response:
+
 ```json
 {
-  "mcpServers": {
-    "hesabyar": {
-      "command": "uvx",
-      "args": ["hesabyar-mcp"],
-      "env": {
-        "HESABYAR_DB_PATH": "/home/user/.hesabyar/ledger.db",
-        "MOADIAN_PRIVATE_KEY_PATH": "/home/user/.hesabyar/keys/moadian_private.pem",
-        "MOADIAN_MEMORY_ID": "A123BC",
-        "MOADIAN_ENV": "production"
-      }
-    }
+  "status": "SUCCESS|WARNING|ERROR|PENDING",
+  "data": {},
+  "messages": [],
+  "provenance": [],
+  "request_id": "uuid",
+  "error": {
+    "code": "optional",
+    "retryable": false,
+    "details": {}
   }
 }
 ```
 
----
-
-## ۵. معماری چندریختی الگوهای صورتحساب و چرخه حیات فاکتورهای ارجاعی (TemplateRegistry & Invoice Lifecycle)
-
-بر اساس شیوه‌نامه فنی سازمان امور مالیاتی کشور، صورتحساب‌های الکترونیکی دارای ۷ الگوی تخصصی هستند. در نسخه 1.1.0-R0، معماری چندریختی `TemplateRegistry` پیاده‌سازی شده است:
-
-```
-                      ┌─────────────────────────────┐
-                      │    BaseInvoiceTemplate      │
-                      │ (اعتبارسنجی عمومی و متاداده) │
-                      └──────────────┬──────────────┘
-                                     │
-         ┌───────────────────────────┼───────────────────────────┐
-         ▼                           ▼                           ▼
-┌──────────────────┐       ┌──────────────────┐       ┌──────────────────┐
-│ Pattern 1:       │       │ Pattern 2:       │       │ Patterns 3 - 7:  │
-│ General Sales    │       │ Foreign Currency │       │ Gold, Contracts, │
-│ (فروش کالا و خدمت)│       │ (فروش ارزی/صادرات)│       │ Utility, Travel  │
-│ [پیاده‌سازی کامل] │       │ [پیاده‌سازی کامل] │       │ [واسط نگهدارنده] │
-└──────────────────┘       └──────────────────┘       └──────────────────┘
-```
-
-### الف) جزئیات الگوهای پیاده‌سازی‌شده
-
-1. **الگوی ۱: فروش عمومی کالا و خدمات (General Sales):**
-   - ویژه کلیه مبادلات عمده و خرده B2B و B2C.
-   - شامل فیلدهای مبلغ قبل از تخفیف، مبلغ تخفیف، مبلغ پس از تخفیف، نرخ ارزش افزوده، مبلغ ارزش افزوده و مبلغ کل به ریال.
-2. **الگوی ۲: فروش ارزی (Foreign Currency Sales):**
-   - ویژه صادرات خدمات، صرافی‌ها و معاملات بین‌المللی ارزی با ثبت معادل ریالی.
-   - فیلدهای اختصاصی: نوع ارز (کد سه‌حرفی ISO 4217 نظیر USD، EUR، AED)، نرخ برابری ارز با ریال بر مبنای سامانه ETS بانک مرکزی، مبلغ ارزی کالا، و مبلغ برابری ریالی قطعی.
-3. **الگوهای ۳ تا ۷ (Placeholder Interfaces):**
-   - الگوهای طلا و جواهر (عیار، سود، اجرت و حق‌العمل)، پیمانکاری (صورت‌وضعیت و کسورات)، قبوض خدماتی، بلیط مسافرتی و صادرات گمرکی با ساختار اسکیمای پایه آماده شده‌اند تا در نسخه‌های بعدی بدون شکست معماری فعال گردند.
-
-### ب) چرخه حیات صورتحساب‌های ارجاعی (Invoice Lifecycle)
-
-صورتحساب‌ها از حیث وضعیت حقوقی رویداد مالی به ۴ دسته تقسیم می‌شوند:
-
-```
-[صورتحساب اصلی (کد ۱)]
-         │
-         ├───► [اصلاحی (کد ۲)] ────► الزام reference_tax_id + ورهوف + تطابق خریدار
-         │
-         ├───► [ابطالی (کد ۳)] ────► الزام reference_tax_id + فاقد اقلام (ابطال کامل)
-         │
-         └───► [برگشت از فروش (کد ۴)] ► الزام reference_tax_id + عودت کالا/خدمات
-```
-
-- **اصلی (Original - کد ۱):** نخستین ثبت معامله در سامانه مؤدیان.
-- **اصلاحی (Corrective - کد ۲):** ویرایش اقلام، مقادیر یا شرح صورتحساب قبلی بدون تغییر خریدار. شناسه مالیاتی فاکتور قبلی در `reference_tax_id` اجباری بوده و چکسام ورهوف آن کنترل می‌شود.
-- **ابطالی (Cancellation - کد ۳):** لغو کامل فاکتور مرجع در پی فسخ معامله. در این فاکتور جدول اقلام خالی یا صفر بوده و صرفاً به شناسه مرجع اشاره می‌گردد.
-- **برگشت از فروش (Sales Return - کد ۴):** بازگشت تمام یا بخشی از کالای فروخته‌شده با حفظ ارتباط با فاکتور اصلی.
+Rendered Markdown is presentation output and must not be the canonical machine contract.
 
 ---
 
-## ۶. امنیت، رمزنگاری بومی و کلاینت سامانه مؤدیان (Zero-Trust Cryptography & Moadian Client)
+# 15. Application command contract
 
-انجام عملیات مالیاتی با سازمان بدون هیچ‌گونه وابستگی به پکیج‌های غیررسمی، توسط ماژول بومی `NativeMoadianClient` بر پایه کتابخانه‌های استاندارد `cryptography` و `httpx` طراحی شده است.
-
-### الف) الگوریتم تولید شناسه منحصر‌به‌فرد مالیاتی ۲۲ رقمی (TaxID)
-
-فرمت شناسه یکتای مالیاتی ۲۲ کاراکتری:
-$$\text{TaxID} = \underbrace{\text{MEMORY\_ID}}_{\text{۶ کاراکتر}} + \underbrace{\text{DAYS\_HEX}}_{\text{۵ رقم روز}} + \underbrace{\text{SERIAL\_HEX}}_{\text{۱۰ رقم سریال}} + \underbrace{\text{VERHOEFF\_CHECK}}_{\text{۱ رقم}}$$
-
-- **حافظه مالیاتی:** کد ۶ رقمی الفبانومریک مودی در کارپوشه (مثلاً `A123BC`).
-- **روزهای سپری‌شده:** تعداد روزهای تقویمی گذشته از تاریخ مبنای سامانه مؤدیان (۱۳۹۸/۱۰/۰۱ برابر با 2019-12-22) که به مبنای هگزادسیمال تبدیل شده و با صفرهای سمت چپ به طول ۵ رقم پر می‌شود.
-- **سریال داخلی صورتحساب:** شماره سریال ترتیبی دفتری صورتحساب در قالب هگزادسیمال ۱۰ رقمی.
-- **رقم کنترلی ورهوف (Verhoeff Check Digit):** الگوریتم محاسباتی با ماتریس‌های جایگشت ضد خطای جابجایی ارقام مجاور (Transposition Errors) که روی ۲۱ کاراکتر اولیه محاسبه و به عنوان رقم ۲۲ پیوست می‌گردد.
-
-### ب) پایپ‌لاین رمزنگاری بسته داده (JWS / JWE Pipeline)
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│ 1. استخراج داده خام صورتحساب (JSON بر اساس الگوی ۱ یا ۲)     │
-└──────────────────────────────┬──────────────────────────────┘
-                               │
-                               ▼
-┌─────────────────────────────────────────────────────────────┐
-│ 2. امضای نامتقارن بسته با کلید خصوصی مؤدی (JWS RS256)        │
-│    Payload -> JWS (Header.Payload.Signature)                │
-└──────────────────────────────┬──────────────────────────────┘
-                               │
-                               ▼
-┌─────────────────────────────────────────────────────────────┐
-│ 3. تولید کلید متقارن تصادفی ۲۵۶ بیتی (AES-GCM-256)           │
-│    و رمزنگاری کل پکت امضاشده JWS با کلید متقارن              │
-└──────────────────────────────┬──────────────────────────────┘
-                               │
-                               ▼
-┌─────────────────────────────────────────────────────────────┐
-│ 4. رمزنگاری کلید متقارن با کلید عمومی دارایی (RSA-OAEP-256)  │
-│    و بسته‌بندی نهایی در قالب کپسول JWE                       │
-└──────────────────────────────┬──────────────────────────────┘
-                               │
-                               ▼
-┌─────────────────────────────────────────────────────────────┐
-│ 5. ارسال پکت به درگاه سازمان امور مالیاتی با توکن فعال      │
-│    POST https://tp.tax.gov.ir/req/api/self-tsp/sync/INVOICE  │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### ج) راهبرد سه‌مرحله‌ای پردازش ناهمگام و استعلام (3-Tier Async Inquiries)
-
-درگاه مالیاتی صورتحساب‌ها را در صف‌های ناهمگام پردازش می‌کند که پردازش آن‌ها بین چند ثانیه تا چند ساعت متغیر است. از سوی دیگر تایم‌اوت پروتکل FastMCP حدود ۶۰ ثانیه است. معماری استعلام حساب‌یار به شیوه سه‌مرحله‌ای تطبیقی اجرا می‌شود:
-
-```
-[فراخوانی submit_moadian]
-         │
-         ▼
-[ارسال پکت JWE به دارایی] ──► [ثبت در moadian_transmissions با وضعیت pending]
-         │
-         ▼
-[Short-Poll هوشمند: حداکثر ۲ بار تلاش با فاصله ۲ ثانیه (تا ۴ ثانیه)]
-         │
-    ┌────┴─────────────────────────────┐
-    ▼                                  ▼
-[پاسخ فوری دارایی]           [ادامه پردازش در صف دارایی]
-    │                                  │
-    ▼                                  ▼
-[ثبت SUCCESS یا FAILED]      [بازگرداندن فوری پاسخ pending]
-[نمایش نتیجه قطعی به کاربر]   [ممانعت از تایم‌اوت کلاینت FastMCP]
-                                       │
-                                       ▼
-                       [استعلام در دورهای بعدی با inquiry_moadian]
-                       [پشتیبانی از استعلام گروهی sync_all_pending=True]
-```
-
-1. **ارسال و پولینگ کوتاه (Short-Poll):** در ابزار `submit_moadian`، پکت ارسال شده، رکورد آنی در دیتابیس ثبت گردیده، و تا ۴ ثانیه (۲ بار استعلام ۲ ثانیه‌ای) وضعیت پایش می‌شود. در ساعات خلوت سرور، نتیجه قطعی در همان تماس به کاربر ارائه می‌گردد.
-2. **بازگشت بدون انسداد (Immediate Return on Busy):** چنانچه سرور در صف پردازش بماند، متد فوراً با وضعیت `pending` و کد رهگیری پایان می‌یابد تا از قفل شدن مدل زبانی یا قطع سوکت MCP جلوگیری شود.
-3. **همگام‌سازی دسته‌ای در `inquiry_moadian`:** ابزار استعلام امکان استعلام یک فاکتور با `tax_id` یا استعلام دسته‌ای کلیه فاکتورهای معلق دیتابیس با فلگ `sync_all_pending=True` را داراست.
-
-### د) دفتر وقایع انتقال فقط-افزودنی (Append-Only Transmission Ledger)
-
-بر اساس الزامات ممیزی قانونی و اصل عدم انکار (Non-Repudiation)، هرگونه ارسال، تلاش مجدد (Retry) یا استعلام وضعیت در جدول مستقل `moadian_transmissions` درج می‌گردد. این جدول هرگز بازنویسی نمی‌شود و تاریخچه کاملی از هش SHA-256 پکت ارسالی، وضعیت HTTP، شناسه UID و خطاهای دریافتی را برای دفاعیات مالیاتی ثبت می‌نماید.
-
----
-
-## ۷. موتور پایش سقف مجاز فروش ماده ۶ و نظام مالیات بر ارزش افزوده ۱۰٪ (Article 6 Sales Cap & 10% VAT)
-
-### الف) سازوکار ماده ۶ قانون پایانه‌های فروشگاهی و اصلاحیه قانون تسهیل
-
-طبق ماده ۶ قانون پایانه‌های فروشگاهی و اصلاحیه ماده ۷ «قانون تسهیل تکالیف مؤدیان» (مصوب ۱۴۰۲/۰۸/۲۳)، سقف مجاز صدور صورتحساب برای هر مؤدی در ابتدای هر فصل به صورت زیر تعیین می‌شود:
-
-$$\text{Initial Cap} = 5 \times \text{فروش مشمول ارزش افزوده ابرازی دوره متناظر سال قبل که مالیات آن تسویه شده}$$
-
-برای شرکت‌های جدیدالتأسیس، فاقد سابقه یا دارای فروش کمتر از معافیت ماده ۱۰۱ ق.م.م:
-$$\text{Initial Cap (New)} = 5 \times \text{معافیت سالانه موضوع ماده ۱۰۱ ق.م.م}$$
-
-### ب) سازوکار اهرمی افزایش سقف فروش
-
-مؤدیان می‌توانند با پرداخت نقدی یا ارائه تضامین معتبر، ظرفیت فروش خود را در طول فصل افزایش دهند:
-
-1. **اهرم واریز نقدی (۱۰ برابر با مالیات ۱۰٪):**
-   $$\Delta \text{Cap} = \frac{\text{Cash Prepayment}}{\text{VAT Rate}} = \frac{\text{Cash Prepayment}}{0.10} = 10 \times \text{Cash Prepayment}$$
-   *واریز نقدی ۱۰ میلیون تومان مالیات، ظرفیت صدور ۱۰۰ میلیون تومان صورتحساب جدید را باز می‌کند.*
-2. **چک صیادی بنفش تضمینی:**
-   - ثبت چک در سامانه صیاد به نفع سازمان امور مالیاتی.
-   - **قاعده تقویمی حیاتی:** سررسید چک صیادی حداکثر تا **۲۰ روز پس از پایان فصل مالیاتی مربوطه** (هم‌زمان با مهلت نهایی ارسال اظهارنامه ارزش افزوده) مجاز است.
-3. **اعتبار خرید کالا (ورودی):** تأیید سیستمی صورتحساب‌های خرید نقدی مشمول ارزش افزوده توسط خریدار در کارپوشه، سقف مجاز فروش وی را افزایش می‌دهد.
-
-### ج) پیامد فاجعه‌بار «عدول از حد مجاز» و گاردریل پیش‌پرواز
-
-- **محرومیت کامل خریدار از اعتبار مالیاتی:** اگر مؤدی بدون سقف کافی اقدام به صدور فاکتور نماید، سامانه فاکتور را با برچسب **«عدول از حد مجاز ماده ۶»** ثبت می‌کند. در این حالت خریدار از اعتبار مالیاتی ارزش افزوده محروم شده، فاکتور را رد (Reject) کرده و معامله با بحران تجاری روبرو می‌شود.
-- **گاردریل پیش‌پرواز حساب‌یار:** سیستم به صورت خودکار مانده سقف مجاز را در جدول `moadian_sales_caps` کنترل نموده و در صورت ناکافی بودن سقف، از ارسال فاکتور ممانعت کرده و راه‌حل‌های قانونی (واریز نقدی علی‌الحساب با محاسبه ضریب اهرمی یا ارائه چک صیادی) را پیشنهاد می‌دهد.
-- **ترمیم خودکار پس از افزایش سقف:** به محض ثبت افزایش سقف، سیستم صدور خودکار صورتحساب اصلاحی (کد ۲) را جهت حذف برچسب عدول و برقراری اعتبار خریدار هدایت می‌کند.
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                 Pre-Flight Article 6 Check                  │
-├─────────────────────────────────────────────────────────────┤
-│  Invoice Amount > Remaining Cap?                            │
-│  ├── [خیر] ──► صدور مجوز امضا و ارسال بسته                 │
-│  └── [بله] ──► مسدودسازی آنی صدور فاکتور                    │
-│                │                                            │
-│                ├─► محاسبه کسری سقف: Delta = Total - Cap     │
-│                ├─► محاسبه نقدینگی لازم: Cash = Delta * 10% │
-│                ├─► اعلام مهلت چک صیادی: پایان فصل + ۲۰ روز  │
-│                └─► پیشنهاد اصلاحی پس از افزایش ظرفیت       │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### د) نرخ ۱۰٪ ارزش افزوده و اقلام معاف ماده ۹
-
-1. **نرخ ۱۰٪ مصوب ۱۴۰۳ و ۱۴۰۴:**
-   - بر اساس بند (ر) تبصره (۶) قانون بودجه سال ۱۴۰۳، نرخ عمومی مالیات بر ارزش افزوده به **۱۰ درصد** افزایش یافته است.
-   - ۱ واحد درصد مازاد (معادل ۱۰٪ کل درآمدهای ارزش افزوده) قانوناً منحصراً به **متناسب‌سازی و همسان‌سازی حقوق بازنشستگان کشوری، لشکری و صندوق فولاد** اختصاص یافته است.
-2. **شرایط پنج‌گانه پذیرش اعتبار مالیاتی ورودی طبق ماده ۸:**
-   - ثبت انحصاری در سامانه مؤدیان (تبصره ۱ ماده ۸).
-   - تایید سیستمی خریدار در کارپوشه ظرف مهلت حداکثر ۳۰ روزه.
-   - ارتباط مستقیم با فعالیت اقتصادی مشمول (عدم مصرف شخصی و عدم تولید کالای معاف).
-   - ممنوعیت اعتبار خودروهای سواری (مگر در شرکت‌های کرایه خودرو و آموزشگاه‌ها).
-   - عدم وجود برچسب عدول از سقف ماده ۶ در فاکتور فروشنده.
-3. **کاتالوگ اقلام معاف ۱۱ گانه ماده ۹ قانون دائمی ارزش افزوده:**
-   - بند الف: اموال غیرمنقول (زمین و ساختمان).
-   - بند ب: محصولات کشاورزی فرآوری‌نشده، گیاهان دارویی، دام و طیور زنده، بذر و نهال.
-   - بند پ: دام زنده و خوراک اصلی دام و طیور (کنجاله، جو و ذرت دامی).
-   - بند ت: سبد کالای اساسی خانوار (آرد، نان، گوشت قرمز، مرغ، ماهی، قند، شکر، برنج، حبوبات، شیر، پنیر، ماست، تخم‌مرغ و روغن خوراکی).
-   - بند ث: کتاب، مطبوعات، دفاتر تحریر و کاغذ چاپ و روزنامه.
-   - بند ج: شمش طلا و پلاتین، مسکوکات و اسکناس قانونی (اجرت ساخت طلا مشمول است).
-   - بند چ: دارو، واکسن، شیرخشک، تجهیزات پزشکی و خدمات تشخیصی و درمانی.
-   - بند ح: خدمات آموزشی، پژوهشی و ورزشی دارای مجوز رسمی.
-   - بند خ: خدمات حمل و نقل عمومی مسافری (ریلی، جاده‌ای، دریایی و هوایی).
-   - بند د: فرش دستباف و صنایع دستی واجد شناسنامه وزارت میراث فرهنگی.
-   - بند ذ: خدمات بانکی، اعتباری، سود تسهیلات و بازار سرمایه (معاملات سهام و صکوک).
-
----
-
-## ۸. ماژول سپرهای قانونی مالیاتی و حسابداری تورمی (`integrations/tax_shields/`)
-
-در شرایط تورم مزمن ۴۰ تا ۵۰ درصدی کشور، عدم آگاهی از استانداردهای حسابداری و قوانین مالیاتی موجب تحمیل مالیات‌های سنگین بر سودهای کاذب می‌گردد. ماژول سپرهای مالیاتی ابزاری تحلیلی و راهبردی برای صیانت از دارایی بنگاه‌هاست.
-
-### الف) سود موهوم (Phantom Profit) و ذوب سرمایه در گردش طبق استاندارد ۸
-
-- **ریشه ساختاری:** استاندارد حسابداری شماره ۸ ایران و استانداردهای بین‌المللی (IAS 2)، روش اولین صادره از آخرین وارده (LIFO) را ممنوع کرده و تنها روش‌های FIFO و میانگین موزون را به رسمیت می‌شناسند.
-- **تحلیل ریاضی سود موهوم:** در شرایط تورمی، روش FIFO بهای تمام‌شده کالای فروش‌رفته (COGS) را با قیمت‌های گذشته و بسیار پایین محاسبه می‌کند، در حالی که درآمد فروش بر مبنای تورم روز شناسایی می‌شود:
-  $$\text{Accounting Profit} = \underbrace{\text{Real Operating Profit}}_{(\text{Revenue} - \text{Replacement Cost})} + \underbrace{\text{Phantom Profit / Holding Gain}}_{(\text{Replacement Cost} - \text{Historical FIFO COGS})}$$
-- **پدیده ذوب سرمایه در گردش (Working Capital Meltdown):** اخذ مالیات ۲۵ درصدی عملکرد (ماده ۱۰۵ ق.م.م) و توزیع سود سهام بر مبنای سود حسابداری اسمی، توان نقدینگی بنگاه را برای بازخرید و جایگزینی حجم فیزیکی کالای انبار به شدت کاهش می‌دهد. موتور تحلیلی حساب‌یار سهم سود موهوم را تفکیک کرده و هشدارهای مدیریتی جهت ممانعت از تقسیم سود موهوم و افت نقدینگی صادر می‌نماید.
-
-### ب) تجدید ارزیابی دارایی‌ها بر اساس تبصره ۱ ماده ۱۴۹ ق.م.م و استاندارد ۱۱
-
-- **معافیت در لحظه ثبت و معضل استهلاک:** تجدید ارزیابی دارایی‌های ثابت طبق استاندارد ۱۱ مشمول مالیات نیست؛ اما طبق تبصره ۱ ماده ۱۴۹ ق.م.م:
-  > *«هزینه استهلاک ناشی از افزایش تجدید ارزیابی دارایی‌ها به عنوان هزینه قابل قبول مالیاتی تلقی نمی‌شود و در رسیدگی مالیاتی برگشت (Add-back) داده می‌شود.»*
-- **تحلیل مقایسه‌ای و رجحان زمین بر ماشین‌آلات:**
-  - **زمین:** دارایی غیرقابل استهلاک است. تجدید ارزیابی زمین حقوق صاحبان سهام و ساختار سرمایه را تقویت کرده و شرکت را بدون تحمیل هزینه استهلاک غیرقابل قبول، از بحران ماده ۱۴۱ لایحه اصلاحی قانون تجارت (ورشکستگی دفتری) خارج می‌سازد.
-  - **ماشین‌آلات و ساختمان:** ثبت استهلاک دفتری سنگین مازاد موجب شناسایی زیان حسابداری شدید می‌شود؛ در حالی که ممیز مالیاتی این استهلاک را رد کرده و شرکت باید بر سود تعدیل‌شده مالیات نقدی بپردازد!
-  - **گاردریل حساب‌یار:** صدور هشدار و منع تجدید ارزیابی ماشین‌آلات استهلاک‌پذیر در صورت وجود خطر افت سود دفتری، و توصیه به تمرکز انحصاری بر تجدید ارزیابی زمین.
-
-### ج) سپر مالیاتی سود آورده نقدی شرکا و سهامداران (ماده ۱۳۸ مکرر ق.م.م)
-
-- **حکم قانونی:** اشخاصی که آورده نقدی برای تأمین مالی سرمایه در گردش بنگاه‌های تولیدی فراهم نمایند، معادل حداقل سود انتظاری عقود مشارکتی مصوب شورای پول و اعتبار (در حال حاضر حدود **۲۳٪**) از پرداخت مالیات معاف شده و برای شرکت، این سود به عنوان **هزینه مالی قابل قبول مالیاتی** شناخته می‌شود.
-- **مدل‌سازی مالی:** به ازای هر ۱۰۰ میلیارد ریال آورده نقدی، ۲۳ میلیارد ریال هزینه مالی در حساب‌ها ثبت می‌شود که معادل **۵.۷۵ میلیارد ریال (۲۵٪) صرفه‌جویی خالص در مالیات عملکرد** ایجاد می‌نماید.
-- **قید کنترلی حیاتی (تبصره ۱):** سرمایه یا آورده نقدی نباید تا **حداقل ۲ سال** از شرکت خارج یا کاهش یابد؛ در غیر این صورت معافیت لغو و جریمه ماده ۱۹۰ مطالبه می‌گردد. سامانه تاریخ قفل این سپر را پایش می‌کند.
-
-### د) اعتبار مالیاتی تحقیق و توسعه (مواد ۱۱ و ۱۳ قانون جهش تولید دانش‌بنیان ۱۴۰۱)
-
-- **تحول بنیادین ریال‌به‌ریال (Tax Credit vs Tax Deduction):**
-  - در هزینه‌های عادی قابل قبول مالیاتی، هر ۱ میلیارد ریال هزینه، سود مشمول مالیات را کم کرده و تنها ۲۵۰ میلیون ریال (۲۵٪) منفعت مالیاتی دارد.
-  - در اعتبار مالیاتی بند (ب) ماده ۱۱ قانون جهش تولید دانش‌بنیان، هزینه‌های تحقیق و توسعه تأییدشده توسط معاونت علمی و فناوری، **دقیقاً ۱ میلیارد ریال (۱۰۰٪ ریال‌به‌ریال)** مستقیماً از بدهی مالیات عملکرد قطعی کسر می‌گردد!
-- ماده ۱۳ نیز سرمایه‌گذاری مشترک با دانشگاه‌ها و پارک‌های علم و فناوری را به عنوان اعتبار مالیاتی قطعی به رسمیت می‌شناسد.
-
-### هـ) استهلاک زیان عملیاتی سنوات قبل (ماده ۱۴۰ ق.م.م)
-
-- زیان اشخاص حقیقی و حقوقی که در رسیدگی به دفاتر و صدور برگ قطعی احراز گردد، بدون محدودیت زمانی از درآمد مشمول مالیات سال‌های بعد بر مبنای توالی زمانی تاریخی (FIFO) کسر می‌شود.
-- این سپر ارزش نقدی معادل ۲۵٪ مبلغ زیان احراز شده ایجاد می‌نماید.
-
-### و) نرخ صفر صادرات و تسعیر ارز صادراتی (ماده ۱۴۱ ق.م.م و استاندارد ۱۶)
-
-- ۱۰۰٪ درآمدهای صادراتی غیرنفتی و خدمات و کشاورزی مشمول نرخ صفر مالیاتی هستند.
-- سود ناشی از تسعیر ارز درآمدهای صادراتی طبق تبصره ماده ۱۴۱ و بخشنامه ۲۰۰/۹۸/۲۴ مشمول نرخ صفر است؛ **مشروط به اینکه رفع تعهد ارزی در سامانه بانک مرکزی انجام گرفته باشد.**
-
----
-
-## ۹. گاردریل‌های انطباق، نظارت بانکی و پیشگیری از جرائم ماده ۲۷۴ (Compliance & Anti-Fraud Guardrails)
-
-با تقاطع‌گیری هوشمند سامانه‌های سنیم، شاپرک، گمرک، سامانه جامع انبارها و سامانه سیاق، خطاهای ساختاری و شیوه‌های غیررسمی با جرائم سنگین کیفری روبرو می‌شوند.
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│              شبکه تقاطع‌گیری و تحلیل ریسک سنیم              │
-├─────────────────────────────────────────────────────────────┤
-│  بانک مرکزی و شاپرک ──► واریز کارتخوان و حساب‌های تجاری     │
-│  سامانه مودیان      ──► صورتحساب الکترونیکی خریدار/فروشنده  │
-│  سامانه EPL گمرک    ──► کوتاژهای وارداتی و صادراتی          │
-│  ماده ۱۶۹ مکرر      ──► اطلاعات املاک، تسهیلات و اسناد رسمی │
-│                          │                                  │
-│                          ▼                                  │
-│       [موتور تحلیل ریسک سنیم: سبز / زرد / قرمز]              │
-│       [پرونده‌های قرمز ──► بازرسی و پیگرد ماده ۲۷۴]          │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### الف) حسابرسی موشکافانه سرفصل «جاری شرکا»
-
-- سرفصل جاری شرکا عموماً برای پنهان‌سازی فروش‌های نقدی و غیررسمی یا برداشت‌های بدون کسر مالیات حقوق و سود سهام استفاده می‌شد.
-- **گاردریل حساب‌یار:** پایش بستانکاری‌های ناگهانی حساب شرکا، الزام به ارائه اسناد مثبته واریزی بانکی و هشدار در صورت عدم تطابق با درآمدهای ابرازی جهت پیشگیری از اتهام کتمان درآمد و جریمه ۳۰ درصدی غیرقابل بخشودگی ماده ۱۹۲ ق.م.م.
-
-### ب) پایش تراکنش‌های بانکی و تفکیک حساب‌های تجاری
-
-- **معیار دوگانه شناسایی حساب تجاری مشکوک (مصوبه شورای پول و اعتبار):**
-  اگر یک حساب شخصی در طول یک ماه تقویمی توأمان واجد دو شرط زیر باشد، به عنوان حساب تجاری به سنیم اعلام می‌گردد:
-  1. تعداد تراکنش‌های واریزی: **حداقل ۱۰۰ فقره واریز در ماه**.
-  2. مجموع مبلغ واریزها: **حداقل ۳۵۰ میلیون ریال (۳۵ میلیون تومان) در ماه**.
-- **آستانه بازرسی سالانه تراکنش‌های اشخاص حقیقی (دستورالعمل ۲۰۰/۹۹/۵۱۱):**
-  - بررسی تراکنش‌های بالای **۵۰ میلیارد ریال (۵ میلیارد تومان)** در سال.
-  - تفکیک تراکنش‌های غیردرآمدی (تسهیلات بانکی، انتقال بین حساب‌های شخصی، ارث، فروش ملک با مالیات مقطوع).
-
-### ج) ارزیابی صلاحیت استفاده از تسهیلات تبصره ماده ۱۰۰ ق.م.م
-
-- **سقف‌های فروش قانونی:**
-  - عملکرد سال ۱۴۰۲: سقف فروش **۱۸ میلیارد تومان** (۱۵۰ برابر معافیت ماده ۸۴).
-  - عملکرد سال ۱۴۰۳: سقف فروش **۲۱.۶ میلیارد تومان** (۱۵۰ برابر معافیت ماده ۸۴ سال ۱۴۰۳).
-- **محرومیت‌ها:**
-  - **اشخاص حقوقی (شرکت‌ها) قانوناً حق استفاده از تبصره ماده ۱۰۰ را ندارند.**
-  - اصنافی که از پایانه فروشگاهی قانونی امتناع ورزیده‌اند (پزشکان و وکلا) محروم هستند.
-- **تسهیلات تقسیط:** امکان پرداخت مالیات مقطوع تا ۷ الی ۹ قسط و بخشودگی ۱۰۰ درصدی جرایم عدم ارائه صورت معاملات فصلی.
-
-### د) پیشگیری از رفتارهای مجرمانه موضوع ماده ۲۷۴ قانون مالیات‌های مستقیم
-
-ماده ۲۷۴ قانون مالیات‌های مستقیم مصادیق جرم مالیاتی با مجازات تعزیری درجه شش (حبس ۶ ماه تا ۲ سال، شلاق و محرومیت شغلی) را برمی‌شمارد. حساب‌یار این خطوط قرمز را به عنوان گاردریل غیرقابل عبور وضع کرده است:
-1. ممانعت مطلق از تنظیم اسناد خلاف واقع و فاکتورهای صوری (Shell Companies).
-2. هشدار فوری درباره اختفای فعالیت اقتصادی و واریزهای غیررسمی.
-3. عدم همکاری در بهره‌برداری از کد اقتصادی دیگران یا کارت‌های بازرگانی اجاره‌ای.
-4. ممانعت از ثبت معافیت‌های غیرواقعی بدون اسناد مثبته رسمی.
-5. تأکید بر مسئولیت کیفری تضامنی مدیران و حسابداران طبق مواد ۲۷۵ و ۲۷۶ ق.م.م.
-
----
-
-## ۱۰. معماری پایگاه‌داده و اسکیمای جامع DDL (Database Architecture & Full DDL)
-
-پایگاه‌داده سیستم بر پایه SQLite تعبیه‌شده با فعال‌سازی دائمی `WAL` و `Foreign Keys` پیکربندی گردیده است.
-
-### الف) ساختار ۴ سطحی کدینگ حساب‌ها و سید خودکار
-
-کدینگ بر مبنای استانداردهای ۳۵‌گانه ایران به صورت زیر سازمان‌دهی می‌شود:
-- **سطح ۱ (گروه):** ۱ رقم (۱. دارایی جاری، ۲. دارایی غیرجاری، ۳. بدهی جاری، ۴. بدهی غیرجاری، ۵. حقوق مالکانه، ۶. درآمدها، ۷. بهای تمام‌شده، ۸. هزینه‌ها، ۹. سایر).
-- **سطح ۲ (حساب کل):** ۲ رقم (نظیر ۱۰ موجودی نقد، ۱۲ دریافتنی‌های تجاری، ۳۰ پرداختنی‌های تجاری، ۶۰ فروش).
-- **سطح ۳ (حساب معین):** ۴ رقم (نظیر ۱۰۱۰ صندوق‌ها، ۱۰۲۰ بانک‌ها، ۱۲۰۱ بدهکاران تجاری، ۶۰۱۰ فروش ناخالص).
-- **سطح ۴ (تفصیلی شناور ماتریسی):** ۶ تا ۸ رقم در جدول مستقل `tafsili_accounts` برای اشخاص، بانک‌ها، پروژه‌ها و مراکز هزینه.
-
-**سازوکار Seeding استاندارد:** در زمان اولین راه‌اندازی و اتصال دیتابیس، سیستم فایل جامع `core/chart_of_accounts.json` را بررسی کرده و در صورت خالی بودن جدول `accounts`، کل ساختار استاندارد حساب‌های گروه، کل و معین را به صورت تراکنشی تزریق می‌نماید.
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                 4-Level Chart of Accounts                   │
-├─────────────────────────────────────────────────────────────┤
-│  accounts Table:                                            │
-│  - گروه (Group - 1 Digit)                                   │
-│    └── کل (Kol - 2 Digits)                                  │
-│        └── معین (Moein - 4 Digits)                          │
-│            ├── account_nature: 'debit' | 'credit' | 'both'  │
-│            └── requires_tafsili: 1 / 0                      │
-│                                                             │
-│  tafsili_accounts Table (تفصیلی شناور ماتریسی):            │
-│  - کد تفصیلی یکتا (کد ملی، شناسه پروژه، مرکز هزینه)          │
-│    می‌تواند هم‌زمان با معین‌های ۱۲۰۱، ۳۱۰۱ و پیش‌پرداخت بنشیند  │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### ب) اسکیمای کامل SQL DDL
-
-```sql
--- ============================================================================
--- پایگاه داده جامع حساب‌یار (HesabYar-AI) - نسخه 1.1.0-R0
--- ============================================================================
-
-PRAGMA journal_mode = WAL;
-PRAGMA foreign_keys = ON;
-
--- ----------------------------------------------------------------------------
--- ۱. جدول درخت کدینگ حساب‌های استاندارد (گروه، کل، معین)
--- ----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS accounts (
-    code VARCHAR(10) PRIMARY KEY,                             -- کد حساب (۱ رقم گروه، ۲ رقم کل، ۴ رقم معین)
-    title VARCHAR(150) NOT NULL,                              -- عنوان حساب به فارسی
-    level VARCHAR(10) NOT NULL CHECK (level IN ('group', 'kol', 'moein')),
-    parent_code VARCHAR(10) NULL,                             -- کد والد برای سلسله مراتب
-    account_nature VARCHAR(10) NOT NULL CHECK (account_nature IN ('debit', 'credit', 'both')),
-    requires_tafsili BOOLEAN NOT NULL DEFAULT 0,              -- پرچم الزام انتخاب تفصیلی شناور
-    is_active BOOLEAN NOT NULL DEFAULT 1,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (parent_code) REFERENCES accounts (code) ON DELETE RESTRICT
-);
-
-CREATE INDEX IF NOT EXISTS idx_accounts_parent ON accounts (parent_code);
-CREATE INDEX IF NOT EXISTS idx_accounts_level ON accounts (level);
-
--- ----------------------------------------------------------------------------
--- ۲. جدول تفصیلی‌های شناور ماتریسی (Floating Tafsili Accounts)
--- ----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS tafsili_accounts (
-    code VARCHAR(20) PRIMARY KEY,                             -- کد یکتای تفصیلی (مثلاً ۶ رقمی)
-    title VARCHAR(200) NOT NULL,                              -- نام شخص، شرکت، پروژه یا بانک
-    tafsili_type VARCHAR(20) NOT NULL CHECK (
-        tafsili_type IN ('person', 'company', 'bank', 'project', 'cost_center', 'shareholder')
-    ),
-    national_id VARCHAR(20) NULL,                             -- شناسه ملی اشخاص حقوقی، کدملی یا کد فراگیر
-    economic_code VARCHAR(20) NULL,                           -- کد اقتصادی ۱۲ رقمی
-    phone VARCHAR(30) NULL,
-    is_active BOOLEAN NOT NULL DEFAULT 1,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX IF NOT EXISTS idx_tafsili_type ON tafsili_accounts (tafsili_type);
-CREATE INDEX IF NOT EXISTS idx_tafsili_national_id ON tafsili_accounts (national_id);
-
--- ----------------------------------------------------------------------------
--- ۳. جدول سربرگ اسناد حسابداری دوبل (Journal Vouchers)
--- ----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS journal_vouchers (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    voucher_number INTEGER NOT NULL UNIQUE,                   -- شماره مسلسل سند در سال مالی
-    voucher_date VARCHAR(10) NOT NULL,                         -- تاریخ شمسی سند (YYYY/MM/DD)
-    gregorian_date DATE NOT NULL,                              -- معادل میلادی تاریخ
-    description TEXT NOT NULL,                                 -- شرح کلی سند حسابداری
-    status VARCHAR(15) NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'posted', 'locked')),
-    total_debit BIGINT NOT NULL DEFAULT 0,                     -- جمع کل بدهکار سند به ریال
-    total_credit BIGINT NOT NULL DEFAULT 0,                    -- جمع کل بستانکار سند به ریال
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    CHECK (total_debit = total_credit)                        -- قفل سطح دیتابیس برای تضمین توازن ریاضی
-);
-
-CREATE INDEX IF NOT EXISTS idx_vouchers_date ON journal_vouchers (voucher_date);
-CREATE INDEX IF NOT EXISTS idx_vouchers_status ON journal_vouchers (status);
-
--- ----------------------------------------------------------------------------
--- ۴. جدول سطور و آرتیکل‌های سند حسابداری (Voucher Items)
--- ----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS voucher_items (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    voucher_id INTEGER NOT NULL,
-    account_code VARCHAR(10) NOT NULL,                         -- ارجاع به کد حساب معین
-    tafsili_code VARCHAR(20) NULL,                             -- ارجاع به تفصیلی شناور
-    row_order INTEGER NOT NULL,                                -- ردیف آرتیکل
-    description VARCHAR(255) NOT NULL,                         -- شرح سطر سند
-    debit_irr BIGINT NOT NULL DEFAULT 0 CHECK (debit_irr >= 0),
-    credit_irr BIGINT NOT NULL DEFAULT 0 CHECK (credit_irr >= 0),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (voucher_id) REFERENCES journal_vouchers (id) ON DELETE CASCADE,
-    FOREIGN KEY (account_code) REFERENCES accounts (code) ON DELETE RESTRICT,
-    FOREIGN KEY (tafsili_code) REFERENCES tafsili_accounts (code) ON DELETE RESTRICT,
-    CHECK (
-        (debit_irr > 0 AND credit_irr = 0) OR 
-        (credit_irr > 0 AND debit_irr = 0)
-    )
-);
-
-CREATE INDEX IF NOT EXISTS idx_voucher_items_voucher ON voucher_items (voucher_id);
-CREATE INDEX IF NOT EXISTS idx_voucher_items_account ON voucher_items (account_code);
-CREATE INDEX IF NOT EXISTS idx_voucher_items_tafsili ON voucher_items (tafsili_code);
-
--- ----------------------------------------------------------------------------
--- ۵. جدول صورتحساب‌های الکترونیکی سامانه مؤدیان (Moadian Invoices)
--- ----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS moadian_invoices (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    tax_id VARCHAR(22) NOT NULL UNIQUE,                       -- شناسه منحصر‌به‌فرد مالیاتی ۲۲ رقمی
-    internal_serial INTEGER NOT NULL,                         -- سریال عددی دفتری صورتحساب مؤدی
-    invoice_date VARCHAR(10) NOT NULL,                        -- تاریخ صورتحساب به شمسی
-    epoch_time BIGINT NOT NULL,                               -- زمان بر مبنای میلی‌ثانیه یونیکس
-    template_id INTEGER NOT NULL CHECK (template_id BETWEEN 1 AND 7), -- ۱: فروش عمومی، ۲: ارزی، ...
-    invoice_type INTEGER NOT NULL DEFAULT 1 CHECK (invoice_type IN (1, 2, 3, 4)), -- ۱: اصلی، ۲: اصلاحی، ۳: ابطالی، ۴: برگشت
-    reference_tax_id VARCHAR(22) NULL,                        -- شناسه مالیاتی مرجع (الزامی برای ۲، ۳ و ۴)
-    buyer_type INTEGER NOT NULL CHECK (buyer_type BETWEEN 1 AND 5), -- ۱: حقوقی، ۲: حقیقی، ۳: مشارکت، ۴: اتباع، ۵: مصرف‌کننده
-    buyer_id VARCHAR(20) NOT NULL,                            -- شناسه ملی یا کد ملی خریدار
-    currency_code VARCHAR(5) NOT NULL DEFAULT 'IRR',          -- کد ارز (الگوی ۲: USD, EUR, IRR)
-    currency_rate_irr BIGINT NOT NULL DEFAULT 1,              -- نرخ برابری ارز به ریال در سامانه ETS
-    total_pre_discount_irr BIGINT NOT NULL,                   -- جمع قبل از تخفیف به ریال
-    total_discount_irr BIGINT NOT NULL DEFAULT 0,             -- جمع تخفیفات به ریال
-    total_vat_irr BIGINT NOT NULL,                            -- جمع کل مالیات بر ارزش افزوده (۱۰٪)
-    final_amount_irr BIGINT NOT NULL,                         -- مبلغ نهایی قابل پرداخت صورتحساب به ریال
-    status VARCHAR(20) NOT NULL DEFAULT 'pending' 
-        CHECK (status IN ('draft', 'pending', 'sent', 'confirmed', 'rejected', 'failed', 'exceeded_cap')),
-    moadian_uid VARCHAR(50) NULL,                             -- شناسه رهگیری برگشتی از سامانه مؤدیان
-    reference_number VARCHAR(50) NULL,                        -- شماره پیگیری سیستمی
-    error_details TEXT NULL,                                  -- جزئیات و کدهای خطای رسمی
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX IF NOT EXISTS idx_moadian_tax_id ON moadian_invoices (tax_id);
-CREATE INDEX IF NOT EXISTS idx_moadian_ref_tax_id ON moadian_invoices (reference_tax_id);
-CREATE INDEX IF NOT EXISTS idx_moadian_status ON moadian_invoices (status);
-
--- ----------------------------------------------------------------------------
--- ۶. جدول اقلام صورتحساب‌های سامانه مؤدیان (Moadian Invoice Items)
--- ----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS moadian_invoice_items (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    invoice_id INTEGER NOT NULL,
-    row_number INTEGER NOT NULL,
-    stuff_id VARCHAR(13) NOT NULL,                            -- شناسه ۱۳ رقمی کالا و خدمت
-    stuff_title VARCHAR(200) NOT NULL,                        -- شرح رسمی کالا یا خدمت
-    quantity DECIMAL(12, 3) NOT NULL CHECK (quantity > 0),
-    unit_price_irr BIGINT NOT NULL CHECK (unit_price_irr >= 0),
-    unit_price_currency DECIMAL(18, 4) NULL,                  -- قیمت واحد به ارز (در الگوی ۲)
-    discount_irr BIGINT NOT NULL DEFAULT 0 CHECK (discount_irr >= 0),
-    vat_rate DECIMAL(5, 2) NOT NULL CHECK (vat_rate >= 0),    -- نرخ ارزش افزوده (۱۰٪ یا معاف ۰٪)
-    vat_amount_irr BIGINT NOT NULL DEFAULT 0,
-    total_price_irr BIGINT NOT NULL,                          -- خالص قیمت پس از کسر تخفیف به علاوه مالیات
-    FOREIGN KEY (invoice_id) REFERENCES moadian_invoices (id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_moadian_items_invoice ON moadian_invoice_items (invoice_id);
-CREATE INDEX IF NOT EXISTS idx_moadian_items_stuff ON moadian_invoice_items (stuff_id);
-
--- ----------------------------------------------------------------------------
--- ۷. جدول وقایع انتقال و ردپای حسابرسی فقط-افزودنی (Transmission Ledger)
--- ----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS moadian_transmissions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    invoice_id INTEGER NOT NULL,
-    tax_id VARCHAR(22) NOT NULL,
-    transmission_type VARCHAR(20) NOT NULL CHECK (
-        transmission_type IN ('send', 'inquiry', 'short_poll', 'batch_sync')
-    ),
-    attempt_number INTEGER NOT NULL DEFAULT 1,
-    request_epoch BIGINT NOT NULL,                            -- زمان ارسال به میلی‌ثانیه یونیکس
-    payload_sha256 VARCHAR(64) NOT NULL,                      -- هش SHA-256 بسته خام برای اصل عدم انکار
-    jws_signature_preview VARCHAR(100) NOT NULL,              -- پیش‌نمایش امضای دیجیتال
-    http_status INTEGER NULL,                                 -- کد وضعیت HTTP دریافتی از درگاه
-    response_uid VARCHAR(50) NULL,                            -- شناسه رهگیری بازگردانده شده توسط سرور دارایی
-    response_raw_json TEXT NULL,                              -- متن دست‌نخورده پاسخ JSON
-    error_codes TEXT NULL,                                    -- کدهای خطای ساختاریافته (در صورت وجود)
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (invoice_id) REFERENCES moadian_invoices (id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_transmissions_tax_id ON moadian_transmissions (tax_id);
-CREATE INDEX IF NOT EXISTS idx_transmissions_invoice ON moadian_transmissions (invoice_id);
-
--- ----------------------------------------------------------------------------
--- ۸. جدول مدیریت و پایش سقف مجاز فروش ماده ۶ (Sales Caps Ledger)
--- ----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS moadian_sales_caps (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    fiscal_year INTEGER NOT NULL,                             -- سال مالی (مثلاً 1403)
-    fiscal_quarter INTEGER NOT NULL CHECK (fiscal_quarter BETWEEN 1 AND 4), -- فصل ۱ تا ۴
-    prior_year_sales_irr BIGINT NOT NULL DEFAULT 0,           -- فروش ابرازی دوره متناظر سال قبل
-    initial_cap_irr BIGINT NOT NULL,                          -- سقف اولیه (۵ برابر فروش قبل یا ماده ۱۰۱)
-    additional_cash_paid_irr BIGINT NOT NULL DEFAULT 0,       -- مجموع پرداخت‌های نقدی علی‌الحساب
-    additional_cap_from_cash_irr BIGINT NOT NULL DEFAULT 0,   -- سقف حاصل از نقدینگی (نقد / 0.10)
-    guarantee_type VARCHAR(20) NULL CHECK (
-        guarantee_type IN ('sayad_cheque', 'bank_guarantee', 'collateral', 'none')
-    ),
-    guarantee_amount_irr BIGINT NOT NULL DEFAULT 0,           -- مبلغ تضامین تودیع‌شده
-    guarantee_due_date VARCHAR(10) NULL,                      -- سررسید چک صیادی (حداکثر ۲۰ روز پس از فصل)
-    total_active_cap_irr BIGINT NOT NULL,                     -- سقف فعال نهایی مجاز
-    used_sales_irr BIGINT NOT NULL DEFAULT 0,                 -- فروش مصرف‌شده در فاکتورهای تأییدشده
-    remaining_cap_irr BIGINT NOT NULL,                        -- مانده سقف فروش مجاز
-    is_exceeded BOOLEAN NOT NULL DEFAULT 0,                   -- پرچم عدول از سقف مجاز
-    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE (fiscal_year, fiscal_quarter)
-);
-
-CREATE INDEX IF NOT EXISTS idx_sales_caps_period ON moadian_sales_caps (fiscal_year, fiscal_quarter);
-
--- ----------------------------------------------------------------------------
--- ۹. جدول دفتر سپرهای قانونی مالیاتی (Tax Shields Ledger)
--- ----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS tax_shields_ledger (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    shield_type VARCHAR(30) NOT NULL CHECK (
-        shield_type IN (
-            'article_138_bis',          -- سود آورده نقدی شرکا و سهامداران
-            'rd_credit_art11',          -- اعتبار مالیاتی تحقیق و توسعه جهش تولید
-            'rd_investment_art13',      -- سرمایه‌گذاری مشترک با دانشگاه‌ها
-            'loss_carryforward_art140', -- استهلاک زیان سنوات قبل
-            'export_zero_art141',       -- نرخ صفر صادرات
-            'revaluation_art149'        -- تجدید ارزیابی زمین
-        )
-    ),
-    fiscal_year INTEGER NOT NULL,
-    nominal_amount_irr BIGINT NOT NULL,                       -- مبلغ اسمی پایه محاسبه سپر به ریال
-    effective_tax_savings_irr BIGINT NOT NULL,                -- صرفه‌جویی مالیاتی قطعی حاصله (ریال)
-    approval_reference VARCHAR(100) NULL,                     -- شماره تأییدیه معاونت علمی یا برگ قطعی
-    expiry_date VARCHAR(10) NULL,                             -- تاریخ انقضای سپر یا رفع تعهد ارزی
-    lock_period_months INTEGER NOT NULL DEFAULT 0,            -- مدت زمان قفل قانونی دارایی (مثلاً ۲۴ ماه)
-    status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (
-        status IN ('active', 'utilized', 'expired', 'clawback_warning')
-    ),
-    notes TEXT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX IF NOT EXISTS idx_tax_shields_type ON tax_shields_ledger (shield_type);
-CREATE INDEX IF NOT EXISTS idx_tax_shields_year ON tax_shields_ledger (fiscal_year);
-```
-
----
-
-## ۱۱. پایپ‌لاین پردازش اسناد و فاکتورها (Two-Tier Hybrid Parsing Pipeline)
-
-برای تفکیک پردازش‌های فوق‌سریع برداری از اسناد تصویری اسکن‌شده، یک معماری دو سطحی پیاده‌سازی شده است:
-
-```
-                  ┌────────────────────────────────────────┐
-                  │       ورودی سند (PDF یا تصویر)          │
-                  └───────────────────┬────────────────────┘
-                                      │
-                         بررسی فرمت و لایه محتوا
-                                      │
-                   ┌──────────────────┴──────────────────┐
-                   ▼                                     ▼
-        [فایل PDF دارای لایه برداری]           [تصویر اسکن‌شده / رسید دستی]
-                   │                                     │
-         ┌─────────┴──────────┐                          │
-         │ Tier 1: سبک و سریع │                          │
-         │ PyMuPDF +          │                          │
-         │ pdfplumber         │                          │
-         └─────────┬──────────┘                          │
-                   │                                     │
-                   ▼                                     ▼
-        ┌─────────────────────┐               ┌─────────────────────┐
-        │ استخراج جداول و متن │               │ Tier 2: بینایی ماشین│
-        │ در زیر ۱۰۰ میلی‌ثانیه│               │ Agent Vision (VLM)  │
-        │ بدون نیاز به GPU    │               │ یا افزونه Surya OCR │
-        └──────────┬──────────┘               └──────────┬──────────┘
-                   │                                     │
-                   └──────────────────┬──────────────────┘
-                                      │
-                                      ▼
-                   ┌──────────────────────────────────────┐
-                   │ Schema Normalizer & Field Extractor  │
-                   │  نگاشت به الگوی ۱ یا ۲ صورتحساب مؤدیان │
-                   └──────────────────────────────────────┘
-```
-
-- **سطح اول (Tier 1 - پیش‌فرض برداری سبک):** پردازش PDFهای صادره از سیستم‌های حسابداری با PyMuPDF و pdfplumber در کمتر از ۱۰۰ میلی‌ثانیه روی CPU.
-- **سطح دوم (Tier 2 - اسناد تصویری):** واگذاری تصویر به دیداری مدل زبانی میزبان (Agent Vision) یا افزونه محلی آفلاین `hesabyar[ocr]` با موتور `surya` برای شبکه‌های امن بدون اینترنت.
-
----
-
-## ۱۲. ابزارهای سرور FastMCP و اسکیماهای Pydantic V2 (FastMCP Toolset & Pydantic Models)
-
-در نسخه 1.1.0-R0، مجموعه ابزارهای اصلی سرور بر پایه الگوی پاسخ دوگانه (`DualPayloadResponse`) تنظیم شده‌اند:
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                 FastMCP Tools (Version 1.1.0-R0)            │
-├─────────────────────────────────────────────────────────────┤
-│ 1. audit_balance     : اعتبارسنجی ۳۶ قاعده و حسابداری تورمی  │
-│ 2. record_journal    : ثبت سند دوبل با تفصیلی شناور ماتریسی │
-│ 3. generate_tax_id   : تولید شناسه ۲۲ رقمی با الگوریتم ورهوف│
-│ 4. search_stuff_id   : جستجوی کاتالوگ و کنترل معافیت ماده ۹ │
-│ 5. submit_moadian    : ارسال امن با کنترل سقف ماده ۶ و پولینگ│
-│ 6. inquiry_moadian   : استعلام تکی یا گروهی کارپوشه مؤدیان  │
-│ 7. manage_tax_shield : مدیریت و پایش سپرهای قانونی مالیاتی   │
-│ 8. check_compliance  : پایش جاری شرکا، حساب تجاری و ماده ۲۷۴│
-└─────────────────────────────────────────────────────────────┘
-```
-
-### الف) مدل‌های ساختاریافته Pydantic V2
-
-```python
-from enum import Enum
-from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field, field_validator
-
-
-# ==================== ۱. مدل‌های حسابداری دوبل ====================
-
-class AccountNature(str, Enum):
-    DEBIT = "debit"
-    CREDIT = "credit"
-    BOTH = "both"
-
-
-class TafsiliType(str, Enum):
-    PERSON = "person"
-    COMPANY = "company"
-    BANK = "bank"
-    PROJECT = "project"
-    COST_CENTER = "cost_center"
-    SHAREHOLDER = "shareholder"
-
-
-class VoucherItemInput(BaseModel):
-    account_code: str = Field(..., description="کد حساب معین (۴ رقم)")
-    description: str = Field(..., description="شرح سطر آرتیکل سند")
-    debit_irr: int = Field(default=0, ge=0, description="مبلغ بدهکار به ریال")
-    credit_irr: int = Field(default=0, ge=0, description="مبلغ بستانکار به ریال")
-    tafsili_code: Optional[str] = Field(default=None, description="کد تفصیلی شناور یکتا")
-
-    @field_validator("credit_irr")
-    @classmethod
-    def validate_one_sided(cls, credit: int, info) -> int:
-        debit = info.data.get("debit_irr", 0)
-        if (debit > 0 and credit > 0) or (debit == 0 and credit == 0):
-            raise ValueError("هر سطر منحصراً باید دارای مقدار بدهکار یا بستانکار بزرگتر از صفر باشد.")
-        return credit
-
-
-class VoucherCreateInput(BaseModel):
-    voucher_date: str = Field(..., description="تاریخ شمسی سند به صورت YYYY/MM/DD")
-    description: str = Field(..., description="شرح رویداد مالی سند")
-    items: List[VoucherItemInput] = Field(..., min_length=2, description="سطور سند حسابداری")
-
-
-# ==================== ۲. مدل‌های سامانه مؤدیان ====================
-
-class InvoiceTemplateType(int, Enum):
-    GENERAL_SALES = 1        # الگوی ۱: فروش عمومی کالا و خدمات
-    FOREIGN_CURRENCY = 2     # الگوی ۲: فروش ارزی
-    GOLD_JEWELRY = 3         # الگوی ۳: طلا و پلاتین (Placeholder)
-    CONTRACTING = 4          # الگوی ۴: پیمانکاری (Placeholder)
-    UTILITY_BILL = 5         # الگوی ۵: قبوض خدماتی (Placeholder)
-    AIRLINE_TICKET = 6       # الگوی ۶: بلیط هواپیما (Placeholder)
-    EXPORT = 7               # الگوی ۷: صادرات گمرکی (Placeholder)
-
-
-class InvoiceLifecycleType(int, Enum):
-    ORIGINAL = 1             # اصلی
-    CORRECTIVE = 2           # اصلاحی
-    CANCELLATION = 3         # ابطالی
-    SALES_RETURN = 4         # برگشت از فروش
-
-
-class MoadianItemInput(BaseModel):
-    stuff_id: str = Field(..., min_length=13, max_length=13, description="شناسه ۱۳ رقمی کالا یا خدمت")
-    stuff_title: str = Field(..., description="شرح کالا یا خدمت")
-    quantity: float = Field(..., gt=0, description="تعداد یا مقدار کالا")
-    unit_price_irr: int = Field(..., ge=0, description="قیمت واحد به ریال")
-    unit_price_currency: Optional[float] = Field(default=None, description="قیمت واحد ارزی در الگوی ۲")
-    discount_irr: int = Field(default=0, ge=0, description="مبلغ تخفیف به ریال")
-    vat_rate: float = Field(default=10.0, ge=0, le=100, description="درصد ارزش افزوده (۱۰٪ یا معاف ۰٪)")
-
-
-class MoadianInvoiceInput(BaseModel):
-    internal_serial: int = Field(..., gt=0, description="سریال عددی فاکتور")
-    invoice_date: str = Field(..., description="تاریخ صورتحساب به شمسی یا میلادی")
-    template_id: InvoiceTemplateType = Field(default=InvoiceTemplateType.GENERAL_SALES)
-    invoice_type: InvoiceLifecycleType = Field(default=InvoiceLifecycleType.ORIGINAL)
-    reference_tax_id: Optional[str] = Field(
-        default=None, 
-        min_length=22, 
-        max_length=22, 
-        description="شناسه مالیاتی مرجع در صورتحساب اصلاحی، ابطالی و برگشت"
-    )
-    buyer_type: int = Field(..., ge=1, le=5, description="نوع شخصیت خریدار")
-    buyer_id: str = Field(..., min_length=10, max_length=12, description="شناسه/کد ملی خریدار")
-    currency_code: str = Field(default="IRR", description="کد سه حرفی ارز در الگوی ۲")
-    currency_rate_irr: int = Field(default=1, ge=1, description="نرخ تسعیر ارز به ریال در سامانه ETS")
-    items: List[MoadianItemInput] = Field(default=[], description="اقلام فاکتور (در فاکتور ابطالی خالی است)")
-
-    @field_validator("reference_tax_id")
-    @classmethod
-    def validate_reference_on_lifecycle(cls, ref_tax_id: Optional[str], info) -> Optional[str]:
-        inv_type = info.data.get("invoice_type")
-        if inv_type in (InvoiceLifecycleType.CORRECTIVE, InvoiceLifecycleType.CANCELLATION, InvoiceLifecycleType.SALES_RETURN):
-            if not ref_tax_id:
-                raise ValueError("برای صورتحساب‌های اصلاحی، ابطالی و برگشت از فروش، درج شناسه مالیاتی مرجع (reference_tax_id) الزامی است.")
-        return ref_tax_id
-
-
-# ==================== ۳. مدل‌های پاسخ دوگانه هیبریدی ====================
-
-class DualPayloadResponse(BaseModel):
-    summary_markdown: str = Field(..., description="گزارش متنی راست‌به‌چپ شکیل جهت رندر مستقیم به کاربر")
-    data: Dict[str, Any] = Field(..., description="داده‌های ساختاریافته عددی و شناسه‌ها برای زنجیره‌سازی ایجنت")
-    status: str = Field(..., description="وضعیت سیستمی: SUCCESS | WARNING | ERROR")
-    error_code: Optional[str] = Field(default=None, description="کد خطای استاندارد سامانه")
-```
-
-### ب) رده‌بندی خطاهای دامنه سیستم (Error Taxonomy)
-
-```
-HesabYarException (پایه خطاهای سامانه)
-│
-├── AccountingDomainError (خطاهای حسابداری)
-│   ├── UnbalancedVoucherError (E1001: سند نامتوازن است)
-│   ├── AccountNotFoundError (E1002: کد حساب در کدینگ یافت نشد)
-│   ├── TafsiliRequiredError (E1003: حساب معین نیازمند تفصیلی شناور است)
-│   └── InactiveAccountError (E1004: حساب انتخاب‌شده غیرفعال است)
-│
-├── MoadianSecurityError (خطاهای امنیت و کارپوشه)
-│   ├── KeyFileNotFoundError (E2001: فایل کلید خصوصی مؤدی یافت نشد)
-│   ├── InvalidTaxIdChecksumError (E2002: رقم کنترلی ورهوف شناسه مالیاتی اشتباه است)
-│   ├── ReferenceTaxIdMismatchError (E2003: شناسه فاکتور مرجع در کارپوشه وجود ندارد)
-│   └── TokenAuthenticationError (E2004: خطا در احراز هویت نشست با سامانه مالیاتی)
-│
-├── SalesCapExceededError (خطاهای سقف مجاز فروش ماده ۶)
-│   ├── CapLimitExceededError (E3001: صدور فاکتور منجر به عدول از سقف ماده ۶ می‌شود)
-│   └── InvalidChequeDueDateError (E3002: سررسید چک صیادی فراتر از ۲۰ روز پس از فصل است)
-│
-└── ComplianceViolationError (خطاهای انطباق و ضد تقلب)
-    ├── CommercialAccountThresholdHit (E4001: حساب شخصی به آستانه تجاری ۱۰۰ واریز/۳۵ میلیون رسیده است)
-    ├── PhantomProfitDepletionWarning (E4002: ریسک ذوب سرمایه در گردش به دلیل توزیع سود موهوم تورمی)
-    └── Article274ProhibitedAction (E4003: درخواست ثبت مغایر با ماده ۲۷۴ قانون مالیات‌های مستقیم)
-```
-
----
-
-## ۱۳. معماری آزمون سه‌لایه و شبیه‌ساز محلی مؤدیان (`LocalMoadianSimulator`)
-
-برای دستیابی به حداکثر پایداری در تست‌های خودکار پیوسته (CI/CD در GitHub Actions) بدون افشای کلیدهای خصوصی و بدون وابستگی به اینترنت، معماری آزمون در ۳ لایه مجزا طراحی شده است:
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      3-Tier Test Model                      │
-├─────────────────────────────────────────────────────────────┤
-│ Tier 1: LocalMoadianSimulator (آفلاین قطعی و درون‌حافظه‌ای)   │
-│         - تولید کلید RSA-2048 در رم                          │
-│         - رمزگشایی واقعی پکت JWE با کلید شبیه‌ساز            │
-│         - اعتبارسنجی امضای JWS و چکسام ورهوف                │
-│         - شبیه‌سازی خطاهای رسمی دارایی در زیر ۲۰ میلی‌ثانیه   │
-├─────────────────────────────────────────────────────────────┤
-│ Tier 2: SandBox Environment (محیط آزمایشی دولتی)            │
-│         - اتصال به sandbox.tax.gov.ir با کلیدهای تستی        │
-├─────────────────────────────────────────────────────────────┤
-│ Tier 3: Production Environment (محیط عملیاتی کارپوشه)        │
-│         - اتصال مستقیم به درگاه tp.tax.gov.ir               │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### مشخصات فنی `LocalMoadianSimulator`:
-- **رمزنگاری متقابل واقعی در حافظه:** شبیه‌ساز در زمان راه‌اندازی تست، یک جفت‌کلید RSA برای سازمان و یک جفت‌کلید برای مؤدی در حافظه تولید می‌کند. بسته ارسالی واقعاً با JWE رمزگشایی شده، کلید AES متقارن باز شده، امضای دیجیتال JWS سنجیده می‌شود و صحت محاسبات سطور فاکتور راستی‌آزمایی می‌گردد.
-- **بازسازی کدهای خطای رسمی دارایی:** اگر رقم ورهوف نادرست باشد، شناسه کالا ۱۳ رقم نباشد یا سقف ماده ۶ رد شود، شبیه‌ساز دقیقاً کدهای خطای درگاه واقعی مالیات را بازمی‌گرداند.
-- **زمان پاسخ فوق‌سریع:** اجرای کامل تست‌های رمزنگاری و ارسال در کمتر از ۲۰ میلی‌ثانیه بدون نشت اطلاعات یا کندی شبکه.
-
----
-
-## ۱۴. چشم‌انداز پورت به زبان Rust و توزیع با کریت `rmcp`
-
-برای سناریوهای استقرار سازمانی که در آن‌ها سرعت نانوثانیه‌ای، فایل باینری مستقل و مصرف ناچیز رم در اولویت است، معماری حساب‌یار به گونه‌ای درزبندی شده که قابلیت پورت ۱۰۰٪ به زبان Rust را دارد:
-
-| مؤلفه سیستم | پیاده‌سازی فاز R0 (پایتون) | پیاده‌سازی معادل در Rust | مزیت نسخه باینری Rust |
-| :--- | :--- | :--- | :--- |
-| **سرور و پروتکل MCP** | `FastMCP` (python-sdk) | `rmcp` (official Rust SDK) | راه‌اندازی آنی زیر ۵ میلی‌ثانیه |
-| **رمزنگاری (JWS / JWE)** | `cryptography` | `ring` + `rsa` + `aes-gcm` | امحای قطعی کلیدها از رم با `zeroize` |
-| **موتور پایگاه‌داده** | `sqlite3` (WAL + FKs) | `sqlx` با تراکنش‌های ناهمگام | همزمانی خواندن بدون بار مفسر |
-| **مدل‌های داده** | `pydantic v2` | `serde` + `validator` | اعتبارسنجی در زمان کامپایل (Zero-cost) |
-| **تقویم هجری شمسی** | `jdatetime` | `chrono-jalali` | محاسبات سریع تقویمی بدون کدهای C |
-| **کلاینت شبکه HTTP** | `httpx` (async) | `reqwest` با باینری rustls | عدم وابستگی به OpenSSL سیستم‌عامل |
-
-تولید فایل باینری مستقل (`hesabyar.exe` در ویندوز یا `hesabyar` در لینوکس) به شرکت‌ها اجازه می‌دهد بدون نصب پایتون و مفسر، حساب‌یار را در کنار Claude Desktop اجرا نمایند.
-
----
-
-## ۱۵. ساختار فیزیکی مخزن و ماژول‌ها (Repository Layout)
+Every mutating application command carries:
 
 ```text
-HesabYar-AI/
-├── .github/
-│   └── workflows/
-│       └── test.yml                 # تست‌های خودکار CI/CD در محیط ایزوله
-├── docs/
-│   ├── ARCHITECTURE.md              # همین سند جامع معماری (نسخه 1.1.0-R0)
-│   ├── research_tax_inflation.md    # دانشنامه جامع پژوهشی مالیات و تورم
-│   └── adr/                         # سوابق مکتوب تصمیمات معماری (ADRs)
-├── core/
-│   ├── __init__.py
-│   ├── concepts.md                  # مفاهیم استانداردهای حسابداری ایران
-│   ├── chart_of_accounts.json       # داده‌های بذری کدینگ ۴ سطحی ایران
-│   ├── ledger/
-│   │   ├── __init__.py
-│   │   ├── repository.py            # درز انتزاعی LedgerRepository
-│   │   ├── sqlite_adapter.py        # پیاده‌سازی SQLite با تفصیلی شناور
-│   │   └── seeder.py                # سید خودکار کدینگ استاندارد حساب‌ها
-│   └── validator/
-│       ├── __init__.py
-│       ├── rules_engine.py          # موتور ارزیابی ۳۶ قاعده استانداردها
-│       └── schemas.py               # مدل‌های ساختاریافته صورت‌های مالی
-│
-├── integrations/
-│   ├── moadian/
-│   │   ├── __init__.py
-│   │   ├── client.py                # کلاینت بومی اتصال و پروتکل ۳ مرحله‌ای
-│   │   ├── crypto.py                # موتور امضای RS256 و رمزنگاری A256GCM
-│   │   ├── tax_id.py                # تولید TaxID ۲۲ رقمی با الگوریتم ورهوف
-│   │   ├── templates.py             # TemplateRegistry الگوهای ۱ و ۲ و ارجاعی
-│   │   ├── sales_cap.py             # موتور پایش سقف فروش ماده ۶ و اهرم ۱۰ برابری
-│   │   └── stuff_catalog.py         # جستجوگر شناسه کالا و اقلام معاف ماده ۹
-│   ├── tax_shields/
-│   │   ├── __init__.py
-│   │   ├── shields_engine.py        # موتور محاسباتی مواد ۱۳۸ مکرر، ۱۱، ۱۴۰ و ۱۴۱
-│   │   ├── inflation_accounting.py  # تحلیل سود موهوم و ذوب سرمایه در گردش
-│   │   └── compliance_monitor.py    # پایش جاری شرکا، حساب تجاری و ماده ۲۷۴
-│   └── parsing/
-│       ├── __init__.py
-│       ├── pdf_parser.py            # پردازش سبک برداری فاکتور با PyMuPDF
-│       └── vision_parser.py         # پردازش اسناد تصویری و بینایی ماشین
-│
-├── mcp_server/
-│   ├── __init__.py
-│   ├── server.py                    # سرور FastMCP با پشتیبانی stdio و sse
-│   └── tools/
-│       ├── __init__.py
-│       ├── audit.py                 # ابزار audit_balance
-│       ├── journal.py               # ابزار record_journal
-│       ├── tax_id.py                # ابزار generate_tax_id
-│       ├── catalog.py               # ابزار search_stuff_id
-│       ├── moadian.py               # ابزارهای submit_moadian و inquiry_moadian
-│       └── tax_shields.py           # ابزارهای manage_tax_shield و check_compliance
-│
-├── validators/
-│   └── rules.yaml                   # قواعد ۳۶‌گانه ماشین‌خوان صورت‌های مالی
-├── standards/                       # مستندات و منابع ۳۵ استاندارد حسابداری
-├── tests/
-│   ├── moadian_simulator.py         # شبیه‌ساز محلی قطعی درون‌حافظه‌ای مؤدیان
-│   ├── test_validator.py            # آزمون موتور اعتبارسنجی ۳۶ قاعده
-│   ├── test_moadian_crypto.py       # آزمون JWS/JWE، ورهوف و شبیه‌ساز
-│   ├── test_ledger_sqlite.py        # آزمون دفاتر دوبل و تفصیلی شناور
-│   ├── test_sales_cap.py            # آزمون سقف مجاز فروش ماده ۶ و عدول
-│   ├── test_tax_shields.py          # آزمون سپرهای مالیاتی و سود موهوم
-│   └── test_mcp_tools.py            # آزمون ابزارهای FastMCP و پاسخ دوگانه
-│
-├── pyproject.toml                   # مدیریت بسته با ابزار uv
-├── requirements.txt                 # فهرست وابستگی‌های پایتون
-└── README.md                        # راهنمای معرفی و شروع سریع سامانه
+request_id
+actor_context (trusted)
+payload
+expected_version (where optimistic concurrency applies)
+```
+
+The service computes canonical `payload_hash`.
+
+## 15.1 Idempotency
+
+For every mutation, store a unique idempotency record keyed by:
+
+```text
+tenant_id + command_name + request_id
+```
+
+Reusing the same request ID with the same payload returns the original result.
+
+Reusing it with a different payload => `IDEMPOTENCY_CONFLICT`.
+
+## 15.2 Optimistic concurrency
+
+Mutable drafts have `version`.
+
+Update commands require `expected_version`.
+
+Mismatch => `CONCURRENCY_CONFLICT`.
+
+Posted/accounting immutable records do not use update-in-place semantics.
+
+---
+
+# 16. Security and secrets
+
+## 16.1 Private keys
+
+Private keys/tokens MUST NOT be stored in business tables, audit events, logs, exceptions, or MCP responses.
+
+Use a `KeyProvider`/signing port.
+
+The Moadian adapter asks the signer to sign; domain/application code does not manipulate raw private-key bytes.
+
+## 16.2 Endpoint allowlist
+
+Production external network adapters may connect only to configured allowlisted hosts.
+
+A tool call cannot override the endpoint.
+
+## 16.3 PII
+
+National IDs, economic codes, bank identifiers, addresses and phone numbers are sensitive business/identity data.
+
+Rules:
+
+- store only when required;
+- scope by tenant;
+- mask in logs;
+- return only fields required for the operation;
+- do not place full PII in exception messages;
+- production backups must be encrypted by the deployment platform.
+
+## 16.4 Default-deny feature flags
+
+Defaults:
+
+```text
+HESABYAR_PROD_MOADIAN_ENABLED=false
+HESABYAR_AUTO_POST_ENABLED=false
+HESABYAR_ALLOW_UNVERIFIED_RULES=false
+HESABYAR_LEGACY_SSE_ENABLED=false
+```
+
+Missing configuration means disabled, never enabled.
+
+R0 does not implement auto-post even if the environment variable exists; the flag is reserved.
+
+---
+
+# 17. Audit architecture
+
+## 17.1 Audit events
+
+For every mutation record:
+
+- event_id;
+- tenant_id;
+- actor_id;
+- actor_type;
+- command;
+- object_type/id;
+- request_id;
+- input hash;
+- before hash where relevant;
+- after hash where relevant;
+- active source/rule/protocol versions;
+- timestamp;
+- outcome;
+- previous audit hash;
+- event hash.
+
+Use canonical serialization for hash calculation.
+
+## 17.2 Tamper evidence
+
+Audit records are append-only for the application DB role.
+
+A hash chain detects modification/reordering under normal controls.
+
+This is **tamper-evident audit logging**, not a claim of legal non-repudiation.
+
+A later external signed checkpoint/WORM store may strengthen this model.
+
+## 17.3 Remote payload retention
+
+Do not dump secrets or unnecessary PII into `response_raw_json` as v1.1 proposed.
+
+Store:
+
+- normalized status/error fields;
+- response hash;
+- encrypted raw response blob only if operational/legal need justifies it;
+- retention policy.
+
+---
+
+# 18. Database model — minimum required tables
+
+The old nine-table SQLite DDL is superseded.
+
+Minimum PostgreSQL tables:
+
+```text
+tenants
+actors
+
+fiscal_years
+posting_periods
+accounts
+tafsilis
+account_tafsili_links
+number_sequences
+vouchers
+voucher_lines
+voucher_approvals
+
+standard_sources
+standard_revisions
+validation_rules
+validation_rule_versions
+
+legal_sources
+legal_rules
+legal_rule_versions
+policy_decisions
+
+moadian_protocol_profiles
+invoice_drafts
+invoice_lines
+invoice_approvals
+integration_outbox
+moadian_transmissions
+moadian_status_events
+
+documents
+document_extractions
+
+idempotency_keys
+audit_events
+```
+
+## 18.1 Important uniqueness
+
+At minimum:
+
+```text
+accounts: UNIQUE(tenant_id, code)
+tafsilis: UNIQUE(tenant_id, code)
+vouchers: UNIQUE(tenant_id, fiscal_year_id, voucher_number)
+voucher_lines: UNIQUE(voucher_id, line_number)
+invoice_drafts: UNIQUE(tenant_id, internal_id, version)
+idempotency_keys: UNIQUE(tenant_id, command_name, request_id)
+integration_outbox: UNIQUE(tenant_id, idempotency_key)
+```
+
+Any external tax identifier uniqueness is determined by the verified active protocol profile and enforced as appropriate.
+
+## 18.2 Foreign-key tenant safety
+
+Repository methods always scope by tenant.
+
+Where practical, use composite foreign keys/constraints so a child cannot reference a parent from another tenant.
+
+Tests MUST attempt cross-tenant ID substitution and prove failure.
+
+---
+
+# 19. Error taxonomy
+
+Use stable application error codes.
+
+## 19.1 Ledger
+
+- `LEDGER_UNBALANCED`
+- `LEDGER_PERIOD_CLOSED`
+- `LEDGER_ACCOUNT_NOT_FOUND`
+- `LEDGER_TAFSILI_REQUIRED`
+- `LEDGER_TAFSILI_NOT_ALLOWED`
+- `LEDGER_POSTED_IMMUTABLE`
+- `LEDGER_APPROVAL_REQUIRED`
+
+## 19.2 Validation
+
+- `RULE_EVALUATION_ERROR`
+- `RULE_SOURCE_UNVERIFIED`
+- `RULE_INPUT_MISSING`
+- `STANDARD_REVISION_UNKNOWN`
+
+## 19.3 Tax policy
+
+- `POLICY_RULE_UNVERIFIED`
+- `POLICY_NEEDS_EVIDENCE`
+- `POLICY_DATE_NOT_COVERED`
+- `POLICY_REVIEW_REQUIRED`
+
+## 19.4 Moadian
+
+- `PROTOCOL_PROFILE_NOT_ACTIVE`
+- `PROTOCOL_SCHEMA_UNSUPPORTED`
+- `INVOICE_VALIDATION_FAILED`
+- `INVOICE_APPROVAL_REQUIRED`
+- `INVOICE_APPROVAL_STALE`
+- `SUBMISSION_DISABLED`
+- `SUBMISSION_AMBIGUOUS`
+- `PENDING_RECONCILIATION`
+- `REMOTE_REJECTED`
+
+Do not invent government “official error codes” in the simulator. If a fixture contains an official code, store the source profile that proves it.
+
+---
+
+# 20. Moadian simulator contract
+
+The simulator is not a fantasy replica.
+
+It may implement only behavior supported by verified protocol fixtures.
+
+For unsupported behavior it returns:
+
+`SIMULATOR_BEHAVIOR_NOT_IMPLEMENTED`
+
+—not a fabricated tax-authority response.
+
+Simulator goals:
+
+- deterministic request validation;
+- protocol schema checks;
+- known-answer crypto tests if the official protocol requires crypto;
+- state-machine behavior;
+- acceptance/rejection fixtures;
+- idempotency/reconciliation scenarios.
+
+CI never calls production tax endpoints.
+
+---
+
+# 21. Deployment architecture
+
+One codebase, two production processes:
+
+```text
++-----------------------+
+| hesabyar-mcp          |
+| stdio or HTTP server  |
++-----------+-----------+
+            |
+            v
+       PostgreSQL
+            ^
+            |
++-----------+-----------+
+| hesabyar-worker       |
+| outbox + reconcile    |
++-----------+-----------+
+            |
+            v
+   Moadian gateway
+   (only if enabled)
+```
+
+This is still a modular monolith, not microservices.
+
+## 21.1 Environments
+
+### dev
+- local PostgreSQL;
+- simulator;
+- external submission disabled.
+
+### test/CI
+- ephemeral PostgreSQL;
+- simulator/fixtures;
+- network blocked except dependency setup as needed;
+- secrets are fake test material.
+
+### staging
+- production-like auth/DB;
+- production Moadian disabled until a verified test environment/profile exists;
+- manual protocol verification allowed.
+
+### production
+Requires all:
+
+- database migrations current;
+- active verified protocol profile;
+- external endpoint allowlist;
+- valid secret/key provider;
+- remote auth configured;
+- TLS;
+- backups;
+- `HESABYAR_PROD_MOADIAN_ENABLED=true`;
+- explicit human invoice approval.
+
+---
+
+# 22. Observability
+
+Structured logs contain:
+
+- timestamp;
+- level;
+- request_id;
+- tenant pseudonymous identifier;
+- actor id where appropriate;
+- command/tool;
+- duration;
+- outcome/error code.
+
+Never log:
+
+- private keys;
+- access tokens;
+- full national IDs by default;
+- full invoice payloads by default.
+
+Metrics:
+
+- command latency/error rate;
+- ledger posting failures;
+- outbox queue depth/age;
+- reconciliation age;
+- remote submission outcomes;
+- rule-evaluation errors.
+
+Tracing may propagate standard trace context, but observability must not become a source of sensitive-data leakage.
+
+---
+
+# 23. CI quality gates
+
+A PR cannot merge if any required gate fails.
+
+## Gate 0 — repository hygiene
+
+- `uv sync --frozen`
+- no secrets detected;
+- migrations have a single head;
+- architecture-linked checks pass.
+
+## Gate 1 — lint/type
+
+- ruff
+- pyright
+
+No new untyped critical-domain code.
+
+## Gate 2 — unit
+
+- domain value objects;
+- policy handlers;
+- state machines;
+- rule DSL.
+
+## Gate 3 — property/invariant
+
+Hypothesis tests at minimum:
+
+- posted vouchers always balance;
+- reversal nets original;
+- posted records cannot be mutated;
+- closed periods cannot post;
+- request idempotency;
+- tenant isolation;
+- Decimal/money calculations never use float paths.
+
+## Gate 4 — PostgreSQL integration
+
+- migrations up/down on disposable DB;
+- constraints/triggers;
+- concurrent sequence allocation;
+- outbox atomicity;
+- cross-tenant FK attacks.
+
+## Gate 5 — standards
+
+- no `eval`/`exec` rule evaluation;
+- unknown mandatory input => ERROR/FAIL;
+- N/A is not PASS;
+- source version returned.
+
+## Gate 6 — policy
+
+Golden tests by `as_of_date`.
+
+Every golden case identifies its source version.
+
+## Gate 7 — Moadian contract
+
+- verified fixture tests;
+- schema/profile tests;
+- ambiguous timeout/reconciliation tests;
+- no production network.
+
+## Gate 8 — security
+
+- auth required on remote endpoint;
+- scope enforcement;
+- host/origin configuration;
+- secret redaction;
+- PII log masking;
+- document parser malicious-input tests.
+
+## Gate 9 — E2E
+
+Required happy path:
+
+```text
+document
+ -> extraction candidate
+ -> reviewed voucher draft
+ -> approved & posted voucher
+ -> invoice draft
+ -> policy/schema validation
+ -> human approval
+ -> outbox
+ -> simulator submission
+ -> reconciliation
 ```
 
 ---
 
-## ۱۶. برنامه زمان‌بندی و نقشه راه استقرار (Implementation Roadmap)
+# 24. Migration from the current repository
 
-با تثبیت و تصویب این سند معماری، مراحل توسعه فاز R0 طبق توالی زیر اجرایی خواهد شد:
+The coding agent MUST preserve the useful standards corpus while replacing the prototype runtime architecture.
 
-```
-[گام ۱: پایه‌ریزی مخزن و تست‌ها]
- ├── پیکربندی پایگاه‌داده با جداول کامل ۹‌گانه DDL
- ├── پیاده‌سازی سورس ماژول seeder.py و فایل core/chart_of_accounts.json
- └── توسعه شبیه‌ساز محلی قطعی LocalMoadianSimulator در پوشه tests/
+## Phase 0A — package foundation
 
-[گام ۲: پیاده‌سازی هسته رمزنگاری و مؤدیان]
- ├── پیاده‌سازی الگوریتم ورهوف و تولیدکننده TaxID
- ├── پیاده‌سازی امضای دیجیتال JWS RS256 و رمزنگاری JWE A256GCM
- ├── پیاده‌سازی رجیستری الگوهای صورتحساب (الگوی ۱، ۲ و چرخه‌های ارجاعی)
- └── توسعه کلاینت ۳ مرحله‌ای استعلام و دفتر وقایع moadian_transmissions
+1. Add `pyproject.toml`, `uv.lock`, `src/hesabyar/`.
+2. Keep existing `standards/`, `core/*.md`, mappings and examples as source material.
+3. Mark old `scripts/validator.py` as legacy until replaced.
+4. Do not delete historical standards source files.
 
-[گام ۳: موتورهای سقف ماده ۶ و سپرهای مالیاتی]
- ├── پیاده‌سازی موتور پایش سقف فروش ماده ۶، مسدودسازی عدول و اهرم واریز نقدی
- ├── پیاده‌سازی ماژول سپرهای مالیاتی (ماده ۱۳۸ مکرر، اعتبار R&D و استهلاک زیان)
- └── پیاده‌سازی مانیتور جاری شرکا و تراکنش‌های مشکوک بانکی
+## Phase 0B — validator safety
 
-[گام ۴: سرور FastMCP و ابزارهای دوگانه]
- ├── ثبت ابزارهای هشت‌گانه با الگوی پاسخ دوگانه DualPayloadResponse
- ├── آزمون‌های یکپارچه‌سازی سرور در حالت‌های stdio و sse
- └── اتصال به کلاینت Claude Desktop و ارزیابی نهایی در GitHub Actions CI/CD
-```
+1. Create the typed rule DSL.
+2. Port existing rules.
+3. Remove `eval()`.
+4. Change “cannot evaluate => pass” to `ERROR`.
+5. Add standard/source revision metadata.
+6. Keep legacy tests but add regression tests proving old unsafe behavior is gone.
+
+## Phase 0C — database
+
+1. Add PostgreSQL models.
+2. Add Alembic initial migration.
+3. Do not translate old SQLite DDL line-for-line.
+4. Add tenant scope and constraints before business features.
 
 ---
-**پایان سند جامع معماری سیستم حساب‌یار (HesabYar-AI) — نسخه 1.1.0-R0**
+
+# 25. Implementation sequence and stop gates
+
+The coding agent works in this exact order.
+
+## Stage F0 — Foundation
+
+Deliver:
+
+- package layout;
+- locked dependencies;
+- config model;
+- PostgreSQL/Alembic;
+- tenant/actor context;
+- common value objects;
+- error/result types;
+- CI updates;
+- safe standards validator skeleton.
+
+**STOP GATE F0:** no ledger feature work until migrations, tenant isolation, MoneyIRR/Decimal policy, fail-closed rule engine, and CI are green.
+
+## Stage F1 — Ledger
+
+Deliver:
+
+- COA;
+- tafsili matrix;
+- fiscal years/periods;
+- voucher draft/review/post/reverse;
+- sequence allocator;
+- trial balance;
+- audit events.
+
+**STOP GATE F1:** property + DB invariant tests green. Posted mutation attempt must fail at application and DB levels.
+
+## Stage F2 — Versioned standards/tax sources
+
+Deliver:
+
+- source snapshot registry;
+- standard revision registry;
+- legal rule/version registry;
+- typed tax policy framework;
+- historical `as_of_date` golden tests.
+
+**STOP GATE F2:** no production policy result can run without a verified applicable source.
+
+## Stage F3 — Invoice domain
+
+Deliver:
+
+- business invoice drafts;
+- versioning;
+- review hash/approval model;
+- protocol-profile registry;
+- schema validation without network.
+
+**STOP GATE F3:** no production gateway code until profile activation rules and approval invalidation tests are green.
+
+## Stage F4 — Moadian verification + simulator
+
+Deliver:
+
+- pin official technical specification;
+- create verified protocol profile;
+- contract fixtures;
+- simulator;
+- key-provider port;
+- gateway interface;
+- outbox/reconciliation.
+
+**STOP GATE F4:** production gateway remains disabled until official protocol source is VERIFIED and contract tests pass.
+
+## Stage F5 — MCP
+
+Deliver:
+
+- official MCP Python SDK v2;
+- stdio;
+- Streamable HTTP;
+- auth/scopes;
+- read tools;
+- local write tools;
+- `submit_approved_invoice`.
+
+**STOP GATE F5:** remote security tests green; no legacy SSE.
+
+## Stage F6 — Production Moadian adapter
+
+Deliver only if F4/F5 complete:
+
+- verified crypto/tax ID behavior;
+- allowlisted endpoint adapter;
+- remote response normalization;
+- reconciliation;
+- manual operational runbook.
+
+**STOP GATE F6:** owner-controlled production enablement only.
+
+## Stage F7 — Advisory analytics
+
+After deterministic foundations:
+
+- inflation scenarios;
+- working-capital analysis;
+- legal tax-shield opportunity analysis;
+- bank-flow evidence classification.
+
+No advisory feature may write ledger or submit invoices.
+
+---
+
+# 26. Coding-agent prohibitions
+
+The coding agent MUST NOT:
+
+1. reinterpret or redesign the architecture without an ADR request;
+2. treat research prose as executable law;
+3. hard-code a current tax rate/threshold without a rule version;
+4. use `eval`, `exec`, dynamic imports, or arbitrary expression evaluation for financial rules;
+5. use float for money/rates/quantities in financial computation;
+6. use `MAX(id)+1` or `MAX(serial)+1` for numbering;
+7. edit posted vouchers;
+8. auto-approve its own production tax submission;
+9. call production Moadian in tests;
+10. fabricate official Moadian error codes;
+11. implement an unverified TaxID/crypto algorithm from old docs;
+12. expose an unauthenticated remote MCP endpoint;
+13. accept tenant/role/private-key/endpoint from model tool arguments;
+14. log secrets or full PII;
+15. silently skip a mandatory validation rule;
+16. return PASS for an evaluation error;
+17. auto-create corrective tax invoices;
+18. classify a person as committing tax fraud/crime;
+19. claim a tax outcome is final when evidence or rule version is missing;
+20. introduce microservices, Kafka, Redis, Celery, or another infrastructure component without a demonstrated R0 requirement and architecture update;
+21. implement Rust in R0;
+22. copy the v1.1 SQLite DDL as production schema;
+23. add placeholder “official” protocol logic just to make tests green.
+
+---
+
+# 27. Definition of Done for any critical feature
+
+A critical feature is complete only if:
+
+- domain behavior is implemented;
+- application authorization is enforced;
+- tenant isolation is enforced;
+- deterministic calculation uses correct numeric types;
+- DB constraints/migrations exist;
+- audit event exists for mutation;
+- idempotency is tested;
+- failure mode is explicit;
+- source/protocol version is returned when applicable;
+- unit/property/integration tests exist;
+- no sensitive data leaks to logs/errors;
+- docs/tool schema match actual behavior.
+
+“Code compiles” is not Definition of Done.
+
+---
+
+# 28. Source verification notes from the final review
+
+These notes explain architecture choices. They are not substitutes for source snapshots in production.
+
+## 28.1 MCP
+
+As of 2026-09-20:
+
+- MCP specification `2026-07-28` is current.
+- It introduced a stateless protocol core and authorization hardening.
+- legacy HTTP+SSE is deprecated.
+- official SDK guidance recommends Streamable HTTP for remote deployments and stdio for local child-process integrations.
+- the current official Python SDK line is v2 and uses `MCPServer`.
+
+Therefore R0 uses official MCP Python SDK v2 + stdio/Streamable HTTP.
+
+## 28.2 Moadian
+
+Public search surfaced a Tir 1405 electronic-invoice instruction described as version 7.9 and containing changes beyond older repository assumptions.
+
+Because the official authority copy was not pinned inside this repository during architecture review, the profile remains unverified until implementation Stage F4 obtains the official document and snapshot.
+
+## 28.3 Accounting standards
+
+The repository correctly identifies Standard 35 as Income Taxes, while Standard 22 is Interim Financial Reporting.
+
+Accounting standards are revision/effective-date sensitive. The corpus must therefore be revisioned, not treated as a timeless set of 35 files.
+
+## 28.4 Tax law
+
+Current review confirms why tax logic must be effective-dated:
+
+- Article 274 text is version-sensitive and should not be encoded from an old “eight-item” research list.
+- Article 138 bis eligibility contains conditions beyond a simple assumed-rate multiplication.
+- loss carryforward must be tied to the verified applicable legal basis rather than the old “Article 140” label.
+- Article 6 rules and annual thresholds are changeable and must be source-versioned.
+
+---
+
+# 29. Final architecture freeze
+
+Implementation status:
+
+```text
+ARCHITECTURE_ID = HYA-A1-FINAL
+ARCHITECTURE_VERSION = 1.3.0-FROZEN
+ARCHITECTURE_STATE = FROZEN_IMPLEMENTATION
+IMPLEMENTATION_AUTHORIZED = YES
+PRODUCTION_MOADIAN_AUTHORIZED = NO
+```
+
+Coding is authorized for **Stage F0 Foundation**.
+
+Production Moadian transmission remains blocked until Stage F4 verification and Stage F6 owner-controlled enablement.
+
+**There are no implicit implementation decisions outside this file. When something is not specified here, choose the simplest design that preserves these invariants; do not invent legal/protocol behavior.**
