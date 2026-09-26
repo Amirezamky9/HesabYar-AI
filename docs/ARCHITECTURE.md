@@ -300,8 +300,8 @@ src/hesabyar/
 │   ├── integrations/
 │   │   ├── __init__.py
 │   │   ├── base.py                 # Common integration connector harness
-│   │   ├── sepidar/                # Sepidar System adapter (SQL/API bridge)
-│   │   ├── holoo/                  # Holoo adapter (desktop database bridge)
+│   │   ├── sepidar/                # Sepidar adapter; transport chosen from verified capabilities
+│   │   ├── holoo/                  # Holoo adapter; API/file/Desktop transport as verified
 │   │   ├── parmis/                 # Parmis adapter
 │   │   └── generic_csv/            # Generic CSV / Excel import-export adapter
 │   ├── moadian/
@@ -777,19 +777,19 @@ The Payroll context (`src/hesabyar/domain/payroll/`) governs employment records,
 ## 11.1 Ubiquitous language & 14 domain entities
 
 1. `Employee`: Tenant-isolated natural person in employment relationship. Tracks National ID (`national_id`), employee number (`employee_no`), full name, father's name, birth certificate number, insurance number (`insurance_no`), hire date, IBAN, and employment status (`ACTIVE`, `TERMINATED`, `SUSPENDED`, `ON_LEAVE`).
-2. `EmploymentContract`: Formal labor agreement. Tracks `contract_no`, `employee_id`, contract type (`PERMANENT`, `FIXED_TERM`, `PROJECT_BASED`, `HOURLY`, `PROBATIONARY`), start date, end date, daily base wage, monthly base wage, fixed job allowances, weekly working hours (statutory standard 44h), probation months, and status (`DRAFT`, `ACTIVE`, `AMENDED`, `EXPIRED`, `TERMINATED`).
+2. `EmploymentContract`: Formal labor agreement. Tracks `contract_no`, `employee_id`, contract type, start/end dates, wage terms, fixed allowances, agreed working schedule, probation terms where applicable, and lifecycle status. Compliance with statutory hours, wage floors, probation limits, and other changing legal conditions is resolved from the applicable VERIFIED rule version rather than hard-coded into the entity.
 3. `PayrollPeriod`: Monthly fiscal cycle. Tracks `fiscal_year` (Solar Hijri), `month_number` (1 to 12), start date, end date, calendar days (31 for months 1-6, 30 for months 7-11, 29/30 for month 12), standard monthly working hours, and lifecycle status (`OPEN`, `PROCESSING`, `CLOSED`, `ARCHIVED`).
 4. `Attendance` & `Timesheet`: Monthly operational attendance. Tracks `employee_id`, `period_id`, worked days, standard hours worked, overtime hours, night work hours, shift work category, Friday work hours, mission days, excused absences, unexcused absences, and verification status (`DRAFT`, `VERIFIED`, `LOCKED`).
 5. `Leave`: Statutory leave events under Labor Law Arts. 64-74. Tracks `employee_id`, leave type (`ENTITLED_ANNUAL`, `SICK`, `MARRIAGE_EMERGENCY`, `BEREAVEMENT_EMERGENCY`, `MATERNITY`, `UNPAID`), start date, end date, total days, approval state (`REQUESTED`, `APPROVED`, `REJECTED`, `CANCELLED`), and SSO Medical Commission certification flag for sick leave.
 6. `PayrollComponent`: Canonical earning, deduction, or employer contribution element. Enforces 11 independent boolean classification axes, 8 effective-dated statutory rule references, and annual decree notes.
 7. `PayrollRun`: Operational sub-ledger batch calculation. Tracks `run_id`, `tenant_id`, `period_id`, run type (`REGULAR_MONTHLY`, `MID_MONTH_ADVANCE`, `SEVERANCE_SETTLEMENT`, `EIDI_BONUS`, `ADJUSTMENT`), calculation timestamp, aggregated gross pay, assessable insurance, employee insurance deduction, employer insurance expense, unemployment insurance expense, taxable gross pay, tax withheld, and net payable. Lifecycle states: `DRAFT` -> `CALCULATED` -> `UNDER_REVIEW` -> `APPROVED` -> `POSTED` -> `RECONCILED` / `VOIDED`.
 8. `PayrollLine`: Line-item employee receipt. Binds an employee in a payroll run to a specific component, recording calculated gross amount, assessable insurance amount, taxable portion, employee deduction, employer overhead cost, and calculation formula trace.
-9. `PayrollApproval`: Governed dual-control authorization ticket. Requires two distinct authorized actors (`FINANCIAL_CONTROLLER` and `LEGAL_HR_OFFICER`) before a `PayrollRun` can be finalized or posted.
+9. `PayrollApproval`: Governed authorization ticket. Required approver count/scopes are determined by tenant/risk policy. High-impact or regulated workflows may require two distinct actors; small-business deployments are not forced to create artificial roles when one authorized human approval is sufficient under configured policy.
 10. `PayrollPosting`: Immutable double-entry bridge to the Ledger context. Generates a balanced `VoucherDraft` with debit to wage expenses, debit to employer insurance expenses, credit to payable to employees, credit to payable to Social Security Organization (Tamin), and credit to salary tax withholding payable.
-11. `InsuranceAssessment`: Social Security audit breakdown for an employee. Records total assessable wages, 7% employee share, 20% employer share, 3% unemployment insurance, 7x minimum wage ceiling application, and non-assessable exemptions.
-12. `SalaryTaxAssessment`: Direct Tax Law audit breakdown for an employee. Records gross taxable salary, deductible 2/7th health insurance (INTA Circular 232), statutory exemptions under Art. 91, net taxable base, monthly exemption tier, progressive bracket calculation (Tiers 1-5), and total tax withheld.
-13. `PayrollSubmission`: Regulatory export package. Tracks submission channel (`TAMIN_DISKETTE`, `TAX_PORTAL_LIST`), generation timestamp, SHA-256 fingerprint of export files (`DSKWOR00.DBF`, `DSKKAR00.DBF`, or INTA XML/CSV), submission status (`GENERATED`, `SUBMITTED`, `ACCEPTED`, `REJECTED`), and official tracking receipt.
-14. `PayrollComplianceEvent`: Compliance calendar obligation. Tracks tenant filing and remittance deadlines (Tamin monthly filing by the last day of following calendar month, INTA salary tax remittance by the last day of following month, annual wage decree adoption).
+11. `InsuranceAssessment`: Social-insurance audit breakdown for an employee. Records assessable base, contribution components, ceilings/floors, exemptions and the exact legal-rule/source versions used. Rates and ceilings are effective-dated parameters, never entity constants.
+12. `SalaryTaxAssessment`: Salary-tax audit breakdown for an employee. Records taxable base, deductions/exemptions, bracket/rate calculations and the exact legal-rule/source versions used. Deductions, exemptions, bracket counts and rates are not timeless domain constants.
+13. `PayrollSubmission`: Regulatory export package. Tracks versioned export-profile ID, generation timestamp, artifact hashes, lifecycle status and official tracking/receipt metadata when applicable. Concrete DBF/XML/CSV layouts live in verified DataExchange/Regulatory profiles rather than the Payroll domain model.
+14. `PayrollComplianceEvent`: Compliance-calendar obligation. Tracks filing/remittance event type, applicable period, due date and source-rule version. Deadlines are resolved from verified effective-dated sources and are not hard-coded into the entity.
 
 ## 11.2 Multi-axis payroll component matrix schema
 
@@ -799,62 +799,42 @@ Every component evaluates 11 orthogonal classification axes and 8 effective-date
 ```yaml
 component_code: "HOUSING_ALLOWANCE"
 name_fa: "حق مسکن"
-name_en: "Housing Allowance"
 classification: "EARNING"
-is_statutory: true
-axes:
-  is_wage_base: false
-  is_insurance_assessable: true
-  is_taxable: false
-  is_overtime_base: false
-  is_night_base: false
-  is_shift_base: false
-  is_friday_base: false
-  is_severance_base: false
-  is_eidi_base: false
-  is_leave_settlement_base: false
-  is_employer_cost: false
-rule_references:
-  wage_base_rule_ref: null
-  insurance_assessability_rule_ref: "RULE-SSO-HOUSING-ASSESSABLE"
-  taxability_rule_ref: "RULE-TAX-HOUSING-ALLOWANCE"
-  overtime_base_rule_ref: null
-  severance_base_rule_ref: null
-  eidi_base_rule_ref: null
-  leave_settlement_rule_ref: null
-  employer_cost_rule_ref: null
-statutory_notes: >
-  Subject to Social Security per SSO circulars. Tax-exempt under Administrative Court Rulings
-  1957 & 11257 and INTA Circular 200/1401/10; dependent on annual Cabinet decree and annual Budget Law provisions.
+classification_rules:
+  wage_base_rule_ref: "RULESET-RESOLVED-BY-PERIOD"
+  insurance_assessability_rule_ref: "RULESET-RESOLVED-BY-PERIOD"
+  taxability_rule_ref: "RULESET-RESOLVED-BY-PERIOD"
+  overtime_base_rule_ref: "RULESET-RESOLVED-BY-PERIOD"
+  severance_base_rule_ref: "RULESET-RESOLVED-BY-PERIOD"
+  eidi_base_rule_ref: "RULESET-RESOLVED-BY-PERIOD"
+  leave_settlement_rule_ref: "RULESET-RESOLVED-BY-PERIOD"
+  employer_cost_rule_ref: "RULESET-RESOLVED-BY-PERIOD"
 ```
 
-## 11.3 Statutory invariants across legal families
+## 11.3 Legal-family resolution rules
 
-1. **Labor Law (قانون کار):**
-   - Minimum wage floor (Art. 41): No full-time employee may receive less than the annual statutory minimum daily wage.
-   - Standard working hours (Art. 51): Strictly 44 hours per week.
-   - Overtime premium (Art. 59): Strictly 140% of standard hourly rate ($1.40 	imes 	ext{Hourly Base}$). Max 4 hours/day.
-   - Night work premium (Art. 58): Strictly 35% premium ($1.35 	imes 	ext{Hourly Base}$) for hours between 22:00 and 06:00.
-   - Friday work premium (Art. 62): Strictly 40% premium ($1.40 	imes 	ext{Daily Base}$) with alternative weekday rest.
-   - Shift work premiums (Art. 56): Morning/Afternoon (+10%), Morning/Afternoon/Night (+15%), Morning/Night or Afternoon/Night (+22.5%).
-   - Paid annual leave (Art. 64): 26 working days per year (36 in hazardous jobs). Maximum 9 days carryover into subsequent year (Art. 66).
-   - Severance pay (Arts. 24 & 31): At least 30 days of final base wage per year of continuous service. 100% exempt from Social Security and salary tax (Direct Tax Law Art. 91 Clause 5).
-   - Annual Eidi bonus (1370 Statute): 60 days of base wage per year, capped at 90 days of minimum daily wage. Tax-exempt up to 1/12th of annual Art. 84 exemption; 100% exempt from Social Security.
+Payroll must represent at least three independently versioned legal families:
 
-2. **Social Security Law (قانون تامین اجتماعی):**
-   - Statutory contribution rates (Art. 28 & Unemployment Law Art. 5): Employee share 7%, Employer share 20%, Unemployment insurance 3% (total 30%).
-   - Wage ceiling (Art. 35): Strictly $7 	imes 	ext{Statutory Minimum Daily Wage}$. Gross earnings above this ceiling are exempt from the 30% contribution.
-   - Child allowance (Art. 86): Exempt from Social Security contributions; payable at 3x minimum daily wage per qualified child.
-   - Employer liability (Art. 36) and filing deadline (Art. 39): List submission and remittance due by the last day of the following calendar month.
-   - Monthly diskette formats: `DSKWOR00.DBF` (employee master) and `DSKKAR00.DBF` (monthly earnings).
+1. **Labor/employment rules** — wage floors, working time, overtime/night/shift/holiday treatment, leave, severance, annual bonus and related employment conditions.
+2. **Social-insurance rules** — assessable/non-assessable components, employee/employer contribution components, ceilings/floors, filing obligations and contribution-specific exceptions.
+3. **Salary-tax rules** — taxable/non-taxable components, deductions/exemptions, annual budget thresholds/brackets, withholding and filing obligations.
 
-3. **Direct Tax Law (قانون مالیات‌های مستقیم):**
-   - Taxable salary (Arts. 82-83): Gross compensation minus statutory exemptions.
-   - Annual exemption ceiling (Art. 84): Enacted annually in State Budget Law; monthly exemption is annual ceiling $\div 12$.
-   - Progressive tax brackets (Art. 85): Progressive marginal rates (10%, 15%, 20%, 25%, 30%) applied strictly to incremental income slices.
-   - 2/7th Health insurance deduction (Circular 232): $rac{2}{7}$ of the employee's 7% Social Security deduction is deductible from taxable salary under Art. 137.
-   - Welfare exemptions (Court Rulings 1957 & 11257): Housing allowance and grocery coupons are non-taxable welfare benefits.
-   - Employer withholding & filing deadline (Art. 86): Remittance and electronic portal filing due by the last day of following calendar month.
+The architecture intentionally does **not** freeze percentages, ceilings, bracket counts, deadlines, welfare-benefit treatment, or annual amounts here.
+
+For every payroll calculation:
+
+```text
+payroll_period
+ -> applicable legal-source versions
+ -> applicable component-classification versions
+ -> effective-dated parameters
+ -> deterministic calculation
+ -> calculation trace with source IDs
+```
+
+A legal change normally creates a new source/rule/parameter version and golden tests. It does not require rewriting stable Payroll entities.
+
+If an applicable mandatory rule is missing, stale, disputed or unverified, finalization fails closed with an explicit reviewable error.
 
 ## 11.4 Lifecycle state machines & dual-control governance
 
@@ -872,25 +852,36 @@ statutory_notes: >
                          [RECONCILED]
 ```
 
-- A `PayrollRun` cannot transition to `APPROVED` without two distinct signatures in `PayrollApproval` (`FINANCIAL_CONTROLLER` and `LEGAL_HR_OFFICER`).
+- A `PayrollRun` cannot transition to `APPROVED` until the configured tenant/risk approval policy is satisfied.
+- Policies may require one authorized human or multiple distinct approvers depending on risk/regulatory need.
+- The model/agent cannot approve its own PayrollRun.
 - Only `APPROVED` runs can emit a `PayrollPosting` command to the Ledger.
 
 ## 11.5 Balanced journal voucher posting contract (`PayrollPosting`)
 
-When a `PayrollRun` is approved, a domain adapter constructs a balanced double-entry `VoucherDraft`:
+An approved PayrollRun emits a **balanced VoucherDraft** using a tenant-configured Payroll Account Mapping.
 
-| Account Code | Account Title | Debit (بدهکار) | Credit (بستانکار) | Tafsili Dimension |
-|---|---|:---:|:---:|---|
-| `5101` | هزینه حقوق و دستمزد مستقیم (Gross Wages) | $\sum 	ext{Gross Base + Benefits}$ | - | Cost Center / Department |
-| `5102` | هزینه بیمه سهم کارفرما (۲۰٪) | $\sum 	ext{Employer 20% SSO}$ | - | Cost Center / Department |
-| `5103` | هزینه بیمه بیکاری (۳٪) | $\sum 	ext{Unemployment 3%}$ | - | Cost Center / Department |
-| `4101` | حقوق پرداختنی (Net Salaries Payable) | - | $\sum 	ext{Net Take-Home Pay}$ | Employee Floating Tafsili |
-| `4102` | سازمان تامین اجتماعی پرداختنی (۳۰٪) | - | $\sum 	ext{Total 30% SSO Contribution}$ | Social Security Organization |
-| `4103` | مالیات حقوق پرداختنی (Withholding Tax) | - | $\sum 	ext{Salary Tax Withheld}$ | Tax Administration (INTA) |
+The domain uses semantic account roles, not hard-coded chart codes:
 
-**Non-Negotiable Invariants:**
-1. `Total Debits == Total Credits` exactly to the Rial.
-2. The Payroll bounded context NEVER writes directly to `vouchers` or `accounts` tables. It delivers the `VoucherDraft` through application ports for standard Ledger validation and posting.
+```text
+GROSS_WAGE_EXPENSE
+EMPLOYER_CONTRIBUTION_EXPENSE
+NET_PAYABLE_TO_EMPLOYEES
+SOCIAL_INSURANCE_PAYABLE
+SALARY_TAX_PAYABLE
+OTHER_PAYROLL_PAYABLE_OR_RECEIVABLE
+```
+
+Calculated amounts come from the effective Payroll rule set. The tenant maps semantic roles to its own COA/Tafsili structure.
+
+Non-negotiable invariants:
+
+1. total debit equals total credit exactly to the Rial;
+2. no Payroll code writes directly to Ledger tables;
+3. missing account mapping blocks posting and returns a reviewable error;
+4. posting preserves PayrollRun ID, rule/source versions and calculation trace;
+5. posted payroll corrections use Ledger reversal/replacement semantics, not in-place mutation.
+
 
 ---
 # 12. Accounting integration hub bounded context
@@ -917,12 +908,12 @@ The Accounting Integration Hub (`src/hesabyar/domain/integration_hub/` and `src/
   │     Vendor Integration Adapters (Infrastructure)       │
   │  ┌──────────────┐ ┌──────────────┐ ┌────────────────┐  │
   │  │   Sepidar    │ │    Holoo     │ │  Parmis / CSV  │  │
-  │  │ (MS SQL/API) │ │ (Desktop DB) │ │ (REST / Files) │  │
+  │  │ capabilities │ │ capabilities │ │ capabilities   │  │
   │  └──────────────┘ └──────────────┘ └────────────────┘  │
   └────────────────────────────────────────────────────────┘
 ```
 
-The domain and application layers remain 100% vendor-agnostic. All vendor-specific queries, drivers, and protocol decoders reside in `src/hesabyar/infrastructure/integrations/<vendor>/`.
+The domain and application layers remain 100% vendor-agnostic. All vendor-specific protocol/file/UI translations reside in `src/hesabyar/infrastructure/integrations/<vendor>/`. Direct vendor-database access is permitted only when the vendor exposes/supports that mechanism and the capability profile is explicitly verified; otherwise use supported API, file exchange, or Desktop Bridge.
 
 ## 12.2 Core domain models
 
@@ -956,13 +947,13 @@ Connections operate under four mutually exclusive operational modes per entity t
 9. **Identity Mapping & FK Abstraction:** Bi-directional persistent translation via `ExternalObjectMapping` maintaining canonical UUID to vendor primary key bindings.
 10. **Bi-temporal & Delta Sync Tracking:** Cursor-based high-water mark tracking via `SyncCheckpoint` ensuring only incremental changes are processed.
 11. **Conflict Detection & Resolution Policies:** Deterministic conflict handling (`LOCAL_WINS`, `REMOTE_WINS`, `MANUAL_REVIEW`, `MERGE_IMMUTABLE`).
-12. **Strict Read/Write Governance & Mutation Approvals:** Mandatory dry-run preview and explicit human `ExternalMutationApproval` ticket before executing any write mutations to an external database.
+12. **Strict Read/Write Governance & Mutation Approvals:** Dry-run/preview is required for governed external mutations. Explicit human approval is mandatory for high-impact writes; only explicitly configured reversible low-risk actions may use `AUTO_LOW_RISK`. No connector bypasses domain approval policy.
 13. **Idempotency & Replay Resistance:** Deterministic mutation tokens and hash-based deduplication preventing double-posting of journal vouchers or invoices.
 14. **Bidirectional Sync Loop Prevention:** Change-set origin tracking and cryptographic payload fingerprinting to eliminate infinite echo loops.
 15. **Schema & Semantic Translation:** Canonical normalization for currencies (IRR / Toman), calendar dates (Jalali / Gregorian), and floating Tafsili dimensions.
-16. **Transactional Outbox & Resilient Async Execution:** Integration events and outbound sync jobs dispatched through the transactional outbox with exponential backoff and dead-letter queues.
+16. **Transactional Outbox & Resilient Execution:** Reuse the existing PostgreSQL transactional outbox/idempotency infrastructure for outbound work, retryable failures and terminal/dead states. Do not introduce a separate message broker merely for connector retries.
 17. **Financial Reconciliation & Parity Auditing:** Continuous automated `ReconciliationResult` auditing trial balances, debit/credit parity, and line-item integrity across systems.
-18. **Observability, Metrics & Telemetry:** Structured audit logging and Prometheus metrics tracking sync throughput, latency, conflict rate, and connector health.
+18. **Observability:** Reuse the platform's structured logs/metrics/audit facilities to track sync throughput, latency, conflict rate and connector health. No specific monitoring product is required by this architecture.
 
 ---
 
