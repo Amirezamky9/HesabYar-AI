@@ -1,11 +1,11 @@
 # HesabYar-AI — Final Implementation Architecture
 
 **Architecture ID:** HYA-A1-FINAL
-**Version:** 1.5.1-ARCH
-**Date:** 2026-09-20
+**Version:** 1.6.0-ARCH
+**Date:** 2026-09-26
 **State:** `ARCH_UPDATE`
 **Pinned F0 Baseline:** `76c26f2f188310bcc178d9e955e4faf0706fcbef` (tag `v0.1.0-f0-frozen`, merge commit `935a6a5f3f0b630576c8054c0efb30c9a1f8e20a`)
-**Scope:** R0/R1 implementation foundation for the accounting ledger, standards validation, versioned Iranian tax policy, payroll, labor, social insurance, salary tax sub-ledger, accounting integration hub (Sepidar, Holoo, Parmis, etc.), electronic commercial books, electronic invoice/Moadian integration, document intake, advisory analytics, and MCP interface.
+**Scope:** Normative implementation architecture for a complete accounting operations agent: accounting ledger; treasury, banks and cheques; receivables/payables; inventory and reconciliation; fixed assets and depreciation; cost accounting; budgeting/forecasting; versioned accounting, tax, labor, insurance and payroll rules; payroll; accounting-software integration (API, file exchange, and governed Desktop/Computer Use); electronic commercial books; invoice/Moadian; document intake; import/export profiles; MCP/harness interoperability; and bounded advisory/decision intelligence.
 
 > This is the **single normative architecture document for implementation**.
 >
@@ -13,7 +13,7 @@
 >
 > If any other repository file conflicts with this document, **this document wins**. A future architecture change is valid only when both:
 > 1. this file is version-bumped and updated; and
-> 2. a new ADR records the reason (see ADR-0001 for versioned policy, ADR-0002 for payroll/labor/insurance boundary, ADR-0003 for accounting integration hub).
+> 2. a new ADR records the reason (see ADR-0001 for versioned policy, ADR-0002 for payroll/labor/insurance boundary, ADR-0003 for accounting integration hub, ADR-0004 for the complete accounting-agent operating model).
 >
 > No ADR, research note, commit message, README section, or code comment may silently override this file.
 
@@ -22,7 +22,7 @@
 
 HesabYar-AI will be implemented as a **modular monolith with explicit domain boundaries and ports/adapters**.
 
-The system has six different kinds of truth and they MUST stay separate:
+The system has nine different kinds of truth and they MUST stay separate:
 
 1. **Accounting invariants** — deterministic and transactional.
 2. **Accounting standards** — versioned professional rules with source provenance.
@@ -31,6 +31,8 @@ The system has six different kinds of truth and they MUST stay separate:
 5. **External accounting integration** — canonical model abstraction, connector ports, governed dry-run/preview mutations.
 6. **External government protocol behavior** — versioned integration contracts that are untrusted until verified against an official technical specification.
 7. **Regulatory filing/export obligations** — versioned schemas plus compliance-calendar events; never inferred from ledger structure alone.
+8. **Operational sub-ledger truth** — treasury, receivables/payables, inventory, fixed assets, costing and budgets own their operational state but affect accounting only through explicit Ledger posting contracts.
+9. **Advisory/decision intelligence** — AI/Jev-like judgments may rank, classify or suggest; they never replace deterministic accounting, verified legal rules, authorization or approval.
 
 The LLM/MCP layer is an orchestration interface. It is **never** the source of financial truth, legal truth, authorization, tenant identity, or arithmetic.
 
@@ -963,6 +965,373 @@ Connections operate under four mutually exclusive operational modes per entity t
 18. **Observability, Metrics & Telemetry:** Structured audit logging and Prometheus metrics tracking sync throughput, latency, conflict rate, and connector health.
 
 ---
+
+# 12A. Complete accounting operations scope (reserved, incremental)
+
+This section reserves the minimum seams required for HesabYar to become a practical **Accounting Operations Agent** without forcing premature implementation.
+
+These are modules/bounded contexts inside the existing modular monolith. They are **not microservices**, and their detailed database schemas MUST NOT be created until their implementation stage begins.
+
+## 12A.1 Product role
+
+HesabYar may act as an accounting assistant and, where explicitly authorized, an operational accounting agent.
+
+It may:
+
+- read accounting and operational data;
+- detect missing, duplicate, stale or conflicting records;
+- reconcile bank, cheque, inventory, invoice and external-accounting records;
+- prepare deterministic calculations and draft postings;
+- generate and validate import/export artifacts;
+- operate supported accounting software through governed connectors;
+- surface deadlines, review queues and anomalies;
+- provide advisory analysis.
+
+It does not become the source of legal truth, financial arithmetic truth, tenant identity, authorization, or approval merely because an AI model requested an action.
+
+## 12A.2 Progressive tenant onboarding
+
+Initial setup MUST be progressive. Do not require a small business to configure modules it does not use.
+
+Minimum onboarding:
+
+- company/tenant profile;
+- fiscal-year start/end and locale/date presentation;
+- actor roles and approval policy;
+- accounting system of record: HesabYar or an external package;
+- currency is canonical IRR; optional Toman presentation is display-only.
+
+Capability-specific onboarding is requested only when enabled:
+
+- accounting-software connection and COA/Tafsili mapping;
+- bank accounts, cash boxes, POS terminals and payment gateways;
+- cheque workflows;
+- customer/vendor/open-item settings;
+- warehouses, items and stock sources;
+- fixed assets;
+- costing dimensions if needed;
+- budgets/scenarios if needed;
+- employees, contracts and payroll;
+- tax/compliance identifiers and profiles;
+- import/export profiles;
+- allowed automation level per capability.
+
+Secrets/passwords/tokens are provided to a secret provider or local trusted bridge. They are never stored in prompts, legal Skill files, ordinary business tables, or logs.
+
+## 12A.3 Treasury, banking and cheques
+
+Reserve a **Treasury & Settlement** domain.
+
+Minimum responsibilities:
+
+- bank and cash-account references;
+- POS/payment-gateway references;
+- receipts and payments;
+- settlement allocation;
+- cheque register;
+- incoming/outgoing cheque lifecycle;
+- cheque due dates and status;
+- bank and cheque reconciliation;
+- due/overdue operational queues.
+
+Cheque handling must support answering:
+
+- is this cheque already registered locally?
+- is it registered in the configured external accounting system?
+- is it a probable duplicate?
+- do cheque identifier, amount, due date, bank/account and counterparty agree?
+- has its bank outcome changed while accounting status is stale?
+- is a follow-up posting or settlement action required?
+
+Matching may use deterministic identifiers first and optional DecisionProvider assistance for ambiguous candidates. Final mutation follows the configured approval policy.
+
+Do not invent a cheque-specific database schema until Treasury implementation starts.
+
+## 12A.4 Accounts receivable and accounts payable
+
+Reserve an **AR/AP & Open Items** domain for:
+
+- customer/vendor balances;
+- invoice/open-item settlement;
+- receipts/payments allocation;
+- advances and unapplied amounts;
+- ageing buckets;
+- overdue queues;
+- reconciliation against Ledger and external accounting systems.
+
+AR/AP is operational detail over Ledger-backed accounting truth. It MUST NOT become a second general ledger.
+
+## 12A.5 Inventory and inventory reconciliation
+
+Reserve an **Inventory** domain for:
+
+- warehouses;
+- items/SKUs and units of measure;
+- stock movements;
+- counted/physical stock;
+- transfers;
+- adjustments;
+- quantity reconciliation;
+- inventory-source mappings.
+
+Typical reconciliation:
+
+```text
+physical/count source
+        ↕
+external accounting inventory
+        ↕
+website / commerce inventory
+        ↓
+exact match | conflict | missing | duplicate | review
+```
+
+A discrepancy report may propose a correction. It never silently creates an inventory adjustment or accounting posting.
+
+Inventory valuation methods and manufacturing detail are deferred until the Cost Accounting stage and tenant requirements justify them.
+
+## 12A.6 Fixed assets and depreciation
+
+Reserve a **Fixed Assets** domain for:
+
+- asset register;
+- acquisition;
+- asset tag / location / custodian;
+- depreciation policy/version;
+- useful life and residual value where applicable;
+- transfer;
+- impairment/revaluation where supported by verified accounting policy;
+- disposal/sale;
+- balanced posting drafts.
+
+Accounting depreciation and tax depreciation may differ. Their rule sources and effective dates MUST remain independent.
+
+Do not hard-code annual tax depreciation rates in domain code.
+
+## 12A.7 Cost accounting
+
+Reserve a **Cost Accounting** domain.
+
+Minimum future capabilities:
+
+- cost centers;
+- direct material;
+- direct labor;
+- overhead allocation;
+- product/service/project cost objects;
+- deterministic cost calculation;
+- cost-to-ledger posting drafts;
+- variance reporting.
+
+Manufacturing routing, BOM, WIP and advanced production costing are **optional extensions**, not R0 requirements. Add them only when a concrete tenant workflow requires them.
+
+## 12A.8 Budgeting and forecasting
+
+Reserve a **Budget & Planning** domain for:
+
+- versioned budgets;
+- revenue/expense budgets;
+- cash budgets;
+- cost-center budgets;
+- scenarios;
+- actual-vs-budget;
+- forecasts.
+
+Budget and forecast values are planning truth, not posted accounting truth.
+
+Forecast/AI output MUST NOT modify Ledger, payroll, tax filings, inventory or external accounting systems.
+
+## 12A.9 Shared reconciliation capability
+
+Reconciliation is a shared application capability, not a second database of financial truth.
+
+Canonical outcomes:
+
+```text
+EXACT_MATCH
+SUGGESTED_MATCH
+CONFLICT
+MISSING_LOCAL
+MISSING_REMOTE
+DUPLICATE
+REVIEW_REQUIRED
+```
+
+Domain-specific matchers may exist for:
+
+- bank transactions;
+- cheques;
+- AR/AP settlements;
+- inventory;
+- invoices/payments;
+- external accounting systems.
+
+Every suggested match stores evidence/provenance. A reconciliation result never silently rewrites a POSTED or externally authoritative record.
+
+## 12A.10 Import and export profiles
+
+Data exchange is a first-class capability.
+
+Support versioned profiles behind one canonical DataExchange port.
+
+Potential formats include:
+
+- XLSX/XLS;
+- CSV/TSV;
+- JSON;
+- XML;
+- PDF reports;
+- DBF where legally/vendor required;
+- OFX, MT940 or CAMT when a verified banking profile is available;
+- vendor-specific import/export formats.
+
+This is an extensible profile mechanism, **not** a requirement to implement every format in the first release.
+
+Each profile declares at minimum:
+
+```text
+profile_id
+direction = IMPORT | EXPORT
+entity_types
+format
+schema_version
+encoding/locale
+vendor_or_authority
+effective_from/effective_to where applicable
+verification_status where legally/vendor sensitive
+validation_contract
+```
+
+Exports intended for re-import into another system MUST be deterministic and validation-tested against that profile.
+
+Human-readable Excel/PDF reporting is separate from canonical machine contracts.
+
+## 12A.11 API, file exchange and Desktop/Computer Use
+
+Accounting integration has three first-class transport families:
+
+```text
+API / Web Service
+File Import / Export
+Local Desktop / Computer Use
+```
+
+Transport selection is capability-driven. Prefer the most deterministic supported mechanism for the requested action, but Desktop/Computer Use is a supported transport when an accounting package lacks an adequate API or supported file workflow.
+
+Desktop/Computer Use runs through a tenant-scoped **Desktop Bridge** and MUST follow:
+
+```text
+OBSERVE
+ -> PLAN
+ -> PREVIEW
+ -> APPROVAL when required
+ -> EXECUTE
+ -> VERIFY RESULT
+ -> AUDIT
+```
+
+Rules:
+
+- no blind write sequence without post-action verification;
+- ambiguous UI state fails closed;
+- vendor UI workflows/selectors are versioned capability profiles;
+- a vendor UI change may disable that capability without breaking core domain code;
+- credentials remain local/secret-provider scoped;
+- screenshots/logs minimize or redact sensitive data where practical;
+- external mutation idempotency/duplicate defenses still apply;
+- Computer Use never bypasses Ledger, Payroll, Treasury or tax approval policy.
+
+## 12A.12 Harness and agent portability
+
+HesabYar exposes one canonical MCP surface.
+
+Business logic MUST NOT be duplicated for Hermes, Claude Code, Codex, Gemini, Cursor or another harness.
+
+Harness-specific plugins/configuration are thin adapters containing only:
+
+- MCP connection/config metadata;
+- optional installation/bootstrap instructions;
+- UI or harness-specific convenience prompts;
+- no accounting calculation engine;
+- no legal-rule copy;
+- no duplicate authorization logic.
+
+If a client cannot consume the supported MCP transport, an optional REST/CLI/SDK adapter may be added later behind the same application ports.
+
+## 12A.13 Optional decision intelligence
+
+Define an optional `DecisionProvider` port for Jev-like models or general LLMs.
+
+Good uses:
+
+- probable duplicate classification;
+- bank/payment/invoice candidate matching;
+- document type classification;
+- anomaly triage;
+- workflow/Skill routing;
+- deciding whether an ambiguous case should be escalated.
+
+Forbidden uses:
+
+- deciding whether debit equals credit;
+- statutory payroll/tax/insurance arithmetic;
+- replacing a VERIFIED legal rule;
+- tenant identity;
+- authorization;
+- approving irreversible mutations.
+
+Decision records include:
+
+```text
+provider
+model/version
+use_case
+input_hash
+output
+score/probability where available
+calibration_profile
+timestamp
+```
+
+Thresholds are calibrated per workflow from representative data. There is no universal confidence threshold.
+
+## 12A.14 Automation levels
+
+Per tenant and capability, support policy levels:
+
+```text
+READ_ONLY
+SUGGEST
+DRAFT
+EXECUTE_WITH_APPROVAL
+AUTO_LOW_RISK
+```
+
+`AUTO_LOW_RISK` is allowed only for explicitly configured, reversible and low-impact workflows.
+
+The following remain approval/policy gated:
+
+- posting accounting vouchers;
+- payroll finalization;
+- tax/government submissions;
+- destructive inventory adjustments;
+- cheque/payment state mutations that affect accounting;
+- external-system writes classified as high impact.
+
+## 12A.15 Over-engineering guard
+
+The presence of a domain in this architecture does not authorize speculative implementation.
+
+For every future domain:
+
+1. reserve ownership and integration seams here;
+2. implement only when its roadmap stage begins;
+3. start from concrete user workflows and the smallest useful model;
+4. add tables/classes only when required by those workflows;
+5. reuse PostgreSQL, application command contracts, audit, idempotency and outbox infrastructure;
+6. do not introduce Kafka, Redis, a workflow engine, vector database, microservices, or a second accounting engine without a demonstrated requirement and a new ADR.
+
+
 # 13. Electronic commercial books compliance
 
 Electronic commercial books are a separate regulatory-output boundary over the authoritative ledger.
@@ -1882,200 +2251,190 @@ The coding agent MUST preserve the useful standards corpus while replacing the p
 
 ---
 
-# 28. Implementation sequence and stop gates (11-Stage Roadmap: F0 to F10)
+# 28. Canonical implementation sequence and stop gates
 
-The implementation is executed as a strict linear sequence of 11 gated stages (F0 to F10).
-A stage cannot begin until the preceding stage has passed all its automated stop gates.
+This is the **only authoritative roadmap**. Older stage numbering is superseded by this section.
 
-### Stage F0 — Foundation [FROZEN at `76c26f2f188310bcc178d9e955e4faf0706fcbef`]
-- Core value objects: `MoneyIRR` (integer Rials, zero float, Toman presentation), `FiscalDate` (canonical Gregorian with bidirectional Jalali conversion), `TenantContext`, `ActorContext`.
-- Formula DSL validator replacing legacy eval, AST parsing with strict mapping traversal and attribute access ban.
-- Multi-tenant PostgreSQL 16 schema with `TenantScopedRepository`, composite unique constraints, and cascade isolation.
-- Single Alembic migration head with automated upgrade/downgrade roundtrip in CI.
+Stages are gated. A later stage may be researched in advance, but implementation MUST NOT silently cross the current stop gate.
+
+### Stage F0 — Foundation [FROZEN]
+
+Pinned baseline:
+
+`76c26f2f188310bcc178d9e955e4faf0706fcbef`
+
+Deliverables already accepted:
+
+- project/package baseline;
+- PostgreSQL/Alembic foundation;
+- tenant/actor isolation;
+- MoneyIRR / Decimal policy;
+- fail-closed safe standards DSL;
+- CI quality gates.
 
 ### Stage F1 — Accounting Ledger
-- Double-entry core: `Account`, `Voucher`, `VoucherLine`.
-- Hierarchical Chart of Accounts (COA) with 4 floating Tafsili dimensions.
-- Voucher lifecycle state machine (`DRAFT` -> `UNDER_REVIEW` -> `APPROVED` -> `POSTED` -> `RECONCILED` / `VOIDED`).
-- Posted-record immutability and closed-period posting protection.
-- Deterministic trial balance calculation and debit/credit balance verification.
+
+Deliver the smallest complete deterministic ledger:
+
+- COA and Tafsili links;
+- fiscal years/posting periods;
+- voucher draft/review/approve/post/reverse;
+- immutable POSTED state;
+- numbering;
+- trial balance;
+- audit/idempotency/concurrency.
+
+**STOP GATE F1:** DB and property invariants prove balanced posting, tenant isolation, immutability and closed-period protection.
 
 ### Stage F2 — Versioned Legal & Accounting Rule Registry
-- Provenance tracking: `standards_rule_sources`, `standards_rule_revisions`, `tax_policy_sources`, `tax_policy_rules`.
-- Effective-dated parameter resolution keyed by `as_of_date`.
-- Typed Safe Formula DSL (zero eval, zero float, AST traversal, fail closed on missing variables).
-- 1405 standards and statutory policy rules.
-
-### Stage F3 — Payroll, Labor, Social Insurance & Salary Tax Context
-- Sub-ledger entities: `Employee`, `EmploymentContract`, `PayrollPeriod`, `Attendance`, `Timesheet`, `Leave`, `PayrollRun`, `PayrollLine`, `PayrollApproval`, `PayrollPosting`.
-- 11-axis component matrix with 8 effective-dated statutory rule references.
-- Social Security 30% contribution engine (7% employee, 20% employer, 3% unemployment) with 7x minimum wage ceiling.
-- Direct Tax Law Art. 84 & 85 progressive withholding engine with 2/7th health deduction and welfare benefit exemptions.
-- Dual-control approval state machine and balanced `PayrollPosting` voucher draft emission to Ledger.
-
-### Stage F4 — Accounting Integration Hub
-- Canonical accounting model DTOs (`CanonicalAccount`, `CanonicalTafsili`, `CanonicalVoucher`, `CanonicalInvoice`).
-- `AccountingConnector` port interface and lifecycle contracts.
-- Vendor adapters for Sepidar, Holoo, Parmis, and generic CSV in `infrastructure/integrations/<vendor>/`.
-- Operational modes: `READ_ONLY`, `IMPORT`, `EXPORT`, `BIDIRECTIONAL`.
-- Configurable per-entity Source of Truth (SoT) and `ExternalObjectMapping`.
-- Strict write governance: mandatory dry-run preview and human `ExternalMutationApproval` ticket.
-- Continuous automated `ReconciliationResult` parity auditing.
-
-### Stage F5 — Electronic Commercial Books
-- Journal (`Ruznameh`) and General Ledger (`Daftar Kol`) compliance exports.
-- Period locking, immutable sequence numbers, and tamper-evident hash chaining.
-- Multi-tenant compliance calendar events and statutory submission formats.
-
-### Stage F6 — Invoice Domain
-- Business invoice models (`Invoice`, `InvoiceLine`) independent of protocol payloads.
-- Protocol profile registry for Iranian e-invoicing.
-- TaxID generation, canonical JSON canonicalization, and cryptographic signing contracts.
-
-### Stage F7 — Moadian Verification + Simulator
-- Complete Moadian protocol simulator with realistic state transitions.
-- Unsupported-behavior rules (network drop, timeout, rejected invoice, duplicate tax ID).
-- Transactional outbox pattern for asynchronous invoice transmission and reconciliation.
-
-### Stage F8 — MCP / Agent Interface
-- Official MCP SDK v2 with Streamable HTTP transport (no legacy SSE).
-- Strict authentication, host/origin validation, and endpoint allowlists.
-- Tenant identity strictly derived from trusted authentication context (never tool arguments).
-- Comprehensive tool suite across Ledger, Standards, Tax, Payroll, Integration, and Invoice domains.
-
-### Stage F9 — Production Moadian Gateway Adapter
-- Production cryptographic signing and hardware security module (HSM) / private key isolation.
-- Live government gateway integration with retry, backoff, and circuit breaker patterns.
-- Regulatory receipt reconciliation and settlement verification.
-
-### Stage F10 — Advisory, Analytics, Automation & AI Workflows
-- Untrusted advisory layer: analytics, forecasting, cash flow analysis, and tax optimization recommendations.
-- Zero autonomous posting: all advisory outputs are advisory only and require explicit human review.
-- Multi-agent orchestration workflows with deterministic quality gates.
-
----
-# 29. Implementation sequence and stop gates
-
-The coding agent works in this exact order.
-
-## Stage F0 — Foundation
 
 Deliver:
 
-- package layout;
-- locked dependencies;
-- config model;
-- PostgreSQL/Alembic;
-- tenant/actor context;
-- common value objects;
-- error/result types;
-- CI updates;
-- safe standards validator skeleton.
+- immutable source snapshots;
+- standard revisions;
+- legal rule versions;
+- effective-date resolution;
+- typed rule evaluation;
+- historical golden tests.
 
-**STOP GATE F0:** no ledger feature work until migrations, tenant isolation, MoneyIRR/Decimal policy, fail-closed rule engine, and CI are green.
+**STOP GATE F2:** no executable policy result without an applicable VERIFIED source.
 
-## Stage F1 — Ledger
+### Stage F3 — Treasury, Banking, Cheques & AR/AP
 
-Deliver:
+Deliver concrete operational workflows for:
 
-- COA;
-- tafsili matrix;
-- fiscal years/periods;
-- voucher draft/review/post/reverse;
-- sequence allocator;
-- trial balance;
-- audit events.
+- bank/cash/payment-channel references;
+- receipts/payments;
+- incoming/outgoing cheques;
+- cheque registration/duplicate/status checks;
+- open items and settlement allocation;
+- bank/cheque reconciliation;
+- ageing/due queues;
+- balanced posting drafts to Ledger.
 
-**STOP GATE F1:** property + DB invariant tests green. Posted mutation attempt must fail at application and DB levels.
+**STOP GATE F3:** no silent posting or settlement mutation; reconciliation and cheque lifecycle tests are green.
 
-## Stage F2 — Versioned standards/tax sources
+### Stage F4 — Payroll, Labor, Social Insurance & Salary Tax
 
 Deliver:
 
-- source snapshot registry;
-- standard revision registry;
-- legal rule/version registry;
-- typed tax policy framework;
-- historical `as_of_date` golden tests.
+- employee/contracts;
+- periods/attendance/leave;
+- effective-dated component classification;
+- payroll calculations;
+- insurance/tax assessments;
+- approvals;
+- PayrollPosting drafts;
+- required regulatory export profiles.
 
-**STOP GATE F2:** no production policy result can run without a verified applicable source.
+**STOP GATE F4:** verified applicable rule sources, zero float, historical golden cases, balanced posting drafts and approval controls all green.
 
-## Stage F3 — Electronic commercial books
+### Stage F5 — Inventory & Reconciliation
+
+Deliver only the inventory workflows required for general businesses:
+
+- warehouse/item references;
+- stock movements;
+- counts;
+- transfers/adjustments;
+- inventory reconciliation with external/site sources;
+- posting drafts where required.
+
+Do not add manufacturing/WIP complexity yet.
+
+**STOP GATE F5:** quantity invariants, tenant isolation, reconciliation evidence and governed adjustment tests green.
+
+### Stage F6 — Fixed Assets, Costing & Budgeting
+
+Implement these as separate modules but in one gated stage to avoid infrastructure sprawl.
+
+Fixed Assets:
+- asset register and deterministic depreciation;
+- transfer/disposal;
+- accounting posting drafts.
+
+Costing:
+- cost centers and practical direct-material/direct-labor/overhead calculations;
+- only add BOM/WIP/manufacturing extensions when demanded by concrete workflows.
+
+Budgeting:
+- budgets/scenarios;
+- actual-vs-budget;
+- forecasts as non-posting planning outputs.
+
+**STOP GATE F6:** deterministic arithmetic and posting boundaries proven; forecasts cannot mutate accounting truth.
+
+### Stage F7 — Integration Hub, Data Exchange & Desktop Bridge
 
 Deliver:
 
-- compliance-calendar registry;
-- versioned electronic-books export profiles;
-- deterministic export from posted ledger cutoff;
-- immutable export artifact hash/manifest;
-- export validation and current-period source provenance.
+- canonical connector contracts;
+- Source-of-Truth configuration;
+- external-object mapping/checkpoints/conflicts;
+- API/Web Service transport;
+- versioned file import/export profiles;
+- governed Desktop/Computer Use bridge;
+- dry-run/preview/approval/verify/audit;
+- initial vendor adapters only where a verified capability is available.
 
-**STOP GATE F3:** no claim of 1405 electronic-books readiness unless an applicable VERIFIED export profile and deadline source are active.
+Candidate vendors include Sepidar, Holoo and Parmis; do not fabricate capabilities that have not been verified.
 
-## Stage F4 — Invoice domain
+**STOP GATE F7:** connector contract tests, duplicate/idempotency tests, UI/file/API failure-mode tests, and approval controls green.
 
-Deliver:
+### Stage F8 — Electronic Commercial Books
 
-- business invoice drafts;
-- versioning;
-- review hash/approval model;
-- protocol-profile registry;
-- schema validation without network.
+Deliver versioned compliance profiles, posted-ledger cutoff exports, manifests/hashes and compliance calendar.
 
-**STOP GATE F4:** no production gateway code until profile activation rules and approval invalidation tests are green.
+**STOP GATE F8:** no readiness claim without a VERIFIED applicable profile/source.
 
-## Stage F5 — Moadian verification + simulator
+### Stage F9 — Invoice Domain
 
-Deliver:
+Deliver business invoice drafts/versioning independent of government protocol payloads.
 
-- pin official technical specification;
-- create verified protocol profile;
-- contract fixtures;
-- simulator;
-- key-provider port;
-- gateway interface;
-- outbox/reconciliation.
+**STOP GATE F9:** schema/version/approval invalidation tests green; no production gateway dependency.
 
-**STOP GATE F5:** production gateway remains disabled until official protocol source is VERIFIED and contract tests pass.
+### Stage F10 — Moadian Verification & Simulator
 
-## Stage F6 — MCP
+Pin official technical sources, build active protocol profiles, fixtures, simulator, key-provider port, outbox and reconciliation.
 
-Deliver:
+**STOP GATE F10:** production gateway remains disabled until verified source/profile contract tests pass.
 
-- official MCP Python SDK v2;
+### Stage F11 — MCP / Agent Interface
+
+Deliver the canonical harness-independent MCP surface:
+
 - stdio;
 - Streamable HTTP;
 - auth/scopes;
-- read tools;
-- local write tools;
-- `submit_approved_invoice`.
+- read/draft/review tools across implemented domains;
+- no tenant/actor identity from model arguments;
+- no model self-approval.
 
-**STOP GATE F6:** remote security tests green; no legacy SSE.
+Thin harness adapters/plugins may be provided for compatible clients without duplicating domain logic.
 
-## Stage F7 — Production Moadian adapter
+**STOP GATE F11:** remote security, permission and cross-harness contract tests green.
 
-Deliver only if F5/F6 complete:
+### Stage F12 — Production Government/External Compliance Adapters
 
-- verified crypto/tax ID behavior;
-- allowlisted endpoint adapter;
-- remote response normalization;
-- reconciliation;
-- manual operational runbook.
+Activate only verified production adapters such as Moadian and other regulatory gateways.
 
-**STOP GATE F7:** owner-controlled production enablement only.
+**STOP GATE F12:** owner-controlled enablement, verified protocol/source, secret isolation, reconciliation and operational runbook.
 
-## Stage F8 — Advisory analytics
+### Stage F13 — Advisory, Automation & Decision Intelligence
 
-After deterministic foundations:
+Add:
 
-- inflation scenarios;
-- working-capital analysis;
-- legal tax-shield opportunity analysis;
-- bank-flow evidence classification.
+- analytics;
+- cash-flow and working-capital views;
+- budget/forecast assistance;
+- anomaly and reconciliation triage;
+- optional DecisionProvider (including Jev-like providers);
+- low-risk automation where explicitly enabled.
 
-No advisory feature may write ledger or submit invoices.
+Advisory/decision models never become accounting or legal truth.
 
----
+**STOP GATE F13:** calibrated use-case tests, auditability and mutation-policy tests green.
+
 
 # 30. Coding-agent prohibitions
 
@@ -2103,7 +2462,13 @@ The coding agent MUST NOT:
 20. introduce microservices, Kafka, Redis, Celery, or another infrastructure component without a demonstrated R0 requirement and architecture update;
 21. implement Rust in R0;
 22. copy the v1.1 SQLite DDL as production schema;
-23. add placeholder “official” protocol logic just to make tests green.
+23. add placeholder “official” protocol logic just to make tests green;
+24. create speculative tables/classes for reserved future domains before their implementation stage;
+25. duplicate accounting/legal/business logic inside harness plugins or Skills;
+26. let Computer Use bypass preview/approval/verification/audit requirements;
+27. treat an AI/Jev score as accounting, legal, authorization, or approval truth;
+28. hard-code vendor UI/API behavior without a versioned verified capability profile;
+29. silently auto-correct inventory, cheque, bank or external-system discrepancies.
 
 ---
 
