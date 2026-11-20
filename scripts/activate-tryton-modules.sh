@@ -24,6 +24,11 @@
 #   mkdir ~/workspace/coord-logs/pytest.lock  # wait/retry if exists
 #   ... run this script ...
 #   rmdir ~/workspace/coord-logs/pytest.lock
+#
+# CI / FRESH-DB USE: scripts/ci/setup-tryton.sh always targets a fresh
+# database no pytest process touches, so it sets
+# HESABYAR_SKIP_PYTEST_GUARD=1 to skip the check below. Never set it
+# for a shared dev database.
 set -euo pipefail
 
 TRYTON_ENV="${TRYTON_ENV:-$HOME/workspace/projects/hesabyar-reference/tryton-env}"
@@ -80,7 +85,8 @@ done
 # A bare `pgrep -f pytest` also matches other agents' wait loops, whose
 # shell command lines merely mention the word pytest. Match only real
 # pytest processes: the `uv run pytest` wrapper or a venv `bin/pytest`.
-if pgrep -af "bin/pytest|run pytest" >/dev/null; then
+# Skipped when HESABYAR_SKIP_PYTEST_GUARD=1 (CI fresh-DB use only).
+if [ -z "${HESABYAR_SKIP_PYTEST_GUARD:-}" ] && pgrep -af "bin/pytest|run pytest" >/dev/null; then
     echo "REFUSING: a pytest process is running (see header)." >&2
     pgrep -af "bin/pytest|run pytest" >&2
     exit 1

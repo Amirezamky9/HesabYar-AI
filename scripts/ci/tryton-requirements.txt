@@ -1,0 +1,56 @@
+# HesabYar — Tryton 8.2 pinned releases for CI (scripts/ci/setup-tryton.sh).
+# In-repo copy of ~/workspace/projects/hesabyar-reference/tryton-requirements.txt;
+# the two files must stay in sync (the reference copy is the dev source of
+# truth; this one is what GitHub Actions installs from a bare checkout).
+# Verified against PyPI 2026-11-16 (Phase 0) and 2026-11-18 (US-502).
+# trytond 8.2.3 is the latest 8.2.x patch; module packages carry their own patch
+# levels (Tryton releases modules independently of the server).
+trytond==8.2.3
+trytond-account==8.2.2
+trytond-account-invoice==8.2.0
+trytond-account-payment==8.2.0
+trytond-account-statement==8.2.0
+trytond-account-asset==8.2.0
+trytond-analytic-account==8.2.0
+trytond-company==8.2.0
+trytond-currency==8.2.0
+trytond-party==8.2.1
+trytond-product==8.2.1
+# Phase 5, US-502 (F2) — sale/stock/clearing/dunning family, verified
+# against PyPI 2026-11-18 (all 8.2.0 except trytond-stock 8.2.1).
+# (Dev note: the dev VM installs these from a local wheel cache
+# ~/workspace/projects/hesabyar-reference/wheels-us502/ because
+# files.pythonhosted.org is very slow from that VM; CI installs from
+# PyPI directly. The pins below are the source of truth either way.)
+trytond-sale==8.2.0
+trytond-sale-shipment-cost==8.2.0
+trytond-sale-payment==8.2.0
+trytond-sale-discount==8.2.0
+trytond-sale-amendment==8.2.0
+trytond-sale-invoice-grouping==8.2.0
+trytond-account-payment-clearing==8.2.0
+trytond-account-dunning==8.2.0
+trytond-account-dunning-fee==8.2.0
+trytond-stock==8.2.1
+trytond-stock-supply==8.2.0
+trytond-purchase-request==8.2.0
+trytond-stock-package==8.2.0
+trytond-stock-shipment-cost==8.2.0
+trytond-carrier==8.2.0
+trytond-account-stock-landed-cost==8.2.0
+trytond-account-stock-anglo-saxon==8.2.0
+trytond-analytic-sale==8.2.0
+trytond-account-statement-rule==8.2.0
+# Transitive (pulled in by the above; pinned for reproducibility).
+trytond-account-invoice-stock==8.2.0
+trytond-account-stock-continental==8.2.0
+trytond-analytic-invoice==8.2.0
+trytond-purchase==8.2.0
+trytond-sale-history==8.2.0
+# Local modules (not on PyPI) -- NOT listed here: setup-tryton.sh
+# builds + installs them from tryton-modules/ in this repo:
+#   tryton-modules/hesabyar_setup/    -> trytond-hesabyar-setup 8.2.3
+#   tryton-modules/account_check_ir/  -> trytond-account-check-ir 8.2.0
+# PostgreSQL driver — trytond's `postgresql` extra (psycopg[pool]>=3.2);
+# binary wheel avoids needing libpq-dev headers at install time.
+psycopg[pool,binary]==3.3.9
