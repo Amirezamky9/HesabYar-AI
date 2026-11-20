@@ -44,6 +44,7 @@ from hesabyar.domain.cheques.models import (
     CustodyLogEntry,
     InquiryReceipt,
     InstallmentLegStatus,
+    MonthlyMatchHistory,
     RedBrownPolicy,
     StorageLocation,
 )
@@ -90,6 +91,7 @@ class FakeChequeRepository:
     custody: list[CustodyLogEntry] = field(default_factory=list)
     receipts: list[InquiryReceipt] = field(default_factory=list)
     settings: dict[str, ChequeSettings] = field(default_factory=dict)
+    match_history: dict[tuple[str, str], MonthlyMatchHistory] = field(default_factory=dict)
     fail_save_once: bool = False
 
     def create(self, cheque: Cheque) -> Cheque:
@@ -173,6 +175,7 @@ class FakeChequeRepository:
         purpose: ChequePurpose | None = None,
         endorsee_type: str | None = None,
         storage_location: StorageLocation | None = None,
+        company_engine_id: int | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[Cheque]:
@@ -195,6 +198,8 @@ class FakeChequeRepository:
             rows = [c for c in rows if c.endorsee_type == endorsee_type]
         if storage_location is not None:
             rows = [c for c in rows if c.storage_location == storage_location]
+        if company_engine_id is not None:
+            rows = [c for c in rows if c.company_engine_id == company_engine_id]
         rows.sort(key=lambda c: c.created_at, reverse=True)
         return [copy.deepcopy(c) for c in rows[offset : offset + limit]]
 
@@ -248,6 +253,36 @@ class FakeChequeRepository:
             for c in self.cheques.values()
             if c.state == ChequeState.REGISTERED
         ]
+
+    def record_match_history(self, entry: MonthlyMatchHistory) -> MonthlyMatchHistory:
+        """Upsert-add on (installation_id, month_jalali) (US-553)."""
+        key = (entry.installation_id, entry.month_jalali)
+        existing = self.match_history.get(key)
+        if existing is None:
+            stored = copy.deepcopy(entry)
+        else:
+            stored = existing.add_counts(
+                exact=entry.exact_count,
+                probable=entry.probable_count,
+                ambiguous=entry.ambiguous_count,
+                unmatched=entry.unmatched_count,
+            )
+        self.match_history[key] = copy.deepcopy(stored)
+        return copy.deepcopy(stored)
+
+    def list_match_history(
+        self, *, tenant_id: str, installation_id: str, months: int = 12
+    ) -> list[MonthlyMatchHistory]:
+        """Stored monthly match history, oldest first (US-553)."""
+        rows = sorted(
+            (
+                row
+                for row in self.match_history.values()
+                if row.tenant_id == tenant_id and row.installation_id == installation_id
+            ),
+            key=lambda row: row.month_jalali,
+        )
+        return [copy.deepcopy(row) for row in rows[-max(months, 1):]]
 
 
 def created_kind(record: dict[str, Any]) -> str:

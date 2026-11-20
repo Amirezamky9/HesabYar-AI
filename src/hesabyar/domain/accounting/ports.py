@@ -31,9 +31,10 @@ system-created draft, like a cash-box variance journal, is booked
 to; ``create_journal_draft`` with no journal fails once the engine
 holds several general journals, so internal drafts resolve one
 explicitly). Reporting (``get_report`` in the design-eng spec
-§2.2 sketch) joins the port when its Tryton operations are
-contract-verified; the port is the seam, so extending it does not
-touch domain callers.
+§2.2 sketch) joins the port in US-550: the trial balance (US-403)
+plus the general ledger, balance sheet, income statement, cash flow
+and notes balance — all read live from the engine, never recomputed
+from a HesabYar cache (§11.1).
 
 The port is synchronous: there is no async infrastructure in the
 repository yet, and the Tryton REST calls are plain HTTP. A later story may
@@ -100,17 +101,22 @@ from hesabyar.domain.accounting.value_objects import (
     AccountView,
     AnalyticAccountView,
     AnalyticLineView,
+    BalanceSheetView,
     BankStatementView,
+    CashFlowView,
     CheckbookEngineView,
     ChequeEngineView,
     CompanyView,
     FiscalPeriodView,
     FiscalYearView,
+    GeneralLedgerView,
+    IncomeStatementView,
     InventoryView,
     InvoiceTotalView,
     InvoiceView,
     JournalDraftView,
     MoveLineView,
+    NotesBalanceView,
     OrderPointView,
     OutShipmentCostView,
     PackagingProductView,
@@ -261,10 +267,123 @@ class AccountingEnginePort(Protocol):
         move is in state ``posted``, belongs to ``company`` and is dated
         within ``[date_from, date_to]``. Draft moves never contribute.
         The read pages through the engine's complete line set — no figure
-        is ever computed from a paginated partial read. P&L, balance
-        sheet and cash flow are NOT part of this read (they stay honestly
-        deferred); only the trial balance closes the Phase 2
-        ``get_report`` gap.
+        is ever computed from a paginated partial read.
+        """
+        ...
+
+    # -- financial reports (Phase 5-6, US-550) -----------------------------
+    #
+    # The five §11.2 coming-soon reports plus cheque report 7, all read
+    # live from the engine — never recomputed from a HesabYar cache
+    # (§11.1). The figures come from the same engine reads Tryton's own
+    # reference reports render: posted ``account.move.line`` rows and
+    # the ``account.account`` balance Function field in the report
+    # context. Tryton has NO cash-flow reference report: the cash-flow
+    # statement is a documented HesabYar derivation from posted cash
+    # moves (``domain/reports/statements.py``, calculation
+    # ``direct-method/1.0``). See docs/financial-reports.md.
+
+    def get_general_ledger(
+        self,
+        company: CompanyRef,
+        date_from: FiscalDate,
+        date_to: FiscalDate,
+        account: AccountRef | None = None,
+    ) -> GeneralLedgerView:
+        """Return the company's general ledger over posted moves only.
+
+        One section per account with posted activity in
+        ``[date_from, date_to]``: the opening balance (the account's
+        balance at the day before ``date_from``, read from the engine)
+        plus the period's debit/credit totals. When ``account`` is
+        given, only that account is returned WITH its lines (running
+        balances included); otherwise the accounts carry totals only
+        (summary mode — the lines load on drill-down). Draft moves
+        never contribute. An unknown account is a stable ledger error.
+        """
+        ...
+
+    def get_balance_sheet(
+        self,
+        company: CompanyRef,
+        as_of: FiscalDate,
+        comparison_as_of: FiscalDate | None = None,
+    ) -> BalanceSheetView:
+        """Return the company's balance sheet at ``as_of``.
+
+        Account balances at the as-of date (the ``account.account``
+        balance Function field with the report's ``date`` context —
+        cumulative over closed fiscal years, exactly as the
+        ``account.account.type.statement`` reference report reads
+        them), grouped by account type into assets / liabilities /
+        equity, with the current-period result inside equity. When
+        ``comparison_as_of`` is given, the same figures are read for
+        that date too (prior-period comparison). Like Tryton's own
+        balance sheet, the read only sees the fiscal year containing
+        the date plus closed years' deferrals: close the fiscal year
+        to carry balances forward.
+        """
+        ...
+
+    def get_income_statement(
+        self,
+        company: CompanyRef,
+        date_from: FiscalDate,
+        date_to: FiscalDate,
+        comparison_from: FiscalDate | None = None,
+        comparison_to: FiscalDate | None = None,
+    ) -> IncomeStatementView:
+        """Return the company's income statement over a period.
+
+        Account balances over ``[date_from, date_to]`` (the
+        ``account.account`` balance Function field with the report's
+        from/to context), grouped into revenue / expenses by each
+        income type's net sign over the period. ``monthly`` carries
+        the Jalali-month revenue/expense breakdown for the chart,
+        classified the same way so it always sums to the statement
+        totals. The comparison period (when given) reads the same
+        figures for ``[comparison_from, comparison_to]``.
+        """
+        ...
+
+    def get_cash_flow(
+        self,
+        company: CompanyRef,
+        date_from: FiscalDate,
+        date_to: FiscalDate,
+    ) -> CashFlowView:
+        """Return the company's direct-method cash-flow statement.
+
+        Posted moves on the company's cash accounts (accounts whose
+        type is cash or petty cash) in ``[date_from, date_to]``,
+        classified into operating / investing / financing by the
+        largest non-cash counterpart's account code (the documented
+        rule in ``domain/reports/statements.py``). Cash-to-cash
+        transfers are excluded from every section; unclassifiable
+        lines are counted and reported, never dropped. Opening and
+        closing cash are the engine's account balances at the period
+        bounds; ``ties_out`` asserts the sections reconcile to them.
+        """
+        ...
+
+    def get_notes_balance(
+        self,
+        company: CompanyRef,
+        as_of: FiscalDate,
+        instrument: str = "both",
+        party: PartyRef | None = None,
+    ) -> NotesBalanceView:
+        """Return notes receivable/payable balances with aging (cheque report 7).
+
+        Open posted lines on the notes accounts (1.2.4 Notes
+        Receivable Held, 1.2.5 Notes Receivable in Clearing, 2.1.5
+        Notes Payable) at ``as_of``, aged by the Tryton aged-balance
+        rule (maturity date, falling back to the move date; a line is
+        open while unreconciled or reconciled after ``as_of``).
+        ``instrument`` filters to ``"receivable"``, ``"payable"`` or
+        ``"both"``; ``party`` filters to one party. A company whose
+        chart lacks the notes accounts reads an honest empty report
+        (``accounts_read`` is empty).
         """
         ...
 

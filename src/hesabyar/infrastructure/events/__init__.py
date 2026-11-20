@@ -19,6 +19,7 @@ from hesabyar.infrastructure.events.procrastinate_queue import (
     create_defer_app,
     create_event_app,
 )
+from hesabyar.infrastructure.events.review_queue_adapter import PersistentReviewQueueAdapter
 from hesabyar.infrastructure.events.store_secrets import RegistryWebhookSecretStore
 
 __all__ = [
@@ -32,6 +33,7 @@ __all__ = [
     "InboxReviewQueueAdapter",
     "InProcessOutboxPublisher",
     "NoWebhookSecretStore",
+    "PersistentReviewQueueAdapter",
     "ProcrastinateJobQueue",
     "RegistryWebhookSecretStore",
     "WorkerHandle",

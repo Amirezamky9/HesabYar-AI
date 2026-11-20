@@ -63,6 +63,14 @@ __all__ = [
 #: seed list), not a behaviour branch: it names rows, not logic.
 RESERVED_CHANNEL_KEYS: frozenset[str] = frozenset({"torob_marketplace"})
 
+#: Confirmations after which a learned mapping may be promoted
+#: Suggest → Auto (US-552, phased design §7.2): a rule starts in
+#: SUGGEST (one-click confirm) and only becomes AUTO once the same
+#: target has been confirmed this many times. Mirrors the bank
+#: rules' ``RULE_AUTO_MIN_CONFIRMATIONS`` — the same threshold for
+#: both learning loops, so one number governs "trusted enough".
+MAPPING_AUTO_MIN_CONFIRMATIONS = 3
+
 
 @unique
 class MappingKind(StrEnum):
@@ -306,6 +314,12 @@ class IntegrationMapping:
     active one — mappings are versioned, previewable, testable and
     auditable (§10.5), and an unknown mapping fails closed into the
     review queue, never to a default account.
+
+    ``confirmations`` counts how many times the SAME target has been
+    confirmed for this (kind, channel, source) — re-creating the
+    mapping with an unchanged target increments it; changing the
+    target resets it to 1. Promotion Suggest → Auto requires
+    ``MAPPING_AUTO_MIN_CONFIRMATIONS`` (US-552, phased design §7.2).
     """
 
     id: str
@@ -322,8 +336,24 @@ class IntegrationMapping:
     confidence: Decimal | None = None
     notes: str | None = None
     created_by: str | None = None
+    confirmations: int = 1
     created_at: datetime.datetime | None = None
     updated_at: datetime.datetime | None = None
+
+    @property
+    def auto_eligible(self) -> bool:
+        """True when this mapping may be promoted Suggest → Auto.
+
+        An ACTIVE mapping in ``suggest`` mode with at least
+        ``MAPPING_AUTO_MIN_CONFIRMATIONS`` confirmations. The
+        promotion itself stays a human decision — this is only the
+        eligibility floor.
+        """
+        return (
+            self.status is MappingStatus.ACTIVE
+            and self.suggestion_mode is SuggestionMode.SUGGEST
+            and self.confirmations >= MAPPING_AUTO_MIN_CONFIRMATIONS
+        )
 
 
 @dataclass(frozen=True)

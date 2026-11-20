@@ -454,6 +454,9 @@ class TickResponse(BaseModel):
     moved_to_overdue: int = Field(description="Tranches moved due → overdue")
     exceptions_created: int = Field(description="late_tranche exceptions opened")
     exceptions_escalated: int = Field(description="late_tranche exceptions escalated a level")
+    review_items_filed: int = Field(
+        description="settlement_variance review items filed for new late tranches (US-555)"
+    )
 
     @classmethod
     def from_report(cls, report: TickReport) -> TickResponse:
@@ -463,6 +466,7 @@ class TickResponse(BaseModel):
             moved_to_overdue=report.moved_to_overdue,
             exceptions_created=report.exceptions_created,
             exceptions_escalated=report.exceptions_escalated,
+            review_items_filed=report.review_items_filed,
         )
 
 

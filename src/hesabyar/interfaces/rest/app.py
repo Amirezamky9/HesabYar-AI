@@ -34,6 +34,7 @@ from hesabyar.interfaces.rest.routers.cheques import router as cheques_router
 from hesabyar.interfaces.rest.routers.companies import router as companies_router
 from hesabyar.interfaces.rest.routers.gateways import router as gateways_router
 from hesabyar.interfaces.rest.routers.health import router as health_router
+from hesabyar.interfaces.rest.routers.imports import router as imports_router
 from hesabyar.interfaces.rest.routers.installments import router as installments_router
 from hesabyar.interfaces.rest.routers.integrations import router as integrations_router
 from hesabyar.interfaces.rest.routers.invoices import router as invoices_router
@@ -88,6 +89,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     app.include_router(packaging_router, prefix="/api/v1")
     app.include_router(cashbox_router, prefix="/api/v1")
     app.include_router(settlement_router, prefix="/api/v1")
+    app.include_router(imports_router, prefix="/api/v1")
     app.include_router(gateways_router, prefix="/api/v1")
     app.include_router(cheques_router, prefix="/api/v1")
     app.include_router(installments_router, prefix="/api/v1")

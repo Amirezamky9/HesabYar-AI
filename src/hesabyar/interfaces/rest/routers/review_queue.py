@@ -1,4 +1,4 @@
-"""Review-queue routes (US-504, Phase 5 F4).
+"""Review-queue routes (US-504, Phase 5 F4; completed US-552).
 
 Thin routes over the review-queue query/command services: no SQL
 here, no SLA math here — the services own that.
@@ -12,6 +12,12 @@ not exist.
 Default list order is critical first, then oldest (phased design
 §7.2); ``sort`` accepts ``priority`` (default), ``created_at``,
 ``amount`` and ``age`` (prefix ``-`` for descending).
+
+US-552: every item carries the derived suggestion
+(``suggested_action_code`` / ``suggested_reason_key``); a
+``complete_mapping_retry`` action may carry the completed mapping
+(learned as a mapping-center suggestion); a ``replay`` action
+really replays the item's source event through the DLQ path.
 """
 
 from __future__ import annotations
@@ -21,7 +27,7 @@ from collections.abc import Callable
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 
-from hesabyar.application.commands.review_queue import ReviewQueueCommandService
+from hesabyar.application.commands.review_queue import MappingLearningInput, ReviewQueueCommandService
 from hesabyar.application.queries.review_queue import ReviewQueueQueryService
 from hesabyar.domain.review_queue.models import ReviewItemStatus, ReviewItemType, ReviewSeverity
 from hesabyar.domain.review_queue.ports import ReviewItemFilters
@@ -111,12 +117,12 @@ def _parse_enum(value: str | None, allowed: set[str], param: str) -> str | None:
 @router.get(
     "/review-queue/types",
     response_model=list[ReviewItemTypeResponse],
-    summary="List the nine review item types with their permitted actions",
+    summary="List the ten review item types with their permitted actions",
 )
 def list_review_types(
     _client: AuthenticatedClient = Depends(require_scopes("review:read")),
 ) -> list[ReviewItemTypeResponse]:
-    """Return all nine §7.2 item types with their permitted actions."""
+    """Return all ten §7.2 item types with their permitted actions."""
     return [ReviewItemTypeResponse.from_type(item_type) for item_type in ReviewItemType]
 
 
@@ -127,7 +133,7 @@ def list_review_types(
 )
 def list_review_items(
     request: Request,
-    type: str | None = Query(default=None, description="Filter to one of the nine item types"),
+    type: str | None = Query(default=None, description="Filter to one of the ten item types"),
     severity: str | None = Query(default=None, description="Filter to a severity: info | warning | critical"),
     status: str | None = Query(
         default=None, description="Filter to a status: open | in_review | resolved | written_off"
@@ -259,9 +265,23 @@ def perform_review_action(
 
     Unknown item → 404 ``REVIEW_ITEM_NOT_FOUND``; terminal item → 409
     ``REVIEW_INVALID_STATE``; action outside the type's list → 422
-    ``REVIEW_ACTION_NOT_PERMITTED``. The action is recorded in the
-    item's audit trail.
+    ``REVIEW_ACTION_NOT_PERMITTED``. A ``replay`` on an item without
+    a source event → 422 ``REVIEW_REPLAY_NOT_POSSIBLE``; a replay of
+    a missing event → 404 ``INBOX_EVENT_NOT_FOUND``; of a
+    not-dead-lettered event → 409 ``EVENT_NOT_DEAD_LETTERED``. The
+    action is recorded in the item's audit trail.
     """
+    learning = (
+        MappingLearningInput(
+            mapping_kind=body.mapping.mapping_kind,
+            source_key=body.mapping.source_key,
+            target_type=body.mapping.target_type,
+            target_ref=body.mapping.target_ref,
+            channel_key=body.mapping.channel_key,
+        )
+        if body.mapping is not None
+        else None
+    )
     with translate_errors():
         item = service.perform_action(
             item_id=item_id,
@@ -269,6 +289,8 @@ def perform_review_action(
             action_code=body.action,
             actor=client.client_name,
             note=body.note,
+            installation_id=client.installation_id,
+            mapping=learning,
         )
     session.commit()
     with translate_errors():
@@ -313,7 +335,7 @@ def get_review_queue_summary(
     client: AuthenticatedClient = Depends(require_scopes("review:read")),
     service: ReviewQueueQueryService = Depends(get_review_queue_query_service),
 ) -> ReviewQueueSummaryResponse:
-    """Return the queue summary (all nine types, even with zero items)."""
+    """Return the queue summary (all ten types, even with zero items)."""
     with translate_errors():
         summary = service.summary(client.tenant_id, company_id=company)
     return ReviewQueueSummaryResponse.from_summary(summary)
@@ -328,7 +350,7 @@ def list_sla_policies(
     client: AuthenticatedClient = Depends(require_scopes("review:read")),
     service: ReviewQueueQueryService = Depends(get_review_queue_query_service),
 ) -> list[SlaPolicyResponse]:
-    """Return the effective SLA policy for all nine types."""
+    """Return the effective SLA policy for all ten types."""
     with translate_errors():
         policies = service.sla_policies(client.tenant_id)
     return [SlaPolicyResponse.from_policy(policy) for policy in policies]

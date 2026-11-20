@@ -380,6 +380,12 @@ class ReviewItemDraft:
     inbox-backed adapter records the routing in the decision audit
     log and leaves the inbox row (status ``needs_review``) as the
     item until F4 lands.
+
+    ``tenant_id`` is the inbox event's tenant (None for tenantless
+    rows ingested before tenant scoping): the F4 adapter files the
+    item into that tenant's queue, and falls back to the inbox-row
+    behaviour when it is None — a tenantless event cannot enter the
+    tenant-scoped queue.
     """
 
     type: str
@@ -389,6 +395,7 @@ class ReviewItemDraft:
     suggested_action: str
     amount_irr: int | None = None
     details: Mapping[str, Any] = field(default_factory=dict)
+    tenant_id: str | None = None
 
 
 @dataclass(frozen=True)

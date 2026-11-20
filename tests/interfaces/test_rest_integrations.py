@@ -669,6 +669,94 @@ class TestMappingEndpoints:
         )
         assert len(listed.json()["items"]) == 1
 
+    # -- US-552: confirmations + Suggest → Auto promotion ------------------
+
+    def test_mapping_response_carries_confirmations_and_auto_eligible(self, api, world) -> None:  # type: ignore[no-untyped-def]
+        _seed(api, world)
+        created = api.post(
+            f"{BASE}/mappings",
+            headers=_auth(world.key_manage_secret),
+            json=_mapping_body(),
+        )
+        assert created.status_code == 201, created.text
+        assert created.json()["confirmations"] == 1
+        assert created.json()["auto_eligible"] is False
+        # The same target again is a re-confirmation, not a new mapping.
+        again = api.post(
+            f"{BASE}/mappings",
+            headers=_auth(world.key_manage_secret),
+            json=_mapping_body(),
+        )
+        assert again.json()["confirmations"] == 2
+        assert again.json()["auto_eligible"] is False
+        third = api.post(
+            f"{BASE}/mappings",
+            headers=_auth(world.key_manage_secret),
+            json=_mapping_body(),
+        )
+        assert third.json()["confirmations"] == 3
+        assert third.json()["auto_eligible"] is True
+
+    def test_promote_mapping_at_threshold(self, api, world) -> None:  # type: ignore[no-untyped-def]
+        _seed(api, world)
+        mapping_id = None
+        for _ in range(3):
+            created = api.post(
+                f"{BASE}/mappings",
+                headers=_auth(world.key_manage_secret),
+                json=_mapping_body(),
+            )
+            assert created.status_code == 201, created.text
+            mapping_id = created.json()["id"]
+        promoted = api.post(
+            f"{BASE}/mappings/{mapping_id}/promote",
+            headers=_auth(world.key_manage_secret),
+        )
+        assert promoted.status_code == 200, promoted.text
+        body = promoted.json()
+        assert body["suggestion_mode"] == "auto"
+        assert body["version"] == 4
+        assert body["confirmations"] == 3  # promotion is not a confirmation
+        assert body["auto_eligible"] is False  # auto mappings are not promotable
+        old = api.get(f"{BASE}/mappings/{mapping_id}", headers=_auth(world.key_read_secret))
+        assert old.json()["status"] == "superseded"
+
+    def test_promote_below_threshold_is_409(self, api, world) -> None:  # type: ignore[no-untyped-def]
+        _seed(api, world)
+        created = api.post(
+            f"{BASE}/mappings",
+            headers=_auth(world.key_manage_secret),
+            json=_mapping_body(),
+        )
+        response = api.post(
+            f"{BASE}/mappings/{created.json()['id']}/promote",
+            headers=_auth(world.key_manage_secret),
+        )
+        assert response.status_code == 409
+        assert response.json()["code"] == "INTEGRATION_MAPPING_NOT_PROMOTABLE"
+
+    def test_promote_unknown_mapping_is_404(self, api, world) -> None:  # type: ignore[no-untyped-def]
+        response = api.post(
+            f"{BASE}/mappings/ghost/promote",
+            headers=_auth(world.key_manage_secret),
+        )
+        assert response.status_code == 404
+        assert response.json()["code"] == "INTEGRATION_MAPPING_NOT_FOUND"
+
+    def test_promote_requires_manage_scope(self, api, world) -> None:  # type: ignore[no-untyped-def]
+        _seed(api, world)
+        created = api.post(
+            f"{BASE}/mappings",
+            headers=_auth(world.key_manage_secret),
+            json=_mapping_body(),
+        )
+        response = api.post(
+            f"{BASE}/mappings/{created.json()['id']}/promote",
+            headers=_auth(world.key_read_secret),
+        )
+        assert response.status_code == 403
+        assert response.json()["code"] == "FORBIDDEN"
+
 
 # -- policy gate ----------------------------------------------------------
 

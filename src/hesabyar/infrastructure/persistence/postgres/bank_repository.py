@@ -284,6 +284,13 @@ class SqlAlchemyBankRepository(BankRepositoryPort):
             cancelled_at=batch.cancelled_at,
         )
         self._session.add(batch_row)
+        # Flush the batch BEFORE adding the rows: SQLAlchemy orders
+        # a flush by relationships, not by bare FK columns, and
+        # these models carry no relationship — a single flush of
+        # batch + rows can emit the row INSERTs first and violate
+        # bank_import_rows.batch_id_fkey (same class as the
+        # installments CI run #6 failure; US-555 FK-flush sweep).
+        self._session.flush()
         for item in rows:
             self._session.add(
                 BankImportRowModel(

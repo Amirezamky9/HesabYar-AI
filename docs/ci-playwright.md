@@ -128,14 +128,17 @@ These were found by reading the specs against the current code and
 chart — they are predictions, not measured failures. The first CI
 run confirms or refutes each one.
 
-### dashboard.spec.ts — stale hardcoded constants (likely failures)
+### dashboard.spec.ts — stale hardcoded constants (RESOLVED by US-551)
 
 The spec was written at US-302 time, when the chart had 135
-accounts and only FY 2026 existed. The fresh CI database has the
-current chart (153 accounts) and TWO open fiscal years, so several
-assertions no longer match the live values:
+accounts and only FY 2026 existed. US-551 (Phase 5-6) rewrote the
+spec for the unified dashboard with the current constants, verified
+against the code (chart XML: 18 template accounts, 15 typed, 6
+receivable; `provision_fy2027.py`: FY 2027 = 2027-01-01..2027-12-31;
+`list_fiscal_years` newest-first). The table below is the record of
+what changed; the spec now asserts the live values.
 
-| Assertion in the spec | Live value on a fresh DB | Why |
+| Old assertion (US-302 spec) | Live value on a fresh DB | Why |
 | --- | --- | --- |
 | `۱۳۵ حساب نصب‌شده` (setup widget) | `۱۵۳ حساب نصب‌شده` | Chart grew: 135 + 18 template accounts (`hesabyar_setup` `account_chart_en.xml`) |
 | `۱۳۵ حساب · ۹۹ حساب قابل‌ثبت` (accounts page, 3 places) | `۱۵۳ حساب · ۱۱۴ حساب قابل‌ثبت` | 15 of the 18 added accounts carry a type (postable); the 3 `7.x` groups are typeless |
@@ -143,14 +146,27 @@ assertions no longer match the live values:
 | `۳ حساب از ۱۳۵ حساب` (receivable filter) | `۹ حساب از ۱۵۳ حساب` | 6 added accounts use the `Accounts receivable` type (1.2.4/1.2.5/1.2.6/1.2.7/1.2.8/1.2.9) |
 | `۱۲ دوره` (setup widget) / `۱۲ دورهٔ باز` (setup tab) | `۲۴ دوره` / `۲۴ دورهٔ باز` | `open_period_count` counts ALL open periods: FY 2026 (12) + FY 2027 (12) |
 | `دوره: سال مالی FY 2026` (widget meta) | `دوره: سال مالی FY 2027` | `open_fiscal_year` is the NEWEST open year (`SetupStatusService`) |
-| Periods tab shows `2026-01`/`2026-12` | Defaults to FY 2027 | The tab selects the first open year (newest first); the test must pick FY 2026 from `#fiscal-year-select` first |
-| `استانداردها و انطباق` is a DISABLED coming-soon nav item | It is a live nav button | The compliance center shipped in US-405; move it to the live list (and add the newer live modules: مرکز چک، مرکز تسویه، انبار و بسته‌بندی) |
+| Periods tab shows `2026-01`/`2026-12` | Defaults to FY 2027 | The tab selects the first open year (newest first); the test picks FY 2026 from `#fiscal-year-select` for the FY 2026 assertions |
+| `استانداردها و انطباق` is a DISABLED coming-soon nav item | It is a live nav button | The compliance center shipped in US-405; the live list now also includes مرکز چک، مرکز اقساط، مرکز تسویه، انبار و بسته‌بندی |
 
 The FY 2026 Jalali dates (`۱۱ دی ۱۴۰۴` / `۱۰ دی ۱۴۰۵`) and the
 `آمادهٔ ثبت اسناد` setup state are unchanged. The dev DB's counts
 differ again (157 accounts — 4 duplicate cash-box codes from
 repeated provisioning), so a hardcoded count can only ever be right
 for ONE database; the fresh CI database is the source of truth.
+The rewritten spec also raises the file timeout to 180s (the
+unified dashboard fires ~16 API calls; the batch took ~105s
+against remote Supabase in ۵ث).
+
+### journey.spec.ts — stale report coming-soon tiles (US-550 follow-up, likely failure)
+
+`journey.spec.ts` asserts `report-coming-soon-trial-balance` and
+`report-coming-soon-ledger` are visible on the reports page, but
+US-550 replaced those tiles with the live financial statements —
+no `report-coming-soon-*` testId exists in the app anymore. The
+journey spec needs a US-550 follow-up to assert the live report
+tabs instead. (Found during US-551; not fixed there — it is
+US-550's area.)
 
 ### Full-suite cross-spec interference (unknown)
 

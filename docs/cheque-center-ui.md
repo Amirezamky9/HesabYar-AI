@@ -91,7 +91,7 @@ at Alembic 0026 with all cheque tables).
 | 9 | دفتر چک | registry list | live (state/bank/party filters, CSV) |
 | 10 | مغایرت سایت ↔ صیاد ↔ برگ | review queue (`cheque_exception`) + row flags | live (never auto-approve a mismatch) |
 | 11 | چک‌های سایت و نرسیده | `intake` + settings deadline | live (reminder-state bars) |
-| 12 | تطبیق وصول | `clearing_confidence` + run-clearing form | live; monthly trend unavailable — no stored monthly match history (noted honestly) |
+| 12 | تطبیق وصول | `monthly-match-trend` (stored history, US-553) + run-clearing form | live (donut from stored totals + monthly trend line + monthly table; history starts at the first clearing run after deploy — see docs/cash-forecast.md) |
 | 13 | دفتر استعلام‌ها | `inquiry-ledger` + receipt-rule audit button | live (channel bars, colour donut, costs) |
 | 14 | پیش‌بینی نقدینگی چک | derived (`cashForecast`, 12 weeks) | live (area chart + weekly table; collateral excluded) |
 | 15 | صورت وضعیت چکی مشتری | derived per-issuer selector | live (held / in-clearing / bounced history + latest colour with date) |
@@ -163,8 +163,10 @@ reference `OPERATOR_SCOPES`; the script has no pytest coverage.
 
 - Report 7 (notes balance): needs the Tryton reference report
   wired in ۵ح; the UI must not recompute it from partial data.
-- Report 12 monthly match-trend: needs stored monthly match
-  history (۵ح).
+- Report 12 monthly match-trend: DONE in US-553 (stored
+  `cheque_match_history`, migration 0033; trend renders from it).
+  History starts at the first clearing run after deploy — no
+  backfill (see docs/cash-forecast.md).
 - Cheque widgets are tenant-wide: if the coordinator wants
   company-scoped cheque figures, the list endpoint needs a
   company filter (backend change, not UI).

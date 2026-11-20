@@ -66,18 +66,23 @@ from hesabyar.domain.accounting.value_objects import (
     AccountView,
     AnalyticAccountView,
     AnalyticLineView,
+    BalanceSheetView,
     BankStatementView,
+    CashFlowView,
     CheckbookEngineView,
     ChequeEngineView,
     CompanySetupStatus,
     CompanyView,
     FiscalPeriodView,
     FiscalYearView,
+    GeneralLedgerView,
+    IncomeStatementView,
     InventoryView,
     InvoiceTotalView,
     InvoiceView,
     JournalDraftView,
     MoveLineView,
+    NotesBalanceView,
     OrderPointView,
     OutShipmentCostView,
     PackagingProductView,
@@ -206,6 +211,50 @@ class FakePort:
         date_to: FiscalDate,
     ) -> TrialBalanceView:
         raise NotImplementedError("trial balance is not used here")
+
+    def get_general_ledger(
+        self,
+        company: CompanyRef,
+        date_from: FiscalDate,
+        date_to: FiscalDate,
+        account: AccountRef | None = None,
+    ) -> GeneralLedgerView:
+        raise NotImplementedError("general ledger is not used here")
+
+    def get_balance_sheet(
+        self,
+        company: CompanyRef,
+        as_of: FiscalDate,
+        comparison_as_of: FiscalDate | None = None,
+    ) -> BalanceSheetView:
+        raise NotImplementedError("balance sheet is not used here")
+
+    def get_income_statement(
+        self,
+        company: CompanyRef,
+        date_from: FiscalDate,
+        date_to: FiscalDate,
+        comparison_from: FiscalDate | None = None,
+        comparison_to: FiscalDate | None = None,
+    ) -> IncomeStatementView:
+        raise NotImplementedError("income statement is not used here")
+
+    def get_cash_flow(
+        self,
+        company: CompanyRef,
+        date_from: FiscalDate,
+        date_to: FiscalDate,
+    ) -> CashFlowView:
+        raise NotImplementedError("cash-flow statement is not used here")
+
+    def get_notes_balance(
+        self,
+        company: CompanyRef,
+        as_of: FiscalDate,
+        instrument: str = "both",
+        party: PartyRef | None = None,
+    ) -> NotesBalanceView:
+        raise NotImplementedError("notes balance is not used here")
 
     def create_invoice_draft(self, command: CreateInvoiceDraft) -> InvoiceRef:
         raise NotImplementedError("query services never create invoices")

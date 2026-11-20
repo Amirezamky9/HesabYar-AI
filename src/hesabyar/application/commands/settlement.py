@@ -62,7 +62,11 @@ from hesabyar.domain.settlement.models import (
     TrancheState,
     sales_period_from,
 )
-from hesabyar.domain.settlement.ports import SettlementAuditPort, SettlementRepositoryPort
+from hesabyar.domain.settlement.ports import (
+    InstallationTenantResolver,
+    SettlementAuditPort,
+    SettlementRepositoryPort,
+)
 from hesabyar.domain.settlement.state_machine import (
     WRITE_OFF_ELIGIBLE_STATES,
     escalation_level_for,
@@ -133,6 +137,8 @@ class TickReport:
     moved_to_overdue: int = 0
     exceptions_created: int = 0
     exceptions_escalated: int = 0
+    review_items_filed: int = 0
+    """``settlement_variance`` review items filed for new late tranches (US-555)."""
 
 
 @dataclass
@@ -141,6 +147,7 @@ class _TickCounters:
     moved_to_overdue: int = 0
     exceptions_created: int = 0
     exceptions_escalated: int = 0
+    review_items_filed: int = 0
 
 
 class SettlementCommandService:
@@ -150,10 +157,12 @@ class SettlementCommandService:
     the caller supplies a ``tenant_id``, exceptions this service opens
     (``cancelled_after_settlement``, ``period_reassigned``) are also
     filed as ``settlement_variance`` review items. The daily tick
-    cannot file (it runs without a tenant — there is no
-    installation→tenant lookup yet), so its ``late_tranche``
-    exceptions stay in the settlement exception queue until the
-    installations table lands (phase 5ح).
+    files its newly created ``late_tranche`` exceptions the same way
+    (US-555): it has no caller tenant, so it resolves the tenant
+    through ``tenant_resolver`` (installation → tenant via the
+    API-key store). A tick without a wired resolver, or an
+    installation with no tenant, still persists the exception —
+    only the queue filing is conditional.
     """
 
     def __init__(
@@ -163,11 +172,13 @@ class SettlementCommandService:
         audit: SettlementAuditPort,
         *,
         review: ReviewQueueCommandService | None = None,
+        tenant_resolver: InstallationTenantResolver | None = None,
     ) -> None:
         self._repository = repository
         self._registry = registry
         self._audit = audit
         self._review = review
+        self._tenant_resolver = tenant_resolver
 
     # -- helpers ----------------------------------------------------------
 
@@ -179,15 +190,16 @@ class SettlementCommandService:
         channel_key: str,
         reason: str,
         suggested_action: str,
-    ) -> None:
+    ) -> bool:
         """File a settlement exception in the unified review queue (US-523).
 
-        A no-op when no review service is wired or no tenant was
-        supplied (the tick path) — the exception itself is always
-        persisted; only the queue filing is conditional.
+        A no-op (False) when no review service is wired or no tenant
+        was supplied (the tick path without a resolver) — the
+        exception itself is always persisted; only the queue filing
+        is conditional. Returns True when an item was filed.
         """
         if self._review is None or tenant_id is None:
-            return
+            return False
         amount = (
             exception.actual_amount_irr
             if exception.actual_amount_irr is not None
@@ -204,6 +216,52 @@ class SettlementCommandService:
             source_event_ref=f"settlement-exception:{exception.id}",
             amount_irr=amount,
             actor="settlement",
+        )
+        return True
+
+    def _file_late_tranche_review_item(
+        self,
+        *,
+        exception: SettlementException,
+        tranche: SettlementTranche,
+        days_overdue: int,
+    ) -> bool:
+        """File a tick-created ``late_tranche`` exception (US-555).
+
+        Returns True when an item was filed. The tick has no caller
+        tenant, so the tenant is resolved per installation; a
+        missing resolver, an unresolvable installation, or a missing
+        payment/channel degrades gracefully (no filing, or an empty
+        channel) — the exception itself is always persisted.
+        """
+        if self._review is None or self._tenant_resolver is None:
+            return False
+        tenant_id = self._tenant_resolver.tenant_id_for_installation(
+            tranche.installation_id
+        )
+        if tenant_id is None:
+            return False
+        payment = self._repository.get_payment(
+            tranche.installation_id, tranche.gateway_payment_id
+        )
+        channel_key = ""
+        if payment is not None:
+            channel = self._registry.get_channel_by_id(payment.payment_channel_id)
+            channel_key = channel.channel_key if channel is not None else ""
+        return self._file_exception_review_item(
+            tenant_id=tenant_id,
+            exception=exception,
+            channel_key=channel_key,
+            reason=(
+                f"قسط {tranche.tranche_index} از {tranche.tranche_count} درگاه "
+                f"{channel_key or 'نامشخص'} به مبلغ {tranche.net_irr:,} ریال، "
+                f"{days_overdue} روز از سررسید {tranche.expected_date.isoformat()} "
+                "گذشته و هنوز تسویه نشده است."
+            ),
+            suggested_action=(
+                "از درگاه پیگیری کنید؛ اگر تسویه انجام شده قسط را تأیید کنید، "
+                "وگرنه آن را به درگاه ارجاع دهید."
+            ),
         )
 
     def _calendar_for(self, installation_id: str) -> HolidayCalendar:
@@ -847,6 +905,7 @@ class SettlementCommandService:
             moved_to_overdue=counters.moved_to_overdue,
             exceptions_created=counters.exceptions_created,
             exceptions_escalated=counters.exceptions_escalated,
+            review_items_filed=counters.review_items_filed,
         )
 
     def _escalate_late_tranche(
@@ -855,7 +914,15 @@ class SettlementCommandService:
         today: datetime.date,
         counters: _TickCounters,
     ) -> None:
-        """Open or escalate the ``late_tranche`` exception for a tranche."""
+        """Open or escalate the ``late_tranche`` exception for a tranche.
+
+        A newly created exception is also filed as a
+        ``settlement_variance`` review item (US-555) — never silent.
+        Filing is idempotent per (tranche, exception): a re-run tick
+        finds the open exception and files nothing; only a NEW
+        exception (e.g. after the previous one was resolved) files a
+        new item.
+        """
         days_overdue = (today - tranche.expected_date).days
         level = escalation_level_for(days_overdue)
         existing = self._repository.get_open_exception_for_tranche(
@@ -864,7 +931,7 @@ class SettlementCommandService:
             SettlementExceptionType.LATE_TRANCHE.value,
         )
         if existing is None:
-            self._repository.save_exception(
+            exception = self._repository.save_exception(
                 CreateSettlementException(
                     installation_id=tranche.installation_id,
                     exception_type=SettlementExceptionType.LATE_TRANCHE.value,
@@ -886,6 +953,10 @@ class SettlementCommandService:
                 )
             )
             counters.exceptions_created += 1
+            if self._file_late_tranche_review_item(
+                exception=exception, tranche=tranche, days_overdue=days_overdue
+            ):
+                counters.review_items_filed += 1
         elif level > existing.escalation_level:
             self._repository.update_exception(
                 existing.id,

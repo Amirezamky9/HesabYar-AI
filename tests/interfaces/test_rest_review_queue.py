@@ -31,6 +31,8 @@ from hesabyar.infrastructure.config import AppSettings
 from hesabyar.infrastructure.persistence.postgres.models import (
     ApiClientModel,
     Base,
+    InboxEventModel,
+    MappingSuggestionModel,
     ReviewItemModel,
     TenantModel,
 )
@@ -189,6 +191,71 @@ def _insert_backdated_item(
         session.add(row)
         session.commit()
         return row.id
+    finally:
+        session.close()
+
+
+def _insert_inbox_event(
+    engine: Engine,
+    tenant_id: str,
+    *,
+    status: str,
+    attempts: int = 0,
+) -> str:
+    """Insert an inbox event row with a controlled status (test-only seeding)."""
+    session = sessionmaker(bind=engine)()
+    try:
+        now = datetime.datetime.now(datetime.UTC)
+        row = InboxEventModel(
+            id=str(uuid.uuid4()),
+            tenant_id=tenant_id,
+            installation_id=INSTALLATION_ID,
+            schema_version=1,
+            source_system="hayat",
+            source_store_id="store-1",
+            source_event_id=f"evt-{uuid.uuid4().hex[:12]}",
+            event_type="sales.order.completed",
+            occurred_at=now,
+            received_at=now,
+            currency="IRR",
+            external_entity_type="order",
+            external_entity_id="order-1",
+            idempotency_key=f"key-{uuid.uuid4().hex[:12]}",
+            payload={"total": 1000},
+            payload_hash="hash",
+            status=status,
+            attempts=attempts,
+            last_error="Engine unreachable." if status == "dead_lettered" else None,
+            dead_lettered_at=now if status == "dead_lettered" else None,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(row)
+        session.commit()
+        return row.id
+    finally:
+        session.close()
+
+
+def _get_inbox_event(engine: Engine, event_id: str) -> InboxEventModel | None:
+    """Read one inbox event row back (test-only verification)."""
+    session = sessionmaker(bind=engine)()
+    try:
+        return session.get(InboxEventModel, event_id)
+    finally:
+        session.close()
+
+
+def _list_suggestions(engine: Engine, installation_id: str) -> list[MappingSuggestionModel]:
+    """Read the installation's mapping suggestions back (test-only verification)."""
+    session = sessionmaker(bind=engine)()
+    try:
+        return list(
+            session.query(MappingSuggestionModel)
+            .filter(MappingSuggestionModel.installation_id == installation_id)
+            .order_by(MappingSuggestionModel.created_at)
+            .all()
+        )
     finally:
         session.close()
 
@@ -421,9 +488,19 @@ def test_perform_resolve_action(settings: AppSettings, world: World) -> None:
     assert body["audit"][1]["note"] == "ساخته شد"
 
 
-def test_perform_retry_action_moves_to_in_review(settings: AppSettings, world: World) -> None:
+def test_perform_retry_action_moves_to_in_review(
+    settings: AppSettings, world: World, engine: Engine
+) -> None:
+    """US-552: replay really replays — the dead-lettered event returns to received."""
     client = _test_client(settings)
-    created = _file_item(client, world.resolve_key, item_type="inbox_dead_letter", severity="critical")
+    event_id = _insert_inbox_event(engine, world.tenant_id, status="dead_lettered", attempts=5)
+    created = _file_item(
+        client,
+        world.resolve_key,
+        item_type="inbox_dead_letter",
+        severity="critical",
+        source_event_ref=event_id,
+    )
     response = client.post(
         f"/api/v1/review-queue/items/{created['id']}/actions",
         json={"action": "replay"},
@@ -432,6 +509,11 @@ def test_perform_retry_action_moves_to_in_review(settings: AppSettings, world: W
     assert response.status_code == 200, response.text
     assert response.json()["status"] == "in_review"
     assert response.json()["resolution"] is None
+    replayed = _get_inbox_event(engine, event_id)
+    assert replayed is not None
+    assert replayed.status == "received"
+    assert replayed.attempts == 0
+    assert replayed.last_error is None
 
 
 def test_perform_action_rejects_wrong_type_action(settings: AppSettings, world: World) -> None:
@@ -597,3 +679,217 @@ def test_sla_policy_update_rejects_invalid_windows(settings: AppSettings, world:
     )
     assert response.status_code == 400
     assert response.json()["code"] == "INVALID_FILTER"
+
+
+# ---------------------------------------------------------------------------
+# US-552: derived suggestions, replay, mapping learning
+# ---------------------------------------------------------------------------
+
+#: Expected derived suggestion per type for a plain warning item (no subtype).
+EXPECTED_SUGGESTIONS = {
+    "mapping": ("complete_mapping_retry", "mapping_blocks_event"),
+    "settlement_variance": ("accept_variance", "small_variance_accept"),
+    "cheque_exception": ("contact_customer", "cheque_needs_customer"),
+    "bank_unmatched": ("manual_match", "line_needs_match"),
+    "packaging_reorder": ("approve_purchase", "stock_below_reorder"),
+    "installment_overdue": ("send_reminder", "installment_overdue_remind"),
+    "manual_import_review": ("approve_preview", "batch_preview_ready"),
+    "cashbox_variance": ("approve_variance_entry", "variance_needs_approval"),
+    "inbox_dead_letter": ("replay", "event_dead_lettered"),
+    "sms_delivery_failed": ("retry_reminder", "sms_send_failed"),
+}
+
+
+def test_list_items_carry_derived_suggestions(settings: AppSettings, world: World) -> None:
+    """Every item carries its derived suggestion (action code + reason key)."""
+    client = _test_client(settings)
+    for item_type in ALL_TYPES:
+        _file_item(client, world.resolve_key, item_type=item_type)
+    response = client.get("/api/v1/review-queue/items", headers=_auth(world.read_key))
+    assert response.status_code == 200
+    by_type = {item["item_type"]: item for item in response.json()["items"]}
+    assert set(by_type) == set(ALL_TYPES)
+    for item_type, (action, reason_key) in EXPECTED_SUGGESTIONS.items():
+        item = by_type[item_type]
+        assert item["suggested_action_code"] == action, item_type
+        assert item["suggested_reason_key"] == reason_key, item_type
+        # The derived action is always one the operator can perform.
+        assert action in {a["code"] for a in item["actions"]}, item_type
+
+
+def test_derived_suggestion_overrides_by_subtype_and_severity(settings: AppSettings, world: World) -> None:
+    client = _test_client(settings)
+    fee = _file_item(
+        client, world.resolve_key, item_type="settlement_variance", subtype="fee_mismatch"
+    )
+    assert fee["suggested_action_code"] == "fix_fee_mapping"
+    assert fee["suggested_reason_key"] == "variance_is_fee_mismatch"
+    large = _file_item(
+        client, world.resolve_key, item_type="settlement_variance", severity="critical"
+    )
+    assert large["suggested_action_code"] == "escalate_to_gateway"
+    bounced = _file_item(
+        client, world.resolve_key, item_type="cheque_exception", subtype="cheque_bounced"
+    )
+    assert bounced["suggested_action_code"] == "record_bounce"
+    cashbox = _file_item(
+        client, world.resolve_key, item_type="cashbox_variance", severity="critical"
+    )
+    assert cashbox["suggested_action_code"] == "escalate_to_manager"
+
+
+def test_replay_without_source_event_is_422(settings: AppSettings, world: World) -> None:
+    """A replay with nothing to replay fails loudly instead of pretending."""
+    client = _test_client(settings)
+    created = _file_item(client, world.resolve_key, item_type="inbox_dead_letter", severity="critical")
+    response = client.post(
+        f"/api/v1/review-queue/items/{created['id']}/actions",
+        json={"action": "replay"},
+        headers=_auth(world.resolve_key),
+    )
+    assert response.status_code == 422
+    assert response.json()["code"] == "REVIEW_REPLAY_NOT_POSSIBLE"
+    assert client.get(
+        f"/api/v1/review-queue/items/{created['id']}", headers=_auth(world.read_key)
+    ).json()["status"] == "open"
+
+
+def test_replay_of_missing_event_is_404(settings: AppSettings, world: World) -> None:
+    client = _test_client(settings)
+    created = _file_item(
+        client,
+        world.resolve_key,
+        item_type="inbox_dead_letter",
+        severity="critical",
+        source_event_ref="missing-event",
+    )
+    response = client.post(
+        f"/api/v1/review-queue/items/{created['id']}/actions",
+        json={"action": "replay"},
+        headers=_auth(world.resolve_key),
+    )
+    assert response.status_code == 404
+    assert response.json()["code"] == "INBOX_EVENT_NOT_FOUND"
+
+
+def test_replay_of_received_event_is_409(settings: AppSettings, world: World, engine: Engine) -> None:
+    client = _test_client(settings)
+    event_id = _insert_inbox_event(engine, world.tenant_id, status="received")
+    created = _file_item(
+        client,
+        world.resolve_key,
+        item_type="inbox_dead_letter",
+        severity="critical",
+        source_event_ref=event_id,
+    )
+    response = client.post(
+        f"/api/v1/review-queue/items/{created['id']}/actions",
+        json={"action": "replay"},
+        headers=_auth(world.resolve_key),
+    )
+    assert response.status_code == 409
+    assert response.json()["code"] == "EVENT_NOT_DEAD_LETTERED"
+
+
+def test_complete_mapping_retry_learns_mapping_and_reprocesses(
+    settings: AppSettings, world: World, engine: Engine
+) -> None:
+    """The completed mapping is learned as a suggestion; the event is reprocessed."""
+    client = _test_client(settings)
+    event_id = _insert_inbox_event(engine, world.tenant_id, status="needs_review", attempts=1)
+    created = _file_item(
+        client, world.resolve_key, item_type="mapping", source_event_ref=event_id
+    )
+    response = client.post(
+        f"/api/v1/review-queue/items/{created['id']}/actions",
+        json={
+            "action": "complete_mapping_retry",
+            "mapping": {
+                "mapping_kind": "gateway_journal",
+                "source_key": "zarinpal",
+                "target_type": "journal",
+                "target_ref": "journal-1",
+            },
+        },
+        headers=_auth(world.resolve_key),
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == "in_review"
+    suggestions = _list_suggestions(engine, INSTALLATION_ID)
+    assert len(suggestions) == 1
+    suggestion = suggestions[0]
+    assert suggestion.mapping_kind == "gateway_journal"
+    assert suggestion.source_key == "zarinpal"
+    assert suggestion.suggested_target_type == "journal"
+    assert suggestion.suggested_target_ref == "journal-1"
+    assert suggestion.basis == f"review_queue:{created['id']}"
+    assert suggestion.status == "pending"
+    assert body["audit"][-1]["mapping_version"] == f"suggestion:{suggestion.id}"
+    assert f"reprocessed source event {event_id}" in (body["audit"][-1]["note"] or "")
+    reprocessed = _get_inbox_event(engine, event_id)
+    assert reprocessed is not None
+    assert reprocessed.status == "received"
+
+
+def test_complete_mapping_retry_without_mapping_only_reprocesses(
+    settings: AppSettings, world: World, engine: Engine
+) -> None:
+    """No mapping supplied: the mapping was completed elsewhere; only reprocess."""
+    client = _test_client(settings)
+    event_id = _insert_inbox_event(engine, world.tenant_id, status="needs_review", attempts=1)
+    created = _file_item(
+        client, world.resolve_key, item_type="mapping", source_event_ref=event_id
+    )
+    response = client.post(
+        f"/api/v1/review-queue/items/{created['id']}/actions",
+        json={"action": "complete_mapping_retry"},
+        headers=_auth(world.resolve_key),
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "in_review"
+    assert _list_suggestions(engine, INSTALLATION_ID) == []
+    assert response.json()["audit"][-1]["mapping_version"] is None
+    reprocessed = _get_inbox_event(engine, event_id)
+    assert reprocessed is not None
+    assert reprocessed.status == "received"
+
+
+def test_mapping_details_on_wrong_action_is_422(settings: AppSettings, world: World) -> None:
+    client = _test_client(settings)
+    created = _file_item(client, world.resolve_key, item_type="mapping")
+    response = client.post(
+        f"/api/v1/review-queue/items/{created['id']}/actions",
+        json={
+            "action": "skip",
+            "mapping": {
+                "mapping_kind": "gateway_journal",
+                "source_key": "zarinpal",
+                "target_type": "journal",
+                "target_ref": "journal-1",
+            },
+        },
+        headers=_auth(world.resolve_key),
+    )
+    assert response.status_code == 422
+    assert response.json()["code"] == "REVIEW_ACTION_NOT_PERMITTED"
+
+
+def test_mapping_details_with_unknown_kind_is_422(settings: AppSettings, world: World) -> None:
+    client = _test_client(settings)
+    created = _file_item(client, world.resolve_key, item_type="mapping")
+    response = client.post(
+        f"/api/v1/review-queue/items/{created['id']}/actions",
+        json={
+            "action": "complete_mapping_retry",
+            "mapping": {
+                "mapping_kind": "not_a_kind",
+                "source_key": "zarinpal",
+                "target_type": "journal",
+                "target_ref": "journal-1",
+            },
+        },
+        headers=_auth(world.resolve_key),
+    )
+    assert response.status_code == 422
+    assert response.json()["code"] == "VALIDATION_ERROR"

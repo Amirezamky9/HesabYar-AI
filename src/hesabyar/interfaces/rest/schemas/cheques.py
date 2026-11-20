@@ -21,9 +21,11 @@ from hesabyar.application.queries.cheques import (
     CollateralSummary,
     EndorsementSummary,
 )
+from hesabyar.domain.cash_forecast.models import MonthlyMatchTrend, MonthlyMatchTrendMonth
 from hesabyar.domain.cheques.checkbook import CheckbookStatus
 from hesabyar.domain.cheques.models import Cheque, CustodyLogEntry, InquiryReceipt
 from hesabyar.domain.cheques.validation import to_jalali_string
+from hesabyar.interfaces.rest.schemas.reports import ReportFreshnessResponse
 
 if TYPE_CHECKING:
     from hesabyar.application.commands.cheque_clearing import ChequeClearingResult
@@ -648,6 +650,76 @@ class CollateralSummaryResponse(BaseModel):
                 key: [ChequeResponse.from_cheque(c) for c in cheques]
                 for key, cheques in summary.by_obligation.items()
             },
+        )
+
+
+class MonthlyMatchTrendMonthResponse(BaseModel):
+    """One stored month of clearing-match history (report 12)."""
+
+    month_jalali: str = Field(description="Jalali month key 'YYYY-MM'")
+    exact_count: int = Field(description="Lines matched exactly this month")
+    probable_count: int = Field(description="Lines matched probably this month")
+    ambiguous_count: int = Field(description="Lines left ambiguous this month")
+    unmatched_count: int = Field(description="Lines left unmatched this month")
+    total_lines: int = Field(description="All lines the matcher saw this month")
+    match_rate: str = Field(
+        description="Share of decided lines (exact + probable), exact decimal 0–1"
+    )
+
+    @classmethod
+    def from_model(cls, month: MonthlyMatchTrendMonth) -> MonthlyMatchTrendMonthResponse:
+        return cls(
+            month_jalali=month.month_jalali,
+            exact_count=month.exact_count,
+            probable_count=month.probable_count,
+            ambiguous_count=month.ambiguous_count,
+            unmatched_count=month.unmatched_count,
+            total_lines=month.total_lines,
+            match_rate=month.match_rate,
+        )
+
+
+class MonthlyMatchTrendResponse(BaseModel):
+    """Cheque report 12: the monthly match-trend from stored history (US-553).
+
+    The trend renders FROM the stored ``cheque_match_history`` rows
+    — never recomputed from raw match records at read time. An
+    empty history is an honest empty trend: history starts with the
+    first matching run after deploy (no backfill).
+    """
+
+    months: list[MonthlyMatchTrendMonthResponse] = Field(
+        description="Stored months, oldest first (months with no run carry no row)"
+    )
+    total_exact: int = Field(description="Exact matches across all stored months")
+    total_probable: int = Field(description="Probable matches across all stored months")
+    total_ambiguous: int = Field(description="Ambiguous lines across all stored months")
+    total_unmatched: int = Field(description="Unmatched lines across all stored months")
+    total_lines: int = Field(description="All lines the matcher saw across all stored months")
+    overall_match_rate: str = Field(
+        description="Overall share of decided lines, exact decimal 0–1"
+    )
+    freshness: ReportFreshnessResponse = Field(
+        description="§11.1 freshness metadata (indicator 'stored': the figures are stored history)"
+    )
+
+    @classmethod
+    def from_view(cls, trend: MonthlyMatchTrend) -> MonthlyMatchTrendResponse:
+        """Build a match-trend response from the domain view."""
+        if trend.freshness is None:
+            raise ValueError(
+                "The match-trend view must be stamped by the cheque query service "
+                "before serialization."
+            )
+        return cls(
+            months=[MonthlyMatchTrendMonthResponse.from_model(m) for m in trend.months],
+            total_exact=trend.total_exact,
+            total_probable=trend.total_probable,
+            total_ambiguous=trend.total_ambiguous,
+            total_unmatched=trend.total_unmatched,
+            total_lines=trend.total_lines,
+            overall_match_rate=trend.overall_match_rate,
+            freshness=ReportFreshnessResponse.from_model(trend.freshness),
         )
 
 

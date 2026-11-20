@@ -1,26 +1,38 @@
-"""Unit tests for the review-queue services (US-504, Phase 5 F4).
+"""Unit tests for the review-queue services (US-504, Phase 5 F4; US-552).
 
 No database: the ports are faked in memory, and the clock is fixed, so
 ageing/SLA math is deterministic. The REST tests
 (``tests/interfaces/test_rest_review_queue.py``) cover the real
 repository + HTTP layer against PostgreSQL.
+
+US-552 wires the command service to the real DLQ replay service and
+the real mapping service (both over their in-memory port fakes), so
+replay and mapping learning are tested through the services that
+actually execute them — not through mocks of the seam.
 """
 
 from __future__ import annotations
 
 import datetime
 from collections.abc import Sequence
+from decimal import Decimal
 
 import pytest
 
-from hesabyar.application.commands.review_queue import ReviewQueueCommandService
+from hesabyar.application.commands.events import DlqReplayService
+from hesabyar.application.commands.integrations import MappingService
+from hesabyar.application.commands.review_queue import MappingLearningInput, ReviewQueueCommandService
 from hesabyar.application.errors import (
+    IntegrationMappingInvalidError,
     ReviewActionNotPermittedError,
     ReviewInvalidSlaPolicyError,
     ReviewInvalidStateError,
     ReviewItemNotFoundError,
+    ReviewReplayNotPossibleError,
 )
 from hesabyar.application.queries.review_queue import ReviewQueueQueryService
+from hesabyar.domain.events.errors import EventNotDeadLetteredError, EventNotFoundError
+from hesabyar.domain.events.models import InboxEventStatus, ReviewItemDraft
 from hesabyar.domain.review_queue.models import (
     DEFAULT_SLA_POLICIES,
     PERMITTED_ACTIONS,
@@ -39,6 +51,11 @@ from hesabyar.domain.review_queue.ports import (
     ReviewItemFilters,
     ReviewQueuePort,
 )
+from hesabyar.domain.review_queue.suggestions import derive_suggestion
+from hesabyar.infrastructure.events.in_memory_queue import InMemoryJobQueue
+from hesabyar.infrastructure.events.review_queue_adapter import PersistentReviewQueueAdapter
+from tests.event_fixtures import INSTALLATION_ID, FakeAuditLog, FakeInboxRepository, make_inbox_event
+from tests.unit.test_integrations_services import FakeIntegrationsRepository
 
 NOW = datetime.datetime(2026, 11, 18, 12, 0, tzinfo=datetime.UTC)
 TENANT = "tenant-504"
@@ -107,12 +124,49 @@ class InMemoryReviewAudit(ReviewAuditPort):
 
 @pytest.fixture()
 def world() -> tuple[InMemoryReviewQueue, InMemoryReviewAudit, ReviewQueueQueryService, ReviewQueueCommandService]:
-    """Fresh ports + services with a fixed clock."""
+    """Fresh ports + services with a fixed clock (effect seams unwired)."""
     queue = InMemoryReviewQueue()
     audit = InMemoryReviewAudit()
     query = ReviewQueueQueryService(queue, audit, now=NOW)
     cmd = ReviewQueueCommandService(queue, audit, now=NOW)
     return queue, audit, query, cmd
+
+
+@pytest.fixture()
+def wired_world() -> tuple[
+    InMemoryReviewQueue,
+    InMemoryReviewAudit,
+    FakeInboxRepository,
+    FakeIntegrationsRepository,
+    DlqReplayService,
+    MappingService,
+    ReviewQueueCommandService,
+]:
+    """Fresh ports + services with the US-552 effect seams wired.
+
+    The replay service and the mapping service are the REAL services
+    over in-memory port fakes, so a replay really resets an inbox
+    event and a learning action really creates a suggestion.
+    """
+    queue = InMemoryReviewQueue()
+    audit = InMemoryReviewAudit()
+    inbox = FakeInboxRepository()
+    registry = FakeIntegrationsRepository()
+    replay = DlqReplayService(inbox, FakeAuditLog(), InMemoryJobQueue())
+    mapping = MappingService(registry)
+    cmd = ReviewQueueCommandService(queue, audit, replay=replay, mapping=mapping, now=NOW)
+    return queue, audit, inbox, registry, replay, mapping, cmd
+
+
+def _learning_input(**overrides: str) -> MappingLearningInput:
+    """A complete mapping-learning payload (overrides per test)."""
+    return MappingLearningInput(
+        mapping_kind=overrides.get("mapping_kind", "gateway_journal"),
+        source_key=overrides.get("source_key", "zarinpal"),
+        target_type=overrides.get("target_type", "journal"),
+        target_ref=overrides.get("target_ref", "journal-1"),
+        channel_key=overrides.get("channel_key", ""),
+    )
 
 
 def _item(
@@ -125,6 +179,8 @@ def _item(
     amount_irr: int | None = None,
     channel: str | None = None,
     company_id: str | None = None,
+    subtype: str | None = None,
+    source_event_ref: str | None = None,
     tenant_id: str = TENANT,
 ) -> ReviewItem:
     created = NOW - datetime.timedelta(hours=age_hours)
@@ -138,7 +194,9 @@ def _item(
         suggested_action="suggested action",
         created_at=created,
         company_id=company_id,
+        subtype=subtype,
         channel=channel,
+        source_event_ref=source_event_ref,
         amount_irr=amount_irr,
         updated_at=created,
     )
@@ -402,20 +460,29 @@ def test_resolve_action_closes_with_resolution(world):
     assert len(query.get_item(item.id, TENANT).item.audit) == 2
 
 
-def test_retry_action_moves_to_in_review_and_stays_open(world):
-    _queue, _audit, _query, cmd = world
+def test_retry_action_moves_to_in_review_and_stays_open(wired_world):
+    _queue, _audit, inbox, _registry, _replay, _mapping, cmd = wired_world
+    event = make_inbox_event(status=InboxEventStatus.DEAD_LETTERED, tenant_id=TENANT, attempts=5)
+    inbox.events[event.id] = event
     item = cmd.file_item(
         tenant_id=TENANT,
         item_type=ReviewItemType.INBOX_DEAD_LETTER,
         severity=ReviewSeverity.CRITICAL,
         reason="r",
         suggested_action="s",
+        source_event_ref=event.id,
         actor="api-client",
     )
     moved = cmd.perform_action(item_id=item.id, tenant_id=TENANT, action_code="replay", actor="operator")
     assert moved.status is ReviewItemStatus.IN_REVIEW
     assert moved.resolution is None
     assert moved.resolved_at is None
+    # US-552: the replay really happened — the event is back to
+    # received with a fresh retry budget and the SAME idempotency key.
+    replayed = inbox.events[event.id]
+    assert replayed.status is InboxEventStatus.RECEIVED
+    assert replayed.attempts == 0
+    assert replayed.idempotency_key == event.idempotency_key
 
 
 def test_note_action_moves_to_in_review(world):
@@ -539,3 +606,537 @@ def test_update_sla_policy_rejects_invalid_windows(world):
         cmd.update_sla_policy(tenant_id=TENANT, item_type=ReviewItemType.MAPPING, sla_hours=0, warn_hours=1)
     with pytest.raises(ReviewInvalidSlaPolicyError):
         cmd.update_sla_policy(tenant_id=TENANT, item_type=ReviewItemType.MAPPING, sla_hours=12, warn_hours=0)
+
+
+# ---------------------------------------------------------------------------
+# US-552: derived suggestions (type + payload, never hard-coded per item)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("item_type", "severity", "subtype", "action", "reason_key"),
+    [
+        (ReviewItemType.MAPPING, ReviewSeverity.WARNING, None, "complete_mapping_retry", "mapping_blocks_event"),
+        (
+            ReviewItemType.SETTLEMENT_VARIANCE,
+            ReviewSeverity.WARNING,
+            "fee_mismatch",
+            "fix_fee_mapping",
+            "variance_is_fee_mismatch",
+        ),
+        (
+            ReviewItemType.SETTLEMENT_VARIANCE,
+            ReviewSeverity.CRITICAL,
+            "amount_mismatch",
+            "escalate_to_gateway",
+            "large_variance_needs_gateway",
+        ),
+        (
+            ReviewItemType.SETTLEMENT_VARIANCE,
+            ReviewSeverity.WARNING,
+            "amount_mismatch",
+            "accept_variance",
+            "small_variance_accept",
+        ),
+        (
+            ReviewItemType.CHEQUE_EXCEPTION,
+            ReviewSeverity.WARNING,
+            "cheque_bounced",
+            "record_bounce",
+            "cheque_bounced",
+        ),
+        (
+            ReviewItemType.CHEQUE_EXCEPTION,
+            ReviewSeverity.WARNING,
+            "issued_cheque_bounced",
+            "record_bounce",
+            "cheque_bounced",
+        ),
+        (
+            ReviewItemType.CHEQUE_EXCEPTION,
+            ReviewSeverity.WARNING,
+            "stale_in_clearing",
+            "contact_customer",
+            "cheque_needs_customer",
+        ),
+        (ReviewItemType.BANK_UNMATCHED, ReviewSeverity.WARNING, None, "manual_match", "line_needs_match"),
+        (
+            ReviewItemType.PACKAGING_REORDER,
+            ReviewSeverity.WARNING,
+            None,
+            "approve_purchase",
+            "stock_below_reorder",
+        ),
+        (
+            ReviewItemType.INSTALLMENT_OVERDUE,
+            ReviewSeverity.WARNING,
+            None,
+            "send_reminder",
+            "installment_overdue_remind",
+        ),
+        (
+            ReviewItemType.MANUAL_IMPORT_REVIEW,
+            ReviewSeverity.WARNING,
+            None,
+            "approve_preview",
+            "batch_preview_ready",
+        ),
+        (
+            ReviewItemType.CASHBOX_VARIANCE,
+            ReviewSeverity.CRITICAL,
+            None,
+            "escalate_to_manager",
+            "large_variance_needs_manager",
+        ),
+        (
+            ReviewItemType.CASHBOX_VARIANCE,
+            ReviewSeverity.WARNING,
+            None,
+            "approve_variance_entry",
+            "variance_needs_approval",
+        ),
+        (ReviewItemType.INBOX_DEAD_LETTER, ReviewSeverity.CRITICAL, None, "replay", "event_dead_lettered"),
+        (
+            ReviewItemType.SMS_DELIVERY_FAILED,
+            ReviewSeverity.WARNING,
+            None,
+            "retry_reminder",
+            "sms_send_failed",
+        ),
+    ],
+)
+def test_derive_suggestion_rules(item_type, severity, subtype, action, reason_key):
+    suggestion = derive_suggestion(_item("a", item_type=item_type, severity=severity, subtype=subtype))
+    assert suggestion.action_code == action
+    assert suggestion.reason_key == reason_key
+
+
+def test_derive_suggestion_is_always_a_permitted_action():
+    """The derived action must be one the operator can actually perform."""
+    subtypes = [
+        None,
+        "fee_mismatch",
+        "amount_mismatch",
+        "cheque_bounced",
+        "issued_cheque_bounced",
+        "stale_in_clearing",
+        "duplicate_sayad_id",
+        "unknown_subtype",
+    ]
+    for item_type in ReviewItemType:
+        permitted = {action.code for action in permitted_actions(item_type)}
+        for severity in ReviewSeverity:
+            for subtype in subtypes:
+                suggestion = derive_suggestion(
+                    _item("a", item_type=item_type, severity=severity, subtype=subtype)
+                )
+                assert suggestion.action_code in permitted, (
+                    f"{item_type.value}/{severity.value}/{subtype} suggests "
+                    f"{suggestion.action_code}, which is not permitted"
+                )
+
+
+def test_view_carries_derived_suggestion(world):
+    queue, _audit, query, _cmd = world
+    queue.save_item(_item("a", item_type=ReviewItemType.MAPPING))
+    queue.save_item(
+        _item(
+            "b",
+            item_type=ReviewItemType.SETTLEMENT_VARIANCE,
+            severity=ReviewSeverity.CRITICAL,
+            subtype="amount_mismatch",
+        )
+    )
+    assert query.get_item("a", TENANT).suggested_action_code == "complete_mapping_retry"
+    assert query.get_item("a", TENANT).suggested_reason_key == "mapping_blocks_event"
+    assert query.get_item("b", TENANT).suggested_action_code == "escalate_to_gateway"
+    assert query.get_item("b", TENANT).suggested_reason_key == "large_variance_needs_gateway"
+    listed = {view.item.id: view for view in query.list_items(TENANT, ReviewItemFilters())}
+    assert listed["a"].suggested_action_code == "complete_mapping_retry"
+    assert listed["b"].suggested_action_code == "escalate_to_gateway"
+
+
+# ---------------------------------------------------------------------------
+# US-552: DLQ replay through the review queue
+# ---------------------------------------------------------------------------
+
+
+def test_replay_without_source_event_fails_loudly(world):
+    """No source event → the action fails instead of recording a replay that never happened."""
+    queue, _audit, _query, cmd = world
+    item = cmd.file_item(
+        tenant_id=TENANT,
+        item_type=ReviewItemType.INBOX_DEAD_LETTER,
+        severity=ReviewSeverity.CRITICAL,
+        reason="r",
+        suggested_action="s",
+        actor="api-client",
+    )
+    with pytest.raises(ReviewReplayNotPossibleError):
+        cmd.perform_action(item_id=item.id, tenant_id=TENANT, action_code="replay", actor="operator")
+    assert queue.get_item(item.id, TENANT).status is ReviewItemStatus.OPEN
+
+
+def test_replay_without_wired_service_fails_loudly(world):
+    """A service built without the replay seam cannot replay, even with a source event."""
+    queue, _audit, _query, cmd = world
+    item = cmd.file_item(
+        tenant_id=TENANT,
+        item_type=ReviewItemType.INBOX_DEAD_LETTER,
+        severity=ReviewSeverity.CRITICAL,
+        reason="r",
+        suggested_action="s",
+        source_event_ref="evt-1",
+        actor="api-client",
+    )
+    with pytest.raises(ReviewReplayNotPossibleError):
+        cmd.perform_action(item_id=item.id, tenant_id=TENANT, action_code="replay", actor="operator")
+    assert queue.get_item(item.id, TENANT).status is ReviewItemStatus.OPEN
+
+
+def test_replay_of_missing_event_raises_not_found(wired_world):
+    _queue, _audit, _inbox, _registry, _replay, _mapping, cmd = wired_world
+    item = cmd.file_item(
+        tenant_id=TENANT,
+        item_type=ReviewItemType.INBOX_DEAD_LETTER,
+        severity=ReviewSeverity.CRITICAL,
+        reason="r",
+        suggested_action="s",
+        source_event_ref="missing-event",
+        actor="api-client",
+    )
+    with pytest.raises(EventNotFoundError):
+        cmd.perform_action(item_id=item.id, tenant_id=TENANT, action_code="replay", actor="operator")
+
+
+def test_replay_of_received_event_raises_not_dead_lettered(wired_world):
+    _queue, _audit, inbox, _registry, _replay, _mapping, cmd = wired_world
+    event = make_inbox_event(status=InboxEventStatus.RECEIVED, tenant_id=TENANT)
+    inbox.events[event.id] = event
+    item = cmd.file_item(
+        tenant_id=TENANT,
+        item_type=ReviewItemType.INBOX_DEAD_LETTER,
+        severity=ReviewSeverity.CRITICAL,
+        reason="r",
+        suggested_action="s",
+        source_event_ref=event.id,
+        actor="api-client",
+    )
+    with pytest.raises(EventNotDeadLetteredError):
+        cmd.perform_action(item_id=item.id, tenant_id=TENANT, action_code="replay", actor="operator")
+
+
+def test_fix_source_retry_also_replays(wired_world):
+    _queue, audit, inbox, _registry, _replay, _mapping, cmd = wired_world
+    event = make_inbox_event(status=InboxEventStatus.DEAD_LETTERED, tenant_id=TENANT, attempts=3)
+    inbox.events[event.id] = event
+    item = cmd.file_item(
+        tenant_id=TENANT,
+        item_type=ReviewItemType.INBOX_DEAD_LETTER,
+        severity=ReviewSeverity.CRITICAL,
+        reason="r",
+        suggested_action="s",
+        source_event_ref=event.id,
+        actor="api-client",
+    )
+    moved = cmd.perform_action(
+        item_id=item.id, tenant_id=TENANT, action_code="fix_source_retry", actor="operator"
+    )
+    assert moved.status is ReviewItemStatus.IN_REVIEW
+    assert inbox.events[event.id].status is InboxEventStatus.RECEIVED
+    entries = audit.list_for_item(item.id, TENANT)
+    assert entries[-1].action == "fix_source_retry"
+    assert entries[-1].decision == "in_review"
+
+
+# ---------------------------------------------------------------------------
+# US-552: mapping learning (Suggest → Auto loop) + best-effort reprocess
+# ---------------------------------------------------------------------------
+
+
+def test_complete_mapping_retry_learns_mapping_and_reprocesses(wired_world):
+    _queue, audit, inbox, registry, _replay, _mapping, cmd = wired_world
+    event = make_inbox_event(status=InboxEventStatus.NEEDS_REVIEW, tenant_id=TENANT)
+    inbox.events[event.id] = event
+    item = cmd.file_item(
+        tenant_id=TENANT,
+        item_type=ReviewItemType.MAPPING,
+        severity=ReviewSeverity.WARNING,
+        reason="r",
+        suggested_action="s",
+        source_event_ref=event.id,
+        actor="api-client",
+    )
+    moved = cmd.perform_action(
+        item_id=item.id,
+        tenant_id=TENANT,
+        action_code="complete_mapping_retry",
+        actor="operator",
+        installation_id=INSTALLATION_ID,
+        mapping=_learning_input(),
+    )
+    assert moved.status is ReviewItemStatus.IN_REVIEW
+    suggestions = registry.list_suggestions(INSTALLATION_ID)
+    assert len(suggestions) == 1
+    suggestion = suggestions[0]
+    assert suggestion.mapping_kind.value == "gateway_journal"
+    assert suggestion.source_key == "zarinpal"
+    assert suggestion.suggested_target_type == "journal"
+    assert suggestion.suggested_target_ref == "journal-1"
+    assert suggestion.confidence == Decimal("1")
+    assert suggestion.basis == f"review_queue:{item.id}"
+    entries = audit.list_for_item(item.id, TENANT)
+    assert entries[-1].mapping_version == f"suggestion:{suggestion.id}"
+    assert f"reprocessed source event {event.id}" in (entries[-1].note or "")
+    assert inbox.events[event.id].status is InboxEventStatus.RECEIVED
+
+
+def test_complete_mapping_retry_without_mapping_details_only_reprocesses(wired_world):
+    _queue, audit, inbox, registry, _replay, _mapping, cmd = wired_world
+    event = make_inbox_event(status=InboxEventStatus.NEEDS_REVIEW, tenant_id=TENANT)
+    inbox.events[event.id] = event
+    item = cmd.file_item(
+        tenant_id=TENANT,
+        item_type=ReviewItemType.MAPPING,
+        severity=ReviewSeverity.WARNING,
+        reason="r",
+        suggested_action="s",
+        source_event_ref=event.id,
+        actor="api-client",
+    )
+    moved = cmd.perform_action(
+        item_id=item.id,
+        tenant_id=TENANT,
+        action_code="complete_mapping_retry",
+        actor="operator",
+        installation_id=INSTALLATION_ID,
+    )
+    assert moved.status is ReviewItemStatus.IN_REVIEW
+    assert registry.list_suggestions(INSTALLATION_ID) == []
+    assert audit.list_for_item(item.id, TENANT)[-1].mapping_version is None
+    assert inbox.events[event.id].status is InboxEventStatus.RECEIVED
+
+
+def test_complete_mapping_retry_with_processed_event_still_succeeds(wired_world):
+    """The reprocess is best-effort: an already-processed event is noted, not an error."""
+    _queue, audit, inbox, registry, _replay, _mapping, cmd = wired_world
+    event = make_inbox_event(status=InboxEventStatus.PROCESSED, tenant_id=TENANT)
+    inbox.events[event.id] = event
+    item = cmd.file_item(
+        tenant_id=TENANT,
+        item_type=ReviewItemType.MAPPING,
+        severity=ReviewSeverity.WARNING,
+        reason="r",
+        suggested_action="s",
+        source_event_ref=event.id,
+        actor="api-client",
+    )
+    moved = cmd.perform_action(
+        item_id=item.id,
+        tenant_id=TENANT,
+        action_code="complete_mapping_retry",
+        actor="operator",
+        installation_id=INSTALLATION_ID,
+        mapping=_learning_input(),
+    )
+    assert moved.status is ReviewItemStatus.IN_REVIEW
+    assert len(registry.list_suggestions(INSTALLATION_ID)) == 1
+    assert "not reprocessed" in (audit.list_for_item(item.id, TENANT)[-1].note or "")
+
+
+def test_complete_mapping_retry_with_missing_event_still_succeeds(wired_world):
+    _queue, audit, _inbox, _registry, _replay, _mapping, cmd = wired_world
+    item = cmd.file_item(
+        tenant_id=TENANT,
+        item_type=ReviewItemType.MAPPING,
+        severity=ReviewSeverity.WARNING,
+        reason="r",
+        suggested_action="s",
+        source_event_ref="missing-event",
+        actor="api-client",
+    )
+    moved = cmd.perform_action(
+        item_id=item.id, tenant_id=TENANT, action_code="complete_mapping_retry", actor="operator"
+    )
+    assert moved.status is ReviewItemStatus.IN_REVIEW
+    assert "not found" in (audit.list_for_item(item.id, TENANT)[-1].note or "")
+
+
+def test_complete_mapping_retry_without_source_event_notes_it(wired_world):
+    _queue, audit, _inbox, _registry, _replay, _mapping, cmd = wired_world
+    item = cmd.file_item(
+        tenant_id=TENANT,
+        item_type=ReviewItemType.MAPPING,
+        severity=ReviewSeverity.WARNING,
+        reason="r",
+        suggested_action="s",
+        actor="api-client",
+    )
+    moved = cmd.perform_action(
+        item_id=item.id, tenant_id=TENANT, action_code="complete_mapping_retry", actor="operator"
+    )
+    assert moved.status is ReviewItemStatus.IN_REVIEW
+    assert "no source event attached" in (audit.list_for_item(item.id, TENANT)[-1].note or "")
+
+
+def test_mapping_details_on_other_action_rejected(wired_world):
+    _queue, _audit, _inbox, _registry, _replay, _mapping, cmd = wired_world
+    item = cmd.file_item(
+        tenant_id=TENANT,
+        item_type=ReviewItemType.MAPPING,
+        severity=ReviewSeverity.WARNING,
+        reason="r",
+        suggested_action="s",
+        actor="api-client",
+    )
+    with pytest.raises(ReviewActionNotPermittedError):
+        cmd.perform_action(
+            item_id=item.id,
+            tenant_id=TENANT,
+            action_code="skip",
+            actor="operator",
+            installation_id=INSTALLATION_ID,
+            mapping=_learning_input(),
+        )
+
+
+def test_mapping_learning_without_installation_rejected(wired_world):
+    _queue, _audit, _inbox, _registry, _replay, _mapping, cmd = wired_world
+    item = cmd.file_item(
+        tenant_id=TENANT,
+        item_type=ReviewItemType.MAPPING,
+        severity=ReviewSeverity.WARNING,
+        reason="r",
+        suggested_action="s",
+        actor="api-client",
+    )
+    with pytest.raises(ReviewInvalidStateError):
+        cmd.perform_action(
+            item_id=item.id,
+            tenant_id=TENANT,
+            action_code="complete_mapping_retry",
+            actor="operator",
+            mapping=_learning_input(),
+        )
+
+
+def test_mapping_learning_with_unknown_kind_rejected(wired_world):
+    _queue, _audit, _inbox, _registry, _replay, _mapping, cmd = wired_world
+    item = cmd.file_item(
+        tenant_id=TENANT,
+        item_type=ReviewItemType.MAPPING,
+        severity=ReviewSeverity.WARNING,
+        reason="r",
+        suggested_action="s",
+        actor="api-client",
+    )
+    with pytest.raises(IntegrationMappingInvalidError):
+        cmd.perform_action(
+            item_id=item.id,
+            tenant_id=TENANT,
+            action_code="complete_mapping_retry",
+            actor="operator",
+            installation_id=INSTALLATION_ID,
+            mapping=_learning_input(mapping_kind="not_a_kind"),
+        )
+
+
+def test_mapping_learning_without_wired_service_rejected(world):
+    _queue, _audit, _query, cmd = world
+    item = cmd.file_item(
+        tenant_id=TENANT,
+        item_type=ReviewItemType.MAPPING,
+        severity=ReviewSeverity.WARNING,
+        reason="r",
+        suggested_action="s",
+        actor="api-client",
+    )
+    with pytest.raises(ReviewInvalidStateError):
+        cmd.perform_action(
+            item_id=item.id,
+            tenant_id=TENANT,
+            action_code="complete_mapping_retry",
+            actor="operator",
+            installation_id=INSTALLATION_ID,
+            mapping=_learning_input(),
+        )
+
+
+# ---------------------------------------------------------------------------
+# US-552: the persistent pipeline adapter (F4)
+# ---------------------------------------------------------------------------
+
+
+def test_pipeline_adapter_files_real_items(world):
+    queue, audit, _query, cmd = world
+    adapter = PersistentReviewQueueAdapter(cmd)
+    item_id = adapter.enqueue(
+        ReviewItemDraft(
+            type="mapping",
+            severity="high",
+            source_event_ref="evt-1",
+            reason="No mapping for gateway zarinpal",
+            suggested_action="Complete the mapping",
+            details={"event_type": "sales.order.completed"},
+            tenant_id=TENANT,
+        )
+    )
+    item = queue.get_item(item_id, TENANT)
+    assert item is not None
+    assert item.item_type is ReviewItemType.MAPPING
+    assert item.severity is ReviewSeverity.WARNING
+    assert item.subtype == "sales.order.completed"
+    assert item.source_event_ref == "evt-1"
+    assert item.status is ReviewItemStatus.OPEN
+    assert [entry.action for entry in audit.list_for_item(item_id, TENANT)] == ["filed"]
+
+
+def test_pipeline_adapter_maps_critical_severity(world):
+    queue, _audit, _query, cmd = world
+    adapter = PersistentReviewQueueAdapter(cmd)
+    item_id = adapter.enqueue(
+        ReviewItemDraft(
+            type="inbox_dead_letter",
+            severity="critical",
+            source_event_ref="evt-2",
+            reason="Event failed permanently",
+            suggested_action="Replay the event",
+            tenant_id=TENANT,
+        )
+    )
+    assert queue.get_item(item_id, TENANT).severity is ReviewSeverity.CRITICAL
+
+
+def test_pipeline_adapter_tenantless_falls_back_to_inbox_behaviour(world):
+    queue, _audit, _query, cmd = world
+    adapter = PersistentReviewQueueAdapter(cmd)
+    assert (
+        adapter.enqueue(
+            ReviewItemDraft(
+                type="mapping",
+                severity="high",
+                source_event_ref="evt-3",
+                reason="r",
+                suggested_action="s",
+                tenant_id=None,
+            )
+        )
+        == "evt-3"
+    )
+    assert queue.items == {}
+
+
+def test_pipeline_adapter_unknown_type_raises(world):
+    _queue, _audit, _query, cmd = world
+    adapter = PersistentReviewQueueAdapter(cmd)
+    with pytest.raises(ValueError, match="not_a_type"):
+        adapter.enqueue(
+            ReviewItemDraft(
+                type="not_a_type",
+                severity="high",
+                source_event_ref="evt-4",
+                reason="r",
+                suggested_action="s",
+                tenant_id=TENANT,
+            )
+        )

@@ -1,19 +1,21 @@
-"""Request/response schemas for the review-queue endpoints (US-504).
+"""Request/response schemas for the review-queue endpoints (US-504; US-552).
 
 Responses map from the domain views — no ORM object ever leaks. The
 list item carries the computed ageing/SLA fields (``age_hours``,
-``sla_deadline``, ``sla_breached``, ``sla_warn``); the detail
-response additionally carries the ``audit`` trail. Money is IRR
-integers; the frontend renders them as تومان.
+``sla_deadline``, ``sla_breached``, ``sla_warn``) plus the derived
+suggestion (``suggested_action_code`` / ``suggested_reason_key``);
+the detail response additionally carries the ``audit`` trail. Money
+is IRR integers; the frontend renders them as تومان.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from hesabyar.application.queries.review_queue import ReviewItemView
+from hesabyar.domain.integrations.models import MappingKind
 from hesabyar.domain.review_queue.models import (
     PERMITTED_ACTIONS,
     AdminNotification,
@@ -65,7 +67,7 @@ class ReviewItemResponse(BaseModel):
     """One uniform review-queue item with computed ageing/SLA fields."""
 
     id: str = Field(description="Review item id")
-    item_type: str = Field(description="Exception type — one of the nine §7.2 types")
+    item_type: str = Field(description="Exception type — one of the ten §7.2 types")
     subtype: str | None = Field(description="Subtype for filtering/stats")
     severity: str = Field(description="Severity: info | warning | critical")
     status: str = Field(description="Status: open | in_review | resolved | written_off")
@@ -74,6 +76,12 @@ class ReviewItemResponse(BaseModel):
     source_event_ref: str | None = Field(description="Reference to the originating event")
     reason: str = Field(description="Why the item needs review")
     suggested_action: str = Field(description="System-suggested next step")
+    suggested_action_code: str = Field(
+        description="Derived suggested action code (from type + payload, §7.2; US-552)"
+    )
+    suggested_reason_key: str = Field(
+        description="Stable key for the Persian reason behind the suggestion (US-552)"
+    )
     amount_irr: int | None = Field(description="Amount at stake in IRR (null when the item carries no money)")
     assignee: str | None = Field(description="Actor assigned to the item")
     resolution: str | None = Field(description="How the item was closed (null while open)")
@@ -105,6 +113,8 @@ class ReviewItemResponse(BaseModel):
             source_event_ref=item.source_event_ref,
             reason=item.reason,
             suggested_action=item.suggested_action,
+            suggested_action_code=view.suggested_action_code,
+            suggested_reason_key=view.suggested_reason_key,
             amount_irr=item.amount_irr,
             assignee=item.assignee,
             resolution=item.resolution.value if item.resolution is not None else None,
@@ -132,7 +142,7 @@ class ReviewItemResponse(BaseModel):
 class CreateReviewItemRequest(BaseModel):
     """File a new exception item (modules file through this endpoint)."""
 
-    item_type: str = Field(description="Exception type — one of the nine §7.2 types")
+    item_type: str = Field(description="Exception type — one of the ten §7.2 types")
     severity: str = Field(description="Severity: info | warning | critical")
     reason: str = Field(description="Why the item needs review (Persian, human-readable)", min_length=1)
     suggested_action: str = Field(description="System-suggested next step", min_length=1)
@@ -144,11 +154,39 @@ class CreateReviewItemRequest(BaseModel):
     assignee: str | None = Field(default=None, description="Actor to assign the item to")
 
 
+class MappingLearningRequest(BaseModel):
+    """The completed mapping a reviewer supplies with ``complete_mapping_retry`` (US-552).
+
+    The queue learns it as a mapping-center suggestion (Suggest →
+    Auto loop, §7.2); an unknown ``mapping_kind`` is a 422
+    ``VALIDATION_ERROR``. Only accepted with the
+    ``complete_mapping_retry`` action — any other action carrying a
+    mapping is rejected by the service.
+    """
+
+    mapping_kind: str = Field(description="One of the nine §10.5 mapping kinds", min_length=1)
+    source_key: str = Field(description="Source key the event carried (e.g. the gateway SKU)", min_length=1)
+    target_type: str = Field(description="Target type: account | journal | party | tax_policy | dimension | company")
+    target_ref: str = Field(description="Target reference (e.g. the ledger account id)", min_length=1)
+    channel_key: str = Field(default="", description="Channel key, or '' for an installation-wide mapping")
+
+    @field_validator("mapping_kind")
+    @classmethod
+    def _validate_mapping_kind(cls, value: str) -> str:
+        if value not in {kind.value for kind in MappingKind}:
+            raise ValueError(f"Unknown mapping_kind {value!r}.")
+        return value
+
+
 class PerformReviewActionRequest(BaseModel):
     """Perform a permitted action on a review item."""
 
     action: str = Field(description="Action code — must be permitted for the item's type", min_length=1)
     note: str | None = Field(default=None, description="Human note recorded with the action")
+    mapping: MappingLearningRequest | None = Field(
+        default=None,
+        description="Completed mapping to learn (only with the complete_mapping_retry action)",
+    )
 
 
 class AssignReviewItemRequest(BaseModel):
@@ -158,7 +196,7 @@ class AssignReviewItemRequest(BaseModel):
 
 
 class ReviewTypeCounterResponse(BaseModel):
-    """Per-type counters for the dashboard (all nine types always present)."""
+    """Per-type counters for the dashboard (all ten types always present)."""
 
     item_type: str = Field(description="Exception type")
     open_count: int = Field(description="Open items of this type")
@@ -208,7 +246,7 @@ class AdminNotificationResponse(BaseModel):
 class ReviewQueueSummaryResponse(BaseModel):
     """Queue summary for the dashboard: counters + ageing + alerts."""
 
-    counters: list[ReviewTypeCounterResponse] = Field(description="Per-type counters (all nine types)")
+    counters: list[ReviewTypeCounterResponse] = Field(description="Per-type counters (all ten types)")
     total_open: int = Field(description="Total open items")
     total_in_review: int = Field(description="Total in-review items")
     total_overdue: int = Field(description="Total open/in-review items past SLA")
@@ -263,7 +301,7 @@ class UpdateSlaPolicyRequest(BaseModel):
 
 
 class ReviewItemTypeResponse(BaseModel):
-    """One of the nine item types with its permitted actions (§7.2)."""
+    """One of the ten item types with its permitted actions (§7.2)."""
 
     item_type: str = Field(description="Exception type")
     actions: list[ReviewActionResponse] = Field(description="Permitted actions for this type")

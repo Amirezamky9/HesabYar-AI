@@ -101,6 +101,9 @@ from hesabyar.infrastructure.persistence.postgres.models import EngineCompanyMod
 from hesabyar.infrastructure.persistence.postgres.packaging_repository import (
     SqlAlchemyPackagingRepository,
 )
+from hesabyar.infrastructure.persistence.postgres.repositories import (
+    SqlAlchemyInstallationTenantResolver,
+)
 from hesabyar.infrastructure.persistence.postgres.review_queue_repository import (
     SqlAlchemyReviewQueueRepository,
 )
@@ -281,10 +284,15 @@ def build_settlement_factory(settings: AppSettings) -> SettlementWorkerFactory:
 
     def factory() -> SettlementWorkerHandle:
         session = session_factory()
+        review_repo = SqlAlchemyReviewQueueRepository(session)
         commands = SettlementCommandService(
             SqlAlchemySettlementRepository(session),
             SqlAlchemyIntegrationsRepository(session),
             SqlAlchemySettlementAudit(session),
+            # US-555: the worker tick files its new late_tranche
+            # exceptions in the review queue, like the REST tick.
+            review=ReviewQueueCommandService(review_repo, review_repo),
+            tenant_resolver=SqlAlchemyInstallationTenantResolver(session),
         )
 
         def commit() -> None:

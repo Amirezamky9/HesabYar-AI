@@ -22,12 +22,26 @@ from hesabyar.application.commands.integrations import (
     ChannelRegistryService,
     GatewayContractService,
 )
+from hesabyar.application.commands.review_queue import ReviewQueueCommandService
 from hesabyar.application.commands.settlement import SettlementCommandService
 from hesabyar.application.errors import IntegrationChannelNotFoundError
 from hesabyar.application.queries.settlement import SettlementQueryService
 from hesabyar.domain.integrations.models import (
     ChannelStatus,
     TrancheLeg,
+)
+from hesabyar.domain.review_queue.models import (
+    ReviewAuditEntry,
+    ReviewItem,
+    ReviewItemStatus,
+    ReviewItemType,
+    ReviewSeverity,
+    SlaPolicy,
+)
+from hesabyar.domain.review_queue.ports import (
+    ReviewAuditPort,
+    ReviewItemFilters,
+    ReviewQueuePort,
 )
 from hesabyar.domain.settlement.commands import (
     CancelGatewayPayment,
@@ -1007,6 +1021,52 @@ class FakeSettlementRepository:
         return sorted(found, key=lambda r: r.row_no)
 
 
+class FakeReviewQueue(ReviewQueuePort, ReviewAuditPort):
+    """In-memory review-queue + audit ports (one object, both ports)."""
+
+    def __init__(self) -> None:
+        self.items: dict[str, ReviewItem] = {}
+        self.audit: list[ReviewAuditEntry] = []
+
+    def list_items(self, tenant_id: str, filters: ReviewItemFilters) -> Sequence[ReviewItem]:
+        return [item for item in self.items.values() if item.tenant_id == tenant_id]
+
+    def get_item(self, item_id: str, tenant_id: str) -> ReviewItem | None:
+        item = self.items.get(item_id)
+        return item if item is not None and item.tenant_id == tenant_id else None
+
+    def save_item(self, item: ReviewItem) -> ReviewItem:
+        self.items[item.id] = item
+        return item
+
+    def update_item(self, item: ReviewItem) -> ReviewItem:
+        self.items[item.id] = item
+        return item
+
+    def list_policies(self, tenant_id: str) -> Sequence[SlaPolicy]:
+        return []
+
+    def upsert_policy(self, tenant_id: str, policy: SlaPolicy) -> SlaPolicy:
+        return policy
+
+    def record(self, entry: ReviewAuditEntry) -> ReviewAuditEntry:
+        self.audit.append(entry)
+        return entry
+
+    def list_for_item(self, item_id: str, tenant_id: str) -> Sequence[ReviewAuditEntry]:
+        return [entry for entry in self.audit if entry.item_id == item_id]
+
+
+@dataclass
+class FakeTenantResolver:
+    """In-memory installation→tenant map (US-555)."""
+
+    tenants: dict[str, str] = field(default_factory=dict)
+
+    def tenant_id_for_installation(self, installation_id: str) -> str | None:
+        return self.tenants.get(installation_id)
+
+
 @pytest.fixture()
 def registry() -> FakeIntegrationsRepository:
     """Registry with a snapppay channel + an active 4-tranche contract."""
@@ -1672,6 +1732,169 @@ class TestDailyTick:
         escalated = repo.get_exception(INSTALLATION_ID, existing.id)
         assert escalated is not None
         assert escalated.escalation_level == 2
+
+
+class TestDailyTickReviewFiling:
+    """The tick files new late tranches in the review queue (US-555)."""
+
+    @pytest.fixture()
+    def queue(self) -> FakeReviewQueue:
+        return FakeReviewQueue()
+
+    @pytest.fixture()
+    def filing_commands(
+        self,
+        repo: FakeSettlementRepository,
+        registry: FakeIntegrationsRepository,
+        audit: FakeSettlementAudit,
+        queue: FakeReviewQueue,
+    ) -> SettlementCommandService:
+        review = ReviewQueueCommandService(queue, queue, now=NOW)
+        resolver = FakeTenantResolver({INSTALLATION_ID: TENANT_ID})
+        return SettlementCommandService(
+            repo, registry, audit, review=review, tenant_resolver=resolver
+        )
+
+    def _due_tranche(
+        self,
+        repo: FakeSettlementRepository,
+        commands: SettlementCommandService,
+    ) -> SettlementTranche:
+        """A real payment's first tranche, DUE and past grace on 2026-11-30."""
+        payment = _record(commands)
+        tranches = repo.list_tranches_for_payment(INSTALLATION_ID, payment.id)
+        assert tranches[0].expected_date == datetime.date(2026, 11, 26)
+        assert tranches[0].net_irr == 22_250_000
+        due = repo.update_tranche(tranches[0].id, state=TrancheState.DUE)
+        assert due is not None
+        repo.tick_candidates.append((due, 3))
+        return due
+
+    def test_tick_files_review_item_for_new_late_tranche(
+        self,
+        filing_commands: SettlementCommandService,
+        repo: FakeSettlementRepository,
+        queue: FakeReviewQueue,
+    ) -> None:
+        tranche = self._due_tranche(repo, filing_commands)
+        report = filing_commands.run_daily_tick(datetime.date(2026, 11, 30))
+
+        assert report.moved_to_overdue == 1
+        assert report.exceptions_created == 1
+        assert report.review_items_filed == 1
+        assert len(queue.items) == 1
+        item = next(iter(queue.items.values()))
+        assert item.tenant_id == TENANT_ID
+        assert item.item_type == ReviewItemType.SETTLEMENT_VARIANCE
+        assert item.subtype == SettlementExceptionType.LATE_TRANCHE.value
+        assert item.severity == ReviewSeverity.WARNING
+        assert item.status == ReviewItemStatus.OPEN
+        assert item.channel == "snapppay"
+        assert item.amount_irr == 22_250_000
+        assert item.source_event_ref is not None
+        assert item.source_event_ref.startswith("settlement-exception:")
+        # The reason carries the tranche + gateway + amount context.
+        assert "قسط 1 از 4" in item.reason
+        assert "snapppay" in item.reason
+        assert "22,250,000" in item.reason
+        assert "4 روز" in item.reason
+        assert "2026-11-26" in item.reason
+        assert item.suggested_action
+        # The filing left a "filed" audit entry.
+        assert [entry.action for entry in queue.audit] == ["filed"]
+        assert queue.audit[0].item_id == item.id
+        # The review item points at the exception the tick opened.
+        exc = repo.get_open_exception_for_tranche(
+            INSTALLATION_ID, tranche.id, SettlementExceptionType.LATE_TRANCHE.value
+        )
+        assert exc is not None
+        assert item.source_event_ref == f"settlement-exception:{exc.id}"
+
+    def test_re_tick_files_no_duplicate(
+        self,
+        filing_commands: SettlementCommandService,
+        repo: FakeSettlementRepository,
+        queue: FakeReviewQueue,
+    ) -> None:
+        self._due_tranche(repo, filing_commands)
+        first = filing_commands.run_daily_tick(datetime.date(2026, 11, 30))
+        assert first.review_items_filed == 1
+        assert len(queue.items) == 1
+
+        second = filing_commands.run_daily_tick(datetime.date(2026, 11, 30))
+        assert second.exceptions_created == 0
+        assert second.review_items_filed == 0
+        assert len(queue.items) == 1
+
+    def test_escalation_only_tick_files_nothing(
+        self,
+        filing_commands: SettlementCommandService,
+        repo: FakeSettlementRepository,
+        queue: FakeReviewQueue,
+    ) -> None:
+        tranche = self._due_tranche(repo, filing_commands)
+        repo.save_exception(
+            CreateSettlementException(
+                installation_id=INSTALLATION_ID,
+                exception_type=SettlementExceptionType.LATE_TRANCHE.value,
+                severity=SettlementExceptionSeverity.WARNING.value,
+                tranche_id=tranche.id,
+                escalation_level=0,
+            )
+        )
+        # 30 days past due → level 2: escalation only, no new item.
+        report = filing_commands.run_daily_tick(datetime.date(2026, 12, 26))
+        assert report.exceptions_created == 0
+        assert report.exceptions_escalated == 1
+        assert report.review_items_filed == 0
+        assert queue.items == {}
+
+    def test_resolved_exception_refiles_on_later_tick(
+        self,
+        filing_commands: SettlementCommandService,
+        repo: FakeSettlementRepository,
+        queue: FakeReviewQueue,
+    ) -> None:
+        tranche = self._due_tranche(repo, filing_commands)
+        first = filing_commands.run_daily_tick(datetime.date(2026, 11, 30))
+        assert first.review_items_filed == 1
+        exc = repo.get_open_exception_for_tranche(
+            INSTALLATION_ID, tranche.id, SettlementExceptionType.LATE_TRANCHE.value
+        )
+        assert exc is not None
+        repo.update_exception(exc.id, status=SettlementExceptionStatus.RESOLVED.value)
+
+        # The tranche is still overdue and no exception is open: the
+        # next tick opens a NEW exception and files a NEW item.
+        second = filing_commands.run_daily_tick(datetime.date(2026, 12, 1))
+        assert second.exceptions_created == 1
+        assert second.review_items_filed == 1
+        assert len(queue.items) == 2
+
+    def test_unresolvable_tenant_keeps_exception_without_filing(
+        self,
+        repo: FakeSettlementRepository,
+        registry: FakeIntegrationsRepository,
+        audit: FakeSettlementAudit,
+        queue: FakeReviewQueue,
+    ) -> None:
+        review = ReviewQueueCommandService(queue, queue, now=NOW)
+        commands = SettlementCommandService(
+            repo, registry, audit, review=review, tenant_resolver=FakeTenantResolver({})
+        )
+        self._due_tranche(repo, commands)
+        report = commands.run_daily_tick(datetime.date(2026, 11, 30))
+        assert report.exceptions_created == 1
+        assert report.review_items_filed == 0
+        assert queue.items == {}
+
+    def test_unwired_review_keeps_exception_without_filing(
+        self, commands: SettlementCommandService, repo: FakeSettlementRepository
+    ) -> None:
+        self._due_tranche(repo, commands)
+        report = commands.run_daily_tick(datetime.date(2026, 11, 30))
+        assert report.exceptions_created == 1
+        assert report.review_items_filed == 0
 
 
 def _record_for_tick(repo: FakeSettlementRepository) -> GatewayPayment:

@@ -29,6 +29,7 @@ from hesabyar.domain.events.envelope import CanonicalEvent, CanonicalEventType
 from hesabyar.domain.events.errors import (
     EventNotDeadLetteredError,
     EventNotFoundError,
+    EventNotReprocessableError,
     IdempotencyConflictError,
     InvalidEventEnvelopeError,
     InvalidStoreAmountError,
@@ -608,6 +609,101 @@ def test_dlq_replay_then_process_has_no_duplicate_effect() -> None:
     assert result.outcome == PipelineOutcome.PROCESSED_DRAFT
     assert result.draft_ref == "7"
     assert engine.create_calls == 0
+
+
+# ---------------------------------------------------------------------------
+# Reprocess (US-552: the review queue's path for a completed mapping)
+# ---------------------------------------------------------------------------
+
+
+def _needs_review(inbox: FakeInboxRepository, **overrides: Any) -> str:
+    event_id = _ingest_event(inbox, **overrides)
+    stored = must_get(inbox, event_id)
+    inbox.save(make_inbox_event(
+        stored.to_canonical_event(),
+        event_type=stored.event_type,
+        tenant_id=TENANT_ID,
+        status=InboxEventStatus.NEEDS_REVIEW,
+        attempts=1,
+        last_error="Mapping unresolved.",
+    ))
+    return event_id
+
+
+def test_reprocess_accepts_needs_review_events() -> None:
+    """A mapping gap the reviewer just fixed is reprocessable."""
+    inbox = FakeInboxRepository()
+    audit_log = FakeAuditLog()
+    queue = InMemoryJobQueue()
+    service = DlqReplayService(inbox, audit_log, queue)
+    event_id = _needs_review(inbox)
+    reprocessed = service.reprocess(event_id, actor="operator", tenant_id=TENANT_ID)
+    assert reprocessed.status == InboxEventStatus.RECEIVED
+    assert reprocessed.attempts == 0
+    assert reprocessed.last_error is None
+    assert queue.deferred_events == [event_id]
+    assert len(audit_log.decisions) == 1
+    decision = audit_log.decisions[0]
+    assert decision.decision == AutomationDecisionKind.REPLAYED
+    assert decision.decided_by == "operator"
+    assert decision.details["previous_status"] == "needs_review"
+    assert decision.details["previous_attempts"] == 1
+
+
+def test_reprocess_accepts_dead_lettered_events() -> None:
+    """Reprocess shares the reset with replay — one mechanism, not two."""
+    inbox = FakeInboxRepository()
+    audit_log = FakeAuditLog()
+    queue = InMemoryJobQueue()
+    service = DlqReplayService(inbox, audit_log, queue)
+    event_id = _dead_lettered(inbox)
+    reprocessed = service.reprocess(event_id, actor="operator")
+    assert reprocessed.status == InboxEventStatus.RECEIVED
+    assert reprocessed.attempts == 0
+    assert reprocessed.dead_lettered_at is None
+    assert queue.deferred_events == [event_id]
+    assert audit_log.decisions[0].details["previous_status"] == "dead_lettered"
+
+
+def test_reprocess_keeps_the_idempotency_key() -> None:
+    """The reprocessed event keeps its key — reprocessing cannot double-post."""
+    inbox = FakeInboxRepository()
+    service = DlqReplayService(inbox, FakeAuditLog(), InMemoryJobQueue())
+    event_id = _needs_review(inbox)
+    before = must_get(inbox, event_id)
+    reprocessed = service.reprocess(event_id, actor="operator")
+    assert reprocessed.idempotency_key == before.idempotency_key
+    assert reprocessed.source_event_id == before.source_event_id
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        InboxEventStatus.RECEIVED,
+        InboxEventStatus.PROCESSING,
+        InboxEventStatus.PROCESSED,
+        InboxEventStatus.FAILED,
+    ],
+)
+def test_reprocess_rejects_done_in_flight_or_failed_events(status: InboxEventStatus) -> None:
+    inbox = FakeInboxRepository()
+    service = DlqReplayService(inbox, FakeAuditLog(), InMemoryJobQueue())
+    event_id = _ingest_event(inbox)
+    stored = must_get(inbox, event_id)
+    inbox.save(make_inbox_event(
+        stored.to_canonical_event(),
+        event_type=stored.event_type,
+        tenant_id=TENANT_ID,
+        status=status,
+    ))
+    with pytest.raises(EventNotReprocessableError, match="only dead-lettered or needs-review"):
+        service.reprocess(event_id, actor="operator")
+
+
+def test_reprocess_rejects_missing_events() -> None:
+    service = DlqReplayService(FakeInboxRepository(), FakeAuditLog(), InMemoryJobQueue())
+    with pytest.raises(EventNotFoundError):
+        service.reprocess("missing", actor="operator")
 
 
 # ---------------------------------------------------------------------------

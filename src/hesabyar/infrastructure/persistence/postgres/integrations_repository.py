@@ -187,6 +187,7 @@ def _mapping_from_row(row: IntegrationMappingModel) -> IntegrationMapping:
         confidence=row.confidence,
         notes=row.notes,
         created_by=row.created_by,
+        confirmations=row.confirmations,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -600,6 +601,7 @@ class SqlAlchemyIntegrationsRepository:
             confidence=command.confidence,
             notes=command.notes,
             created_by=command.created_by,
+            confirmations=command.confirmations,
         )
         self._session.add(row)
         self._session.flush()

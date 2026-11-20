@@ -9,6 +9,7 @@ from __future__ import annotations
 import datetime
 from dataclasses import dataclass, field
 from decimal import Decimal
+from typing import Any
 
 from hesabyar.domain.accounting.refs import (
     AccountRef,
@@ -596,6 +597,44 @@ class StatementJournalView:
 
 
 @dataclass(frozen=True, slots=True)
+class ReportFreshness:
+    """§11.1 freshness metadata attached to every financial report (US-550).
+
+    Every report response carries this block, so a reader can tell
+    where every figure came from and reproduce the read:
+
+    - ``source`` names the engine read (e.g.
+      ``"tryton:account.move.line (Tryton REST)"``);
+    - ``source_timestamp`` is when the source data was read — for
+      these live reports the read happens at generation time, so it
+      equals ``generated_at`` (there is no older snapshot: the engine
+      is read live on every request, never from a HesabYar cache);
+    - ``generated_at`` is when the response was generated (UTC);
+    - ``company_id`` / ``period_start`` / ``period_end`` scope the
+      figures (a point-in-time report sets both period bounds to its
+      as-of date);
+    - ``report_version`` versions the report definition,
+      ``calculation_version`` the calculation rule that produced the
+      figures (see ``domain/reports/statements.py``);
+    - ``freshness_indicator`` is always ``"live"`` for engine reads;
+    - ``reproducibility`` carries the exact read parameters (engine,
+      engine version, source endpoint, company, period, filters) so
+      the same read can be repeated.
+    """
+
+    source: str
+    source_timestamp: datetime.datetime
+    generated_at: datetime.datetime
+    company_id: str
+    period_start: FiscalDate | None
+    period_end: FiscalDate | None
+    report_version: str
+    calculation_version: str
+    freshness_indicator: str = "live"
+    reproducibility: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
 class TrialBalanceLineView:
     """One account's totals over posted moves in a trial-balance period.
 
@@ -638,6 +677,7 @@ class TrialBalanceView:
     move_count: int = 0
     line_count: int = 0
     source_endpoint: str = "account.move.line (Tryton REST)"
+    freshness: ReportFreshness | None = None
 
     @property
     def as_of_date(self) -> FiscalDate:
@@ -885,3 +925,309 @@ class CheckbookEngineView:
     used_leaves: int = 0
     voided_leaves: int = 0
     remaining_leaves: int = 0
+
+
+# -- financial reports (Phase 5-6, US-550) -------------------------------------
+#
+# The five §11.2 coming-soon reports plus cheque report 7, all read live
+# from the engine through the port — never recomputed from a HesabYar
+# cache (§11.1). The figures come from the same engine reads Tryton's own
+# reference reports render: posted ``account.move.line`` rows (general
+# ledger, trial balance, cash flow, notes aging) and the
+# ``account.account`` balance Function field in the report context
+# (balance sheet, income statement — the figures the
+# ``account.account.type.statement`` reference report aggregates; see
+# docs/financial-reports.md for why the adapter reads account balances
+# instead of the type ``amount`` Function field).
+#
+# Every view carries its ``source_endpoint`` and a ``freshness`` block
+# (stamped by the report query service, None on views built by tests
+# that do not go through the service).
+
+
+@dataclass(frozen=True, slots=True)
+class GeneralLedgerLineView:
+    """One posted move line in a general-ledger account section.
+
+    ``balance`` is the account's running balance (debit minus credit)
+    AFTER this line, starting from the account's opening balance.
+    ``move_number`` is the engine move number (``""`` when the move
+    has none); ``description`` is the line's own description, falling
+    back to the move's description.
+    """
+
+    move_id: int
+    move_number: str
+    date: FiscalDate
+    description: str
+    debit: MoneyIRR
+    credit: MoneyIRR
+    balance: MoneyIRR
+
+
+@dataclass(frozen=True, slots=True)
+class GeneralLedgerAccountView:
+    """One account's general-ledger section: opening balance + lines.
+
+    ``lines`` is empty in summary mode (no single account requested):
+    the summary lists per-account totals only, and the lines load when
+    one account is selected (drill-down from the trial balance).
+    """
+
+    account: AccountRef
+    code: str
+    name: str
+    opening_balance: MoneyIRR
+    lines: tuple[GeneralLedgerLineView, ...] = ()
+    total_debit: MoneyIRR = MoneyIRR(0)
+    total_credit: MoneyIRR = MoneyIRR(0)
+
+    @property
+    def closing_balance(self) -> MoneyIRR:
+        """Opening balance plus the period's net activity (debit minus credit)."""
+        return MoneyIRR(
+            self.opening_balance.amount
+            + self.total_debit.amount
+            - self.total_credit.amount
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class GeneralLedgerView:
+    """A general ledger over POSTED moves only, for one company and date range."""
+
+    company: CompanyRef
+    date_from: FiscalDate
+    date_to: FiscalDate
+    accounts: tuple[GeneralLedgerAccountView, ...] = ()
+    total_debit: MoneyIRR = MoneyIRR(0)
+    total_credit: MoneyIRR = MoneyIRR(0)
+    move_count: int = 0
+    line_count: int = 0
+    source_endpoint: str = "account.move.line (Tryton REST)"
+    freshness: ReportFreshness | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class StatementLineView:
+    """One row of a financial statement section.
+
+    ``kind`` is ``"type"`` (a subtotal row for an account type) or
+    ``"account"`` (one account's figure); ``depth`` is the tree depth
+    for indentation (0 = the section's top-level type rows).
+    ``amount`` is the statement-presentation amount: assets,
+    liabilities, equity, revenue and expenses are POSITIVE magnitudes
+    — the sign convention is the section's, not the engine's raw
+    credit-minus-debit (see ``domain/reports/statements.py``). The
+    one exception is the current-period-result line inside equity,
+    which is negative for a net loss. ``amount_cmp`` is the same
+    figure for the comparison period (None when no comparison was
+    requested).
+    """
+
+    kind: str  # 'type' | 'account'
+    ref_id: int
+    label: str
+    code: str | None
+    depth: int
+    amount: MoneyIRR
+    amount_cmp: MoneyIRR | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class StatementSectionView:
+    """One section of a financial statement (assets, revenue, ...).
+
+    ``key`` is the stable section key (``"assets"``,
+    ``"liabilities"``, ``"equity"``, ``"revenue"``, ``"expenses"``);
+    ``title`` is the English type name the section is rooted at (the
+    UI maps the key to its Persian label). ``total`` is the section
+    total (a positive magnitude); ``lines`` are the section's rows in
+    tree order.
+    """
+
+    key: str
+    title: str
+    lines: tuple[StatementLineView, ...] = ()
+    total: MoneyIRR = MoneyIRR(0)
+    total_cmp: MoneyIRR | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class BalanceSheetView:
+    """A balance sheet at a point in time, with an optional comparison date.
+
+    Totals are positive magnitudes; ``balanced`` is the accounting
+    identity total assets == total liabilities + total equity
+    (current date), ``balanced_cmp`` the same for the comparison
+    date. The current-period result is inside equity (the
+    profit/loss type sits under equity in the universal chart), so a
+    balanced ledger always balances here.
+    """
+
+    company: CompanyRef
+    as_of: FiscalDate
+    comparison_as_of: FiscalDate | None
+    sections: tuple[StatementSectionView, ...] = ()
+    total_assets: MoneyIRR = MoneyIRR(0)
+    total_liabilities: MoneyIRR = MoneyIRR(0)
+    total_equity: MoneyIRR = MoneyIRR(0)
+    total_assets_cmp: MoneyIRR | None = None
+    total_liabilities_cmp: MoneyIRR | None = None
+    total_equity_cmp: MoneyIRR | None = None
+    balanced: bool = True
+    balanced_cmp: bool | None = None
+    source_endpoint: str = "account.account.balance (Tryton REST)"
+    freshness: ReportFreshness | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class MonthlyRevenueExpenseView:
+    """One Jalali month's net revenue and expense (P&L chart data).
+
+    ``revenue`` is the net credit on revenue-classified accounts in
+    the month, ``expense`` the net debit on expense-classified
+    accounts — usually positive, negative when the month's reversals
+    exceed its activity. The classification is fixed by each account
+    type's sign over the WHOLE period, so the monthly figures always
+    sum to the statement totals (see
+    ``domain/reports/statements.py``).
+    """
+
+    jalali_month: str  # 'YYYY-MM' in the Jalali calendar, e.g. '1405-08'
+    month_start: FiscalDate
+    month_end: FiscalDate
+    revenue: MoneyIRR
+    expense: MoneyIRR
+
+
+@dataclass(frozen=True, slots=True)
+class IncomeStatementView:
+    """An income statement (P&L) over a period, with prior-period comparison.
+
+    ``total_revenue`` / ``total_expense`` are positive magnitudes;
+    ``net_income`` is revenue minus expense (negative for a net
+    loss). ``monthly`` drives the monthly revenue/expense bar chart;
+    ``monthly_ties_out`` asserts the monthly figures sum to the
+    statement totals.
+    """
+
+    company: CompanyRef
+    date_from: FiscalDate
+    date_to: FiscalDate
+    comparison_from: FiscalDate | None
+    comparison_to: FiscalDate | None
+    sections: tuple[StatementSectionView, ...] = ()
+    total_revenue: MoneyIRR = MoneyIRR(0)
+    total_expense: MoneyIRR = MoneyIRR(0)
+    net_income: MoneyIRR = MoneyIRR(0)
+    total_revenue_cmp: MoneyIRR | None = None
+    total_expense_cmp: MoneyIRR | None = None
+    net_income_cmp: MoneyIRR | None = None
+    monthly: tuple[MonthlyRevenueExpenseView, ...] = ()
+    monthly_ties_out: bool = True
+    source_endpoint: str = "account.account.balance (Tryton REST)"
+    freshness: ReportFreshness | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CashFlowSectionView:
+    """One cash-flow section (operating / investing / financing).
+
+    ``inflow`` / ``outflow`` are positive magnitudes; ``net`` is
+    inflow minus outflow (negative when the section consumed cash).
+    ``line_count`` is the number of cash move lines classified into
+    the section.
+    """
+
+    key: str  # 'operating' | 'investing' | 'financing'
+    title: str
+    inflow: MoneyIRR
+    outflow: MoneyIRR
+    net: MoneyIRR
+    line_count: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class CashFlowView:
+    """A direct-method cash-flow statement over a period.
+
+    Tryton has NO cash-flow reference report: this statement is a
+    documented HesabYar derivation from the engine's posted cash
+    moves (calculation version ``direct-method/1.0`` — see
+    ``domain/reports/statements.py`` for the classification rule).
+    ``ties_out`` asserts opening + operating + investing + financing
+    == closing; ``unclassified_*`` counts cash lines whose
+    counterpart could not be classified (they break the tie-out and
+    are reported, never silently dropped); ``transfer_count`` counts
+    cash-to-cash transfers, excluded from every section (they move
+    no cash in or out).
+    """
+
+    company: CompanyRef
+    date_from: FiscalDate
+    date_to: FiscalDate
+    opening_cash: MoneyIRR
+    closing_cash: MoneyIRR
+    sections: tuple[CashFlowSectionView, ...] = ()
+    net_change: MoneyIRR = MoneyIRR(0)
+    ties_out: bool = True
+    cash_accounts: tuple[str, ...] = ()
+    transfer_count: int = 0
+    unclassified_count: int = 0
+    unclassified_total: MoneyIRR = MoneyIRR(0)
+    source_endpoint: str = "account.move.line (Tryton REST)"
+    freshness: ReportFreshness | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class NotesBalanceRowView:
+    """One party's notes balance on one notes account (cheque report 7).
+
+    Amounts are signed nets: for a receivable account the
+    debit-minus-credit balance (what the party owes us), for a
+    payable account the credit-minus-debit balance (what we owe the
+    party) — positive for normal balances, negative when the party
+    overpaid. Buckets follow the Tryton aged-balance rule
+    (``account.aged_balance``): a line ages from its maturity date
+    (falling back to the move date); ``bucket_not_yet_due`` holds
+    lines maturing AFTER the as-of date, which Tryton's model puts
+    in the balance but in no term — here they get their own bucket so
+    the buckets always sum to the row total.
+    """
+
+    party_id: int | None
+    party_name: str
+    instrument: str  # 'receivable' | 'payable'
+    account_code: str
+    account_name: str
+    bucket_not_yet_due: MoneyIRR = MoneyIRR(0)
+    bucket_0_30: MoneyIRR = MoneyIRR(0)
+    bucket_30_60: MoneyIRR = MoneyIRR(0)
+    bucket_60_90: MoneyIRR = MoneyIRR(0)
+    bucket_90_120: MoneyIRR = MoneyIRR(0)
+    bucket_120_plus: MoneyIRR = MoneyIRR(0)
+    total: MoneyIRR = MoneyIRR(0)
+    line_count: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class NotesBalanceView:
+    """Notes receivable/payable balances with aging (cheque report 7).
+
+    ``instrument`` is the filter applied (``"both"``,
+    ``"receivable"`` or ``"payable"``); ``accounts_read`` lists the
+    notes accounts that exist on the company (a company whose chart
+    lacks the HesabYar extension has none of 1.2.4/1.2.5/2.1.5 and
+    reads an honest empty report). ``totals`` is the bucket totals
+    over all rows (party fields empty on the totals row).
+    """
+
+    company: CompanyRef
+    as_of: FiscalDate
+    instrument: str
+    rows: tuple[NotesBalanceRowView, ...] = ()
+    totals: NotesBalanceRowView | None = None
+    accounts_read: tuple[str, ...] = ()
+    source_endpoint: str = "account.move.line (Tryton REST)"
+    freshness: ReportFreshness | None = None

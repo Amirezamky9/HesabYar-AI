@@ -289,6 +289,27 @@ class _ExceptionCollector:
     review_item_ids: list[str] = dataclasses.field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class _TieOutSums:
+    """The pure tie-out inputs for one import batch (US-554).
+
+    Computed read-only by :meth:`SettlementImportService._tieout_sums`:
+    the tie-out core and the read-only figures endpoint share it, so
+    the batch variance report (US-554) sums exactly what the tie-out
+    sums — no second calculator.
+    """
+
+    events: tuple[SettlementEvent, ...]
+    confirmed_total_irr: int
+    deductions_irr: int
+    matched_deposits_irr: int
+    confirmed_tranches: tuple[SettlementTranche, ...]
+    latest_payout: datetime.date
+    deposit_ids: frozenset[str]
+    per_event: tuple[tuple[SettlementEvent, int, int], ...]
+    """Per event: (event, confirmed tranche nets, allocated deposits)."""
+
+
 class SettlementImportService:
     """Settlement import + matching + tie-out over the ports."""
 
@@ -785,6 +806,24 @@ class SettlementImportService:
             duplicate_rows=sum(1 for row in rows if row.match_status == ROW_DUPLICATE),
             invalid_rows=sum(1 for row in rows if row.net_irr is None),
             dropped_rows=0,
+        )
+
+    def preview_for_import(
+        self, installation_id: str, import_id: str
+    ) -> ImportPreview:
+        """Recompute the accounting-effect preview from stored rows (US-554).
+
+        The same preview ``import_file`` computed at upload — the
+        manual-import batch re-run uses it to refresh the preview
+        from the stored rows without re-uploading the file.
+        """
+        file_import = self._require_import(installation_id, import_id)
+        rows = self._repository.list_file_rows(file_import.id)
+        return self._preview_from_rows(
+            installation_id,
+            file_import.payment_channel_id,
+            rows,
+            file_import.file_type,
         )
 
     # -- C1: approve / reject ---------------------------------------------------
@@ -1360,8 +1399,11 @@ class SettlementImportService:
 
         Written to the transactional outbox in the same transaction as
         the settlement event: a worker publishes pending rows, and the
-        outbox row is the durable record (no pipeline consumer exists
-        for this type yet — it lands with the unified panel / MCP).
+        outbox row is the durable record. The pipeline consumer for
+        this type is the US-554 settlement-received handler
+        (``SettlementReceivedHandler``): a receipt arriving as an
+        event flows through the same tie-out + auto-post rules as a
+        file import.
         """
         now = self._clock()
         payload: dict[str, object] = {
@@ -2116,31 +2158,77 @@ class SettlementImportService:
             installation_id, tenant_id, file_import, company, actor
         )
 
-    def _run_tieout_core(
+    def run_tieout_for_batch(
         self,
         installation_id: str,
         tenant_id: str,
-        file_import: SettlementFileImport,
+        import_batch_id: str,
         company: CompanyRef | None,
         actor: str,
-    ) -> TieOutRunResult:
-        """The tie-out itself: compute, gate, post-or-hold, settle-or-except."""
-        collector = _ExceptionCollector()
-        channel = self._registry.get_channel_by_id(file_import.payment_channel_id)
-        channel_key = channel.channel_key if channel is not None else file_import.payment_channel_id
+    ) -> TieOutRunResult | None:
+        """Run the tie-out for one import batch by its batch id (US-554).
+
+        The public entry the manual-import batch approve step and the
+        settlement-received event consumer share: one tie-out path
+        for file imports and for events. Returns None when the batch
+        is not in a tie-out-able state (still awaiting review,
+        rejected, or already settled — the settled case is a no-op,
+        never a re-post). A ``company`` of None runs the tie-out in
+        draft-hold mode (the gate fails closed without a company).
+        """
+        file_import = self._repository.get_file_import_by_batch(
+            installation_id, import_batch_id
+        )
+        if file_import is None:
+            return None
+        if file_import.status in (IMPORT_AWAITING_REVIEW, IMPORT_REJECTED, IMPORT_SETTLED):
+            return None
+        return self._run_tieout_core(
+            installation_id, tenant_id, file_import, company, actor
+        )
+
+    def compute_tieout_figures(
+        self, installation_id: str, import_batch_id: str
+    ) -> TieOutResult | None:
+        """Compute a batch's tie-out figures WITHOUT side effects (US-554).
+
+        Read-only: no exceptions filed, no status changed, nothing
+        posted — the batch variance report reads the same figures the
+        tie-out itself computes. Returns None when the batch has no
+        import or no settlement event yet.
+        """
+        file_import = self._repository.get_file_import_by_batch(
+            installation_id, import_batch_id
+        )
+        if file_import is None:
+            return None
+        sums = self._tieout_sums(installation_id, file_import)
+        if sums is None:
+            return None
         _, tieout_tolerance = self._tolerances(file_import.payment_channel_id)
+        return compute_tieout(
+            confirmed_total_irr=sums.confirmed_total_irr,
+            deductions_irr=sums.deductions_irr,
+            matched_deposits_irr=sums.matched_deposits_irr,
+            tolerance_irr=tieout_tolerance,
+        )
+
+    def _tieout_sums(
+        self, installation_id: str, file_import: SettlementFileImport
+    ) -> _TieOutSums | None:
+        """The pure tie-out inputs for one import batch (no side effects).
+
+        Sums: confirmed tranche nets (from the tranches) vs ALLOCATED
+        deposit amounts (from the deposit match links). An overpaid
+        deposit's parked remainder is NOT in the deposit sum — it is
+        accounted for separately as an unallocated receipt. Returns
+        None when the batch has no settlement event yet.
+        """
         events = self._repository.list_settlement_events(
             installation_id, import_batch_id=file_import.import_batch_id
         )
         if not events:
-            raise SettlementImportStateError(
-                f"Import {file_import.id} has no settlement event to tie out.",
-                details={"import_id": file_import.id},
-            )
-        # Sums: confirmed tranche nets (from the tranches) vs ALLOCATED
-        # deposit amounts (from the deposit match links). An overpaid
-        # deposit's parked remainder is NOT in the deposit sum — it is
-        # accounted for separately as an unallocated receipt.
+            return None
         confirmed_total = 0
         deductions = 0
         matched_deposits = 0
@@ -2172,6 +2260,45 @@ class SettlementImportService:
             confirmed_total += event_confirmed
             matched_deposits += event_deposits
             per_event.append((event, event_confirmed, event_deposits))
+        return _TieOutSums(
+            events=tuple(events),
+            confirmed_total_irr=confirmed_total,
+            deductions_irr=deductions,
+            matched_deposits_irr=matched_deposits,
+            confirmed_tranches=tuple(confirmed_tranches),
+            latest_payout=latest_payout,
+            deposit_ids=frozenset(deposit_ids),
+            per_event=tuple(per_event),
+        )
+
+    def _run_tieout_core(
+        self,
+        installation_id: str,
+        tenant_id: str,
+        file_import: SettlementFileImport,
+        company: CompanyRef | None,
+        actor: str,
+    ) -> TieOutRunResult:
+        """The tie-out itself: compute, gate, post-or-hold, settle-or-except."""
+        collector = _ExceptionCollector()
+        channel = self._registry.get_channel_by_id(file_import.payment_channel_id)
+        channel_key = channel.channel_key if channel is not None else file_import.payment_channel_id
+        _, tieout_tolerance = self._tolerances(file_import.payment_channel_id)
+        sums = self._tieout_sums(installation_id, file_import)
+        if sums is None:
+            raise SettlementImportStateError(
+                f"Import {file_import.id} has no settlement event to tie out.",
+                details={"import_id": file_import.id},
+            )
+        events = list(sums.events)
+        confirmed_total = sums.confirmed_total_irr
+        deductions = sums.deductions_irr
+        matched_deposits = sums.matched_deposits_irr
+        confirmed_tranches = list(sums.confirmed_tranches)
+        latest_payout = sums.latest_payout
+        deposit_ids = set(sums.deposit_ids)
+        per_event = list(sums.per_event)
+        for event, _event_confirmed, event_deposits in per_event:
             # Missing-deposit detection (per event + per tranche).
             if event_deposits == 0:
                 self._file_exception(

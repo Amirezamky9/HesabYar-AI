@@ -251,3 +251,31 @@ class ApiKeyRepository:
         """Persist or update an API key."""
         self.session.add(key)
         self.session.flush()
+
+
+class SqlAlchemyInstallationTenantResolver:
+    """Resolve an installation's tenant through the API-key store (US-555).
+
+    Implements
+    :class:`hesabyar.domain.settlement.ports.InstallationTenantResolver`:
+    a key is issued for one client of one tenant under one
+    installation, so the oldest key for an installation identifies
+    its tenant. Revoked/expired keys still identify the same client,
+    so they are not filtered out — the lookup is about ownership,
+    not about whether the key can still authenticate. Returns None
+    when no key exists for the installation.
+    """
+
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def tenant_id_for_installation(self, installation_id: str) -> str | None:
+        """Return the tenant owning this installation, or None."""
+        stmt = (
+            select(ApiClientModel.tenant_id)
+            .join(ApiKeyModel, ApiKeyModel.client_id == ApiClientModel.id)
+            .where(ApiKeyModel.installation_id == installation_id)
+            .order_by(ApiKeyModel.created_at.asc(), ApiKeyModel.id.asc())
+            .limit(1)
+        )
+        return self.session.execute(stmt).scalar_one_or_none()

@@ -27,6 +27,7 @@ from hesabyar.domain.cheques.models import (
     InquiryReceipt,
     InquiryType,
     InstallmentLegStatus,
+    MonthlyMatchHistory,
     RedBrownPolicy,
     SayadStatus,
     StorageLocation,
@@ -36,9 +37,25 @@ from hesabyar.domain.common.dates import FiscalDate
 from hesabyar.infrastructure.persistence.postgres.models import (
     ChequeCustodyLogModel,
     ChequeInquiryReceiptModel,
+    ChequeMatchHistoryModel,
     ChequeModel,
     ChequeSettingsModel,
 )
+
+
+def _history_from_row(row: ChequeMatchHistoryModel) -> MonthlyMatchHistory:
+    return MonthlyMatchHistory(
+        id=row.id,
+        tenant_id=row.tenant_id,
+        installation_id=row.installation_id,
+        month_jalali=row.month_jalali,
+        exact_count=row.exact_count,
+        probable_count=row.probable_count,
+        ambiguous_count=row.ambiguous_count,
+        unmatched_count=row.unmatched_count,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
 
 
 def _cheque_from_row(row: ChequeModel) -> Cheque:
@@ -329,6 +346,52 @@ class SqlAlchemyChequeRepository(ChequeRepositoryPort):
         )
         return [_cheque_from_row(row) for row in self._session.execute(stmt).scalars()]
 
+    def record_match_history(self, entry: MonthlyMatchHistory) -> MonthlyMatchHistory:
+        """Add one run's counts to its Jalali month (US-553, upsert-add)."""
+        stmt = select(ChequeMatchHistoryModel).where(
+            ChequeMatchHistoryModel.installation_id == entry.installation_id,
+            ChequeMatchHistoryModel.month_jalali == entry.month_jalali,
+        )
+        row = self._session.execute(stmt).scalar_one_or_none()
+        if row is None:
+            row = ChequeMatchHistoryModel(
+                id=entry.id,
+                tenant_id=entry.tenant_id,
+                installation_id=entry.installation_id,
+                month_jalali=entry.month_jalali,
+                exact_count=entry.exact_count,
+                probable_count=entry.probable_count,
+                ambiguous_count=entry.ambiguous_count,
+                unmatched_count=entry.unmatched_count,
+                created_at=entry.created_at,
+                updated_at=entry.updated_at,
+            )
+            self._session.add(row)
+        else:
+            row.exact_count += entry.exact_count
+            row.probable_count += entry.probable_count
+            row.ambiguous_count += entry.ambiguous_count
+            row.unmatched_count += entry.unmatched_count
+            row.updated_at = datetime.datetime.now(datetime.UTC)
+        self._session.flush()
+        return _history_from_row(row)
+
+    def list_match_history(
+        self, *, tenant_id: str, installation_id: str, months: int = 12
+    ) -> Sequence[MonthlyMatchHistory]:
+        """Stored monthly match history, oldest first (US-553, report 12)."""
+        stmt = (
+            select(ChequeMatchHistoryModel)
+            .where(
+                ChequeMatchHistoryModel.tenant_id == tenant_id,
+                ChequeMatchHistoryModel.installation_id == installation_id,
+            )
+            .order_by(ChequeMatchHistoryModel.month_jalali.desc())
+            .limit(max(months, 1))
+        )
+        rows = self._session.execute(stmt).scalars().all()
+        return [_history_from_row(row) for row in reversed(rows)]
+
     def list(
         self,
         *,
@@ -341,6 +404,7 @@ class SqlAlchemyChequeRepository(ChequeRepositoryPort):
         purpose: ChequePurpose | None = None,
         endorsee_type: str | None = None,
         storage_location: StorageLocation | None = None,
+        company_engine_id: int | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> Sequence[Cheque]:
@@ -362,6 +426,8 @@ class SqlAlchemyChequeRepository(ChequeRepositoryPort):
             stmt = stmt.where(ChequeModel.endorsee_type == endorsee_type)
         if storage_location is not None:
             stmt = stmt.where(ChequeModel.storage_location == storage_location.value)
+        if company_engine_id is not None:
+            stmt = stmt.where(ChequeModel.company_engine_id == company_engine_id)
         stmt = stmt.order_by(ChequeModel.created_at.desc(), ChequeModel.id.desc())
         stmt = stmt.limit(limit).offset(offset)
         return [_cheque_from_row(row) for row in self._session.execute(stmt).scalars().all()]

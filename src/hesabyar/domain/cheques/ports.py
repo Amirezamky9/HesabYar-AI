@@ -27,6 +27,7 @@ from hesabyar.domain.cheques.models import (
     CustodyLogEntry,
     InquiryReceipt,
     InstallmentLegStatus,
+    MonthlyMatchHistory,
     StorageLocation,
 )
 from hesabyar.domain.cheques.validation import ChequeRegistration
@@ -89,6 +90,7 @@ class ChequeRepositoryPort(Protocol):
         purpose: ChequePurpose | None = None,
         endorsee_type: str | None = None,
         storage_location: StorageLocation | None = None,
+        company_engine_id: int | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> Sequence[Cheque]:
@@ -102,6 +104,11 @@ class ChequeRepositoryPort(Protocol):
         lists ``purpose=collateral`` with the secured-obligation
         dimension, and report 16 / the §6 cash-box count list by
         ``storage_location``.
+
+        ``company_engine_id`` (US-551) scopes the list to one
+        engine company; ``None`` is the tenant-wide default — the
+        dashboard and the cheque center pass the active company,
+        the reports keep the default.
         """
         ...
 
@@ -164,6 +171,29 @@ class ChequeRepositoryPort(Protocol):
         installation's clearing window with no bank document is
         filed to the review queue as ``stale_in_clearing`` — it is
         NEVER auto-bounced.
+        """
+        ...
+
+    def record_match_history(self, entry: MonthlyMatchHistory) -> MonthlyMatchHistory:
+        """Add one matching run's counts to its Jalali month (US-553).
+
+        Upsert-add on (installation_id, month_jalali): a month with
+        no row yet gets one; a month with a row has the run's counts
+        added to it (several runs in one month accumulate). The
+        caller records each run ONCE — re-running the same statement
+        must not re-record its already-decided lines (the clearing
+        service counts only newly decided lines).
+        """
+        ...
+
+    def list_match_history(
+        self, *, tenant_id: str, installation_id: str, months: int = 12
+    ) -> Sequence[MonthlyMatchHistory]:
+        """Return the stored monthly match history, oldest first (US-553).
+
+        At most ``months`` rows (the most recent months). Report 12
+        renders FROM these rows — never recomputed from raw match
+        records at read time.
         """
         ...
 

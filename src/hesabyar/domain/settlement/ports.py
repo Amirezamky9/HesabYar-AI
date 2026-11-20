@@ -41,7 +41,13 @@ from hesabyar.domain.settlement.models import (
     TrancheState,
 )
 
-__all__ = ["BankReceiptPosting", "SettlementAuditPort", "SettlementPostingPort", "SettlementRepositoryPort"]
+__all__ = [
+    "BankReceiptPosting",
+    "InstallationTenantResolver",
+    "SettlementAuditPort",
+    "SettlementPostingPort",
+    "SettlementRepositoryPort",
+]
 
 
 @dataclass
@@ -110,6 +116,24 @@ class SettlementAuditPort(Protocol):
         metadata: dict[str, Any] | None = None,
     ) -> None:
         """Append one audit event (flushes; the caller commits)."""
+        ...
+
+
+class InstallationTenantResolver(Protocol):
+    """Resolve the owning tenant of an installation id (US-555).
+
+    The daily tick runs across ALL installations with no caller, so
+    it has no tenant — but the unified review queue is
+    tenant-scoped. The resolver bridges the gap through the API-key
+    store: a key is issued for one client of one tenant under one
+    installation, so the oldest key for an installation identifies
+    its tenant. Returns None when no key exists for the
+    installation (the tick then files no review item — the
+    exception itself is still persisted, never silently dropped).
+    """
+
+    def tenant_id_for_installation(self, installation_id: str) -> str | None:
+        """Return the tenant owning this installation, or None."""
         ...
 
 

@@ -72,6 +72,7 @@ from hesabyar.application.commands.integrations import (
 from hesabyar.application.commands.invoices import InvoiceDraftService
 from hesabyar.application.commands.journals import JournalDraftService
 from hesabyar.application.commands.manual_entries import ManualEntryService
+from hesabyar.application.commands.manual_imports import ManualImportService
 from hesabyar.application.commands.moadian import (
     MoadianDocumentService,
     MoadianProfileService,
@@ -86,6 +87,7 @@ from hesabyar.application.commands.sayyad import SayyadInquiryService
 from hesabyar.application.commands.settlement import SettlementCommandService
 from hesabyar.application.commands.settlement_import import SettlementImportService
 from hesabyar.application.commands.settlement_posting import SettlementPostingService
+from hesabyar.application.commands.settlement_received import SettlementReceivedHandler
 from hesabyar.application.commands.sms import SmsRegistryService, SmsReminderService
 from hesabyar.application.commands.standards import StandardsValidationService
 from hesabyar.application.commands.store_events import StoreDraftBuilder, StoreMappingResolver
@@ -93,6 +95,7 @@ from hesabyar.application.commands.sync import StoreSyncService
 from hesabyar.application.commands.tax_policy import TaxDecisionService
 from hesabyar.application.queries.accounts import AccountQueryService
 from hesabyar.application.queries.bank import BankQueryService
+from hesabyar.application.queries.cash_forecast import CashForecastQueryService
 from hesabyar.application.queries.cashbox import CashBoxQueryService
 from hesabyar.application.queries.cheques import ChequeQueryService
 from hesabyar.application.queries.companies import CompanyQueryService
@@ -131,15 +134,13 @@ from hesabyar.infrastructure.auth.keys import ApiKeyCrypto
 from hesabyar.infrastructure.auth.service import ApiKeyService
 from hesabyar.infrastructure.bank.file_readers import StatementFileReader
 from hesabyar.infrastructure.config import AppSettings, get_settings
-from hesabyar.infrastructure.events.defaults import (
-    InboxReviewQueueAdapter,
-    InProcessOutboxPublisher,
-)
+from hesabyar.infrastructure.events.defaults import InProcessOutboxPublisher
 from hesabyar.infrastructure.events.procrastinate_queue import (
     ProcrastinateJobQueue,
     create_connector,
     create_defer_app,
 )
+from hesabyar.infrastructure.events.review_queue_adapter import PersistentReviewQueueAdapter
 from hesabyar.infrastructure.events.store_secrets import RegistryWebhookSecretStore
 from hesabyar.infrastructure.files.local_scan_store import LocalChequeScanStore
 from hesabyar.infrastructure.gateways.factory import GatewayClientFactory
@@ -168,6 +169,9 @@ from hesabyar.infrastructure.persistence.postgres.integrations_repository import
 from hesabyar.infrastructure.persistence.postgres.manual_entry_repository import (
     SqlAlchemyManualEntryRepository,
 )
+from hesabyar.infrastructure.persistence.postgres.manual_import_repository import (
+    SqlAlchemyManualImportRepository,
+)
 from hesabyar.infrastructure.persistence.postgres.moadian_repository import SqlAlchemyMoadianRepository
 from hesabyar.infrastructure.persistence.postgres.models import EngineCompanyModel
 from hesabyar.infrastructure.persistence.postgres.packaging_repository import (
@@ -175,6 +179,9 @@ from hesabyar.infrastructure.persistence.postgres.packaging_repository import (
 )
 from hesabyar.infrastructure.persistence.postgres.report_snapshot_repository import (
     SqlAlchemyReportSnapshotRepository,
+)
+from hesabyar.infrastructure.persistence.postgres.repositories import (
+    SqlAlchemyInstallationTenantResolver,
 )
 from hesabyar.infrastructure.persistence.postgres.review_queue_repository import (
     SqlAlchemyReviewQueueRepository,
@@ -1150,9 +1157,16 @@ def get_review_queue_query_service(
 
 def get_review_queue_command_service(
     repository: SqlAlchemyReviewQueueRepository = Depends(get_review_queue_repository),
+    replay: DlqReplayService = Depends(get_dlq_replay_service),
+    mapping: MappingService = Depends(get_mapping_service),
 ) -> ReviewQueueCommandService:
-    """Build the review-queue command service for this request (override point for tests)."""
-    return ReviewQueueCommandService(repository, repository)
+    """Build the review-queue command service for this request (override point for tests).
+
+    US-552 wires both effect seams: the DLQ replay service (so a
+    ``replay`` action really replays) and the mapping service (so a
+    ``complete_mapping_retry`` action really learns the mapping).
+    """
+    return ReviewQueueCommandService(repository, repository, replay=replay, mapping=mapping)
 
 
 # -- Bank import + reconcile services (US-514) -------------------------------
@@ -1168,6 +1182,13 @@ def get_bank_repository(
 def get_bank_file_reader() -> StatementFileReader:
     """Build the statement file reader (stateless; override point for tests)."""
     return StatementFileReader()
+
+
+def get_manual_import_repository(
+    session: Session = Depends(get_db_session),
+) -> SqlAlchemyManualImportRepository:
+    """Build the SQLAlchemy manual-import repository for this request."""
+    return SqlAlchemyManualImportRepository(session)
 
 
 def get_bank_import_service(
@@ -1289,14 +1310,26 @@ def get_settlement_query_service(
     return SettlementQueryService(repository, registry)
 
 
+def get_installation_tenant_resolver(
+    session: Session = Depends(get_db_session),
+) -> SqlAlchemyInstallationTenantResolver:
+    """Build the installation→tenant resolver for this request (US-555)."""
+    return SqlAlchemyInstallationTenantResolver(session)
+
+
 def get_settlement_command_service(
     repository: SqlAlchemySettlementRepository = Depends(get_settlement_repository),
     registry: SqlAlchemyIntegrationsRepository = Depends(get_integrations_repository),
     audit: SqlAlchemySettlementAudit = Depends(get_settlement_audit),
     review: ReviewQueueCommandService = Depends(get_review_queue_command_service),
+    tenant_resolver: SqlAlchemyInstallationTenantResolver = Depends(
+        get_installation_tenant_resolver
+    ),
 ) -> SettlementCommandService:
     """Build the settlement command service for this request (override point for tests)."""
-    return SettlementCommandService(repository, registry, audit, review=review)
+    return SettlementCommandService(
+        repository, registry, audit, review=review, tenant_resolver=tenant_resolver
+    )
 
 
 def get_settlement_posting_service(
@@ -1350,6 +1383,43 @@ def get_settlement_import_service(
         outbox,
         posting,
         policy_gate,
+    )
+
+
+def get_manual_import_service(
+    batches: SqlAlchemyManualImportRepository = Depends(get_manual_import_repository),
+    bank_repository: SqlAlchemyBankRepository = Depends(get_bank_repository),
+    bank_import: BankImportService = Depends(get_bank_import_service),
+    settlement_import: SettlementImportService = Depends(get_settlement_import_service),
+    settlement_repository: SqlAlchemySettlementRepository = Depends(
+        get_settlement_repository
+    ),
+    review: ReviewQueueCommandService = Depends(get_review_queue_command_service),
+    reader: StatementFileReader = Depends(get_bank_file_reader),
+) -> ManualImportService:
+    """Build the manual-import batch service for this request (override point for tests)."""
+    return ManualImportService(
+        batches,
+        bank_repository,
+        bank_import,
+        settlement_import,
+        settlement_repository,
+        review,
+        reader,
+    )
+
+
+def get_settlement_received_handler(
+    settlement_import: SettlementImportService = Depends(get_settlement_import_service),
+    registry: SqlAlchemyIntegrationsRepository = Depends(get_integrations_repository),
+    settlement_repository: SqlAlchemySettlementRepository = Depends(
+        get_settlement_repository
+    ),
+    review: ReviewQueueCommandService = Depends(get_review_queue_command_service),
+) -> SettlementReceivedHandler:
+    """Build the settlement-received event handler (US-554 consumer)."""
+    return SettlementReceivedHandler(
+        settlement_import, registry, settlement_repository, review
     )
 
 
@@ -1435,6 +1505,29 @@ def get_installment_query_service(
     """
     return InstallmentQueryService(
         repository, cheques, settlement_repository=settlement_repository
+    )
+
+
+def get_cash_forecast_query_service(
+    adapter: TrytonAccountingAdapter = Depends(get_engine_adapter),
+    settlement_repository: SqlAlchemySettlementRepository = Depends(
+        get_settlement_repository
+    ),
+    installment_repository: SqlAlchemyInstallmentRepository = Depends(
+        get_installment_repository
+    ),
+    cheque_repository: SqlAlchemyChequeRepository = Depends(get_cheque_repository),
+    packaging_repository: SqlAlchemyPackagingRepository = Depends(
+        get_packaging_repository
+    ),
+) -> CashForecastQueryService:
+    """Build the cash-forecast query service (US-553, override point for tests)."""
+    return CashForecastQueryService(
+        adapter,
+        settlement_repository,
+        installment_repository,
+        cheque_repository,
+        packaging_repository,
     )
 
 
@@ -1587,19 +1680,29 @@ def get_event_pipeline_service(
     adapter: TrytonAccountingAdapter = Depends(get_engine_adapter),
     session: Session = Depends(get_db_session),
     cheque_commands: ChequeCommandService = Depends(get_cheque_command_service),
+    settlement_received: SettlementReceivedHandler = Depends(
+        get_settlement_received_handler
+    ),
+    review_commands: ReviewQueueCommandService = Depends(get_review_queue_command_service),
 ) -> EventPipelineService:
     """Build the event pipeline service for this request (override point for tests).
 
     US-511: the mapping resolver, draft builder and policy gate are
-    the registry-backed store implementations (F3 seams filled); the
-    inbox-backed review queue stays until F4 replaces it. Draft is
-    still the default — the registry gate only auto-posts when the
-    installation opted in, the event type has an allowed policy row
-    with a cap, and the fiscal period is open.
+    the registry-backed store implementations (F3 seams filled).
+    US-552 (F4): pipeline exceptions now file real ``ReviewItem``
+    rows through :class:`PersistentReviewQueueAdapter` — the
+    inbox-backed review queue is gone. Draft is still the default —
+    the registry gate only auto-posts when the installation opted
+    in, the event type has an allowed policy row with a cap, and the
+    fiscal period is open.
 
     US-533: site cheque events branch to the intake handler (the
     cheque command service), because intake creates no engine
     document — it writes the cheque registry instead.
+
+    US-554: settlement receipts branch to the settlement-received
+    handler, because a receipt runs the tie-out + auto-post path,
+    not the draft-builder path.
     """
     registry = SqlAlchemyIntegrationsRepository(session)
     return EventPipelineService(
@@ -1613,9 +1716,10 @@ def get_event_pipeline_service(
         RegistryPolicyGate(
             PolicyGateService(registry, TrytonFiscalPeriodChecker(adapter))
         ),
-        InboxReviewQueueAdapter(),
+        PersistentReviewQueueAdapter(review_commands),
         adapter,
         SiteChequeIntakeHandler(cheque_commands),
+        settlement_received,
     )
 
 

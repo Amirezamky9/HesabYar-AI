@@ -124,7 +124,13 @@ class CreateGatewayContract:
 
 @dataclass(frozen=True)
 class CreateIntegrationMapping:
-    """Create a NEW mapping version (supersedes the active one, if any)."""
+    """Create a NEW mapping version (supersedes the active one, if any).
+
+    ``confirmations`` is assigned by the service (US-552): a
+    re-confirmation of an unchanged target carries the superseded
+    version's count + 1; a changed target starts at 1. The default
+    (1) covers a first version and direct constructions.
+    """
 
     installation_id: str
     mapping_kind: MappingKind
@@ -138,6 +144,7 @@ class CreateIntegrationMapping:
     confidence: Decimal | None = None
     notes: str | None = None
     created_by: str | None = None
+    confirmations: int = 1
 
 
 @dataclass(frozen=True)

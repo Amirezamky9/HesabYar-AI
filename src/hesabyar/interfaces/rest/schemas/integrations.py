@@ -260,6 +260,12 @@ class IntegrationMappingResponse(BaseModel):
     confidence: Decimal | None = Field(description="Confidence 0..1 for learned mappings")
     notes: str | None = Field(description="Operator notes")
     created_by: str | None = Field(description="Actor that created this version")
+    confirmations: int = Field(
+        description="How many times the same target was confirmed (promotion to Auto needs 3)"
+    )
+    auto_eligible: bool = Field(
+        description="True when an active Suggest mapping has enough confirmations to promote"
+    )
     created_at: datetime | None = Field(description="Row creation timestamp (UTC)")
     updated_at: datetime | None = Field(description="Last-modified timestamp (UTC)")
 
@@ -280,6 +286,8 @@ class IntegrationMappingResponse(BaseModel):
             confidence=_clean_optional_decimal(mapping.confidence),
             notes=mapping.notes,
             created_by=mapping.created_by,
+            confirmations=mapping.confirmations,
+            auto_eligible=mapping.auto_eligible,
             created_at=mapping.created_at,
             updated_at=mapping.updated_at,
         )

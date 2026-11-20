@@ -85,17 +85,22 @@ from hesabyar.domain.accounting.value_objects import (
     AccountView,
     AnalyticAccountView,
     AnalyticLineView,
+    BalanceSheetView,
     BankStatementView,
+    CashFlowView,
     CheckbookEngineView,
     ChequeEngineView,
     CompanyView,
     FiscalPeriodView,
     FiscalYearView,
+    GeneralLedgerView,
+    IncomeStatementView,
     InventoryView,
     InvoiceTotalView,
     InvoiceView,
     JournalDraftView,
     MoveLineView,
+    NotesBalanceView,
     OrderPointView,
     OutShipmentCostView,
     PackagingProductView,
@@ -269,6 +274,50 @@ class FakeReportEngine:
             raise self._failure
         assert self._trial_balance is not None, "fake engine has no trial balance"
         return self._trial_balance
+
+    def get_general_ledger(
+        self,
+        company: CompanyRef,
+        date_from: FiscalDate,
+        date_to: FiscalDate,
+        account: AccountRef | None = None,
+    ) -> GeneralLedgerView:
+        raise NotImplementedError("report services never read the general ledger")
+
+    def get_balance_sheet(
+        self,
+        company: CompanyRef,
+        as_of: FiscalDate,
+        comparison_as_of: FiscalDate | None = None,
+    ) -> BalanceSheetView:
+        raise NotImplementedError("report services never read the balance sheet")
+
+    def get_income_statement(
+        self,
+        company: CompanyRef,
+        date_from: FiscalDate,
+        date_to: FiscalDate,
+        comparison_from: FiscalDate | None = None,
+        comparison_to: FiscalDate | None = None,
+    ) -> IncomeStatementView:
+        raise NotImplementedError("report services never read the income statement")
+
+    def get_cash_flow(
+        self,
+        company: CompanyRef,
+        date_from: FiscalDate,
+        date_to: FiscalDate,
+    ) -> CashFlowView:
+        raise NotImplementedError("report services never read the cash-flow statement")
+
+    def get_notes_balance(
+        self,
+        company: CompanyRef,
+        as_of: FiscalDate,
+        instrument: str = "both",
+        party: PartyRef | None = None,
+    ) -> NotesBalanceView:
+        raise NotImplementedError("report services never read the notes balance")
 
     def create_invoice_draft(self, command: CreateInvoiceDraft) -> InvoiceRef:
         raise NotImplementedError("report services never create invoices")

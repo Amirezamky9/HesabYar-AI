@@ -8,7 +8,9 @@ the service owns transitions, the engine owns the journals.
   intake, NO journal; 201). A live cheque with the same sayad_id is
   a 409, unless its engine link failed (then the link is retried).
 - ``GET /cheques`` / ``{cheque_id}`` — registry reads (detail carries
-  the custody history + inquiry receipts).
+  the custody history + inquiry receipts). The list accepts an
+  optional ``company`` filter (US-551): an API company id (HesabYar
+  row id or engine company id); absent, the list is tenant-wide.
 - ``POST /cheques/{id}/confirm-receipt`` — registered -> held (سند ۱).
 - ``POST /cheques/{id}/deposit`` — held -> in_clearing (سند ۲).
 - ``POST /cheques/{id}/clear`` — in_clearing -> cleared (سند ۳).
@@ -35,7 +37,8 @@ the service owns transitions, the engine owns the journals.
 - ``GET /cheques/{id}/inquiries`` — the cheque's inquiry receipts.
 - ``GET /cheques/reports/in-clearing-aging`` — in-clearing ages
   (report 4 inputs, US-534); ``GET /cheques/reports/inquiry-ledger``
-  — aggregate inquiry ledger (report 13 inputs).
+  — aggregate inquiry ledger (report 13 inputs). The aging endpoint
+  accepts the same optional ``company`` filter as the list (US-551).
 - ``POST /cheques/reports/receipt-rule-audit`` — file
   ``missing_inquiry_receipt`` items for held cheques without an
   item/status receipt (mandatory receipt rule, §1.4).
@@ -54,6 +57,7 @@ the service owns transitions, the engine owns the journals.
 - ``GET /cheques/checkbooks`` / ``{id}`` — report 8 (leaf counts +
   Fintech inquiry simulator).
 - ``GET /cheques/collateral-summary`` — report 6 (memorandum-only).
+  Accepts the optional ``company`` filter (US-551), like the list.
 - ``GET /cheques/endorsement-summary`` — report 5 (supplier vs other).
 
 Reads need ``cheques:read``; registration needs ``cheques:write``;
@@ -124,6 +128,7 @@ from hesabyar.interfaces.rest.schemas.cheques import (
     InquiryReceiptRequest,
     InquiryReceiptResponse,
     IssueRequest,
+    MonthlyMatchTrendResponse,
     ReceiptRuleAuditResponse,
     RejectMismatchRequest,
     SayyadInquiryRequest,
@@ -142,10 +147,33 @@ _LIST_QUERY_PARAMS = frozenset(
         "purpose",
         "endorsee_type",
         "storage_location",
+        "company",
         "limit",
         "offset",
     }
 )
+
+#: The widget endpoints (collateral summary, in-clearing aging) take
+#: only the optional company filter (US-551).
+_COMPANY_ONLY_QUERY_PARAMS = frozenset({"company"})
+
+
+def _resolve_company_filter(
+    session: Session, client: AuthenticatedClient, company: str | None
+) -> int | None:
+    """Resolve the optional ``company`` filter to an engine company id.
+
+    Absent → ``None``: the query stays tenant-wide (the default).
+    Present → the mapping row's engine id; an unknown company (or a
+    company of another tenant) answers 404 ``COMPANY_NOT_FOUND`` and
+    a key restricted to a different company answers 403 — the
+    ``_require_company_row`` contract, shared with the other
+    company-scoped reads.
+    """
+    if company is None:
+        return None
+    row = require_company_row_by_id(session, client, company)
+    return company_ref_for_row(row).engine_id
 
 
 def _require_cheque_company_access(
@@ -218,9 +246,14 @@ def list_cheques(
     purpose: str | None = Query(default=None, description="Filter by purpose: payment | collateral"),
     endorsee_type: str | None = Query(default=None, description="Filter by endorsee type: supplier | other"),
     storage_location: str | None = Query(default=None, description="Filter by storage location"),
+    company: str | None = Query(
+        default=None,
+        description="Filter by company (API company id: HesabYar row id or engine company id). Absent: tenant-wide.",
+    ),
     limit: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE, description="Page size (1-100)"),
     offset: int = Query(default=0, ge=0, description="Page offset"),
     client: AuthenticatedClient = Depends(require_scopes("cheques:read")),
+    session: Session = Depends(get_db_session),
     service: ChequeQueryService = Depends(get_cheque_query_service),
 ) -> list[ChequeResponse]:
     """Return the installation's cheques, newest first."""
@@ -284,6 +317,7 @@ def list_cheques(
             purpose=parsed_purpose,
             endorsee_type=endorsee_type,
             storage_location=parsed_storage,
+            company_engine_id=_resolve_company_filter(session, client, company),
             limit=limit,
             offset=offset,
         )
@@ -354,14 +388,22 @@ def get_checkbook(
     summary="Collateral summary (report 6, memorandum-only)",
 )
 def get_collateral_summary(
+    request: Request,
+    company: str | None = Query(
+        default=None,
+        description="Filter by company (API company id: HesabYar row id or engine company id). Absent: tenant-wide.",
+    ),
     client: AuthenticatedClient = Depends(require_scopes("cheques:read")),
+    session: Session = Depends(get_db_session),
     service: ChequeQueryService = Depends(get_cheque_query_service),
 ) -> CollateralSummaryResponse:
     """Report 6: collateral cheques + memorandum totals + the secured-obligation dimension."""
+    reject_unknown_params(request, _COMPANY_ONLY_QUERY_PARAMS)
     with translate_errors():
         summary = service.collateral_summary(
             tenant_id=client.tenant_id,
             installation_id=client.installation_id,
+            company_engine_id=_resolve_company_filter(session, client, company),
         )
     return CollateralSummaryResponse.from_summary(summary)
 
@@ -1044,13 +1086,22 @@ def confirm_clearing_match(
     summary="In-clearing ages (report 4 inputs)",
 )
 def in_clearing_aging(
+    request: Request,
+    company: str | None = Query(
+        default=None,
+        description="Filter by company (API company id: HesabYar row id or engine company id). Absent: tenant-wide.",
+    ),
     client: AuthenticatedClient = Depends(require_scopes("cheques:read")),
+    session: Session = Depends(get_db_session),
     service: ChequeQueryService = Depends(get_cheque_query_service),
 ) -> list[ClearingAgingResponse]:
     """Ages of all in-clearing cheques; stale ones are only flagged, never auto-bounced."""
+    reject_unknown_params(request, _COMPANY_ONLY_QUERY_PARAMS)
     with translate_errors():
         rows = service.list_in_clearing_aging(
-            tenant_id=client.tenant_id, installation_id=client.installation_id
+            tenant_id=client.tenant_id,
+            installation_id=client.installation_id,
+            company_engine_id=_resolve_company_filter(session, client, company),
         )
     return [
         ClearingAgingResponse(
@@ -1085,6 +1136,40 @@ def inquiry_ledger(
         color_distribution=dict(ledger.color_distribution),
         total_cost_irr=ledger.total_cost_irr,
     )
+
+
+@router.get(
+    "/cheques/reports/monthly-match-trend",
+    response_model=MonthlyMatchTrendResponse,
+    summary="Monthly clearing-match trend from stored history (report 12)",
+)
+def monthly_match_trend(
+    request: Request,
+    months: int = Query(
+        default=12,
+        ge=1,
+        le=24,
+        description="Months of stored history to return (most recent first, oldest first in the response)",
+    ),
+    client: AuthenticatedClient = Depends(require_scopes("cheques:read")),
+    service: ChequeQueryService = Depends(get_cheque_query_service),
+) -> MonthlyMatchTrendResponse:
+    """Monthly clearing-match trend (report 12) from stored history.
+
+    The trend renders FROM the ``cheque_match_history`` rows the
+    clearing service records — never recomputed from raw match
+    records at read time. An empty history is an honest empty
+    trend: history starts with the first matching run after deploy
+    (no backfill).
+    """
+    reject_unknown_params(request, {"months"})
+    with translate_errors():
+        trend = service.get_monthly_match_trend(
+            tenant_id=client.tenant_id,
+            installation_id=client.installation_id,
+            months=months,
+        )
+    return MonthlyMatchTrendResponse.from_view(trend)
 
 
 @router.post(

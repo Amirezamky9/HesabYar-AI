@@ -55,6 +55,7 @@ from hesabyar.application.errors import (
     IntegrationHolidayNotFoundError,
     IntegrationMappingInvalidError,
     IntegrationMappingNotFoundError,
+    IntegrationMappingNotPromotableError,
     IntegrationMappingSuggestionNotFoundError,
     IntegrationMappingSuggestionResolvedError,
     IntegrationSettingsInvalidError,
@@ -74,6 +75,7 @@ from hesabyar.application.errors import (
     ReviewInvalidSlaPolicyError,
     ReviewInvalidStateError,
     ReviewItemNotFoundError,
+    ReviewReplayNotPossibleError,
     StandardNotFoundError,
     StandardSourceBlockedError,
     TaxDecisionNotFoundError,
@@ -141,6 +143,7 @@ from hesabyar.domain.common.errors import (
 from hesabyar.domain.events.errors import (
     EventNotDeadLetteredError,
     EventNotFoundError,
+    EventNotReprocessableError,
     EventSignatureError,
     EventTypePendingAdrError,
     IdempotencyConflictError,
@@ -192,6 +195,14 @@ from hesabyar.domain.installments.errors import (
     InstallmentReceiptNotFoundError,
     InstallmentSettlementAmountError,
     InstallmentValidationError,
+)
+from hesabyar.domain.manual_imports.errors import (
+    ManualImportDuplicateError,
+    ManualImportFileError,
+    ManualImportInvalidStateError,
+    ManualImportNotFoundError,
+    SettlementColumnMappingInvalidError,
+    SettlementColumnMappingNotFoundError,
 )
 from hesabyar.domain.packaging.errors import (
     CarrierRateNotFoundError,
@@ -388,6 +399,10 @@ def api_error_from_hesabyar_error(exc: HesabYarError) -> ApiError:
         return ApiError(
             status_code=409, code="INTEGRATION_MAPPING_SUGGESTION_RESOLVED", detail=exc.message
         )
+    if isinstance(exc, IntegrationMappingNotPromotableError):
+        return ApiError(
+            status_code=409, code="INTEGRATION_MAPPING_NOT_PROMOTABLE", detail=exc.message
+        )
     if isinstance(exc, IntegrationBankConnectionNotFoundError):
         return ApiError(
             status_code=404, code="INTEGRATION_BANK_CONNECTION_NOT_FOUND", detail=exc.message
@@ -424,6 +439,8 @@ def api_error_from_hesabyar_error(exc: HesabYarError) -> ApiError:
         return ApiError(status_code=409, code="REVIEW_INVALID_STATE", detail=exc.message)
     if isinstance(exc, ReviewInvalidSlaPolicyError):
         return ApiError(status_code=422, code="REVIEW_INVALID_SLA_POLICY", detail=exc.message)
+    if isinstance(exc, ReviewReplayNotPossibleError):
+        return ApiError(status_code=422, code="REVIEW_REPLAY_NOT_POSSIBLE", detail=exc.message)
     if isinstance(exc, MaterialNotFoundError):
         return ApiError(status_code=404, code="PACKAGING_MATERIAL_NOT_FOUND", detail=exc.message)
     if isinstance(exc, CountNotFoundError):
@@ -556,6 +573,8 @@ def api_error_from_hesabyar_error(exc: HesabYarError) -> ApiError:
         return ApiError(status_code=404, code="INBOX_EVENT_NOT_FOUND", detail=exc.message)
     if isinstance(exc, EventNotDeadLetteredError):
         return ApiError(status_code=409, code="EVENT_NOT_DEAD_LETTERED", detail=exc.message)
+    if isinstance(exc, EventNotReprocessableError):
+        return ApiError(status_code=409, code="EVENT_NOT_REPROCESSABLE", detail=exc.message)
     if isinstance(exc, IdempotencyConflictError):
         return ApiError(status_code=409, code="IDEMPOTENCY_CONFLICT", detail=exc.message)
     if isinstance(exc, EventSignatureError):
@@ -634,6 +653,18 @@ def api_error_from_hesabyar_error(exc: HesabYarError) -> ApiError:
         return ApiError(status_code=422, code="SETTLEMENT_IMPORT_INVALID", detail=exc.message)
     if isinstance(exc, SettlementImportStateError):
         return ApiError(status_code=409, code="SETTLEMENT_IMPORT_STATE", detail=exc.message)
+    if isinstance(exc, ManualImportNotFoundError):
+        return ApiError(status_code=404, code="MANUAL_IMPORT_NOT_FOUND", detail=exc.message)
+    if isinstance(exc, ManualImportInvalidStateError):
+        return ApiError(status_code=409, code="MANUAL_IMPORT_INVALID_STATE", detail=exc.message)
+    if isinstance(exc, ManualImportFileError):
+        return ApiError(status_code=422, code="MANUAL_IMPORT_FILE_ERROR", detail=exc.message)
+    if isinstance(exc, ManualImportDuplicateError):
+        return ApiError(status_code=409, code="MANUAL_IMPORT_DUPLICATE", detail=exc.message)
+    if isinstance(exc, SettlementColumnMappingNotFoundError):
+        return ApiError(status_code=404, code="SETTLEMENT_MAPPING_NOT_FOUND", detail=exc.message)
+    if isinstance(exc, SettlementColumnMappingInvalidError):
+        return ApiError(status_code=422, code="SETTLEMENT_MAPPING_INVALID", detail=exc.message)
     if isinstance(exc, SettlementDepositNotFoundError):
         return ApiError(status_code=404, code="SETTLEMENT_DEPOSIT_NOT_FOUND", detail=exc.message)
     if isinstance(exc, SettlementEventNotFoundError):

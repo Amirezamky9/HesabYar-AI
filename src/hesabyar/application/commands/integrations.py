@@ -57,6 +57,7 @@ from hesabyar.application.errors import (
     IntegrationHolidayNotFoundError,
     IntegrationMappingInvalidError,
     IntegrationMappingNotFoundError,
+    IntegrationMappingNotPromotableError,
     IntegrationMappingSuggestionNotFoundError,
     IntegrationMappingSuggestionResolvedError,
     IntegrationSettingsInvalidError,
@@ -85,6 +86,7 @@ from hesabyar.domain.integrations.commands import (
 )
 from hesabyar.domain.integrations.holidays import HolidayCalendar
 from hesabyar.domain.integrations.models import (
+    MAPPING_AUTO_MIN_CONFIRMATIONS,
     RESERVED_CHANNEL_KEYS,
     AutoPostPolicy,
     BankConnection,
@@ -95,6 +97,7 @@ from hesabyar.domain.integrations.models import (
     InstallationSettings,
     IntegrationMapping,
     MappingKind,
+    MappingStatus,
     MappingSuggestion,
     PaymentChannel,
     PolicyGateConfig,
@@ -521,8 +524,17 @@ class MappingService:
         confidence: Decimal | None = None,
         notes: str | None = None,
         created_by: str | None = None,
+        confirmations: int | None = None,
     ) -> IntegrationMapping:
-        """Create a NEW mapping version (supersedes the active one, if any)."""
+        """Create a NEW mapping version (supersedes the active one, if any).
+
+        Confirmations (US-552): re-creating the mapping with an
+        UNCHANGED target carries the superseded version's count + 1
+        (a re-confirmation of the same target); a changed target, or
+        a first version, starts at 1. An explicit ``confirmations``
+        overrides the derivation — used by promotion, which carries
+        the count unchanged (promoting is not a confirmation).
+        """
         source_key = _require_non_empty("source_key", source_key)
         target_ref = _require_non_empty("target_ref", target_ref)
         if target_type not in _TARGET_TYPES:
@@ -552,6 +564,15 @@ class MappingService:
             source_key=source_key,
         )
         next_version = max((m.version for m in siblings), default=0) + 1
+        if confirmations is None:
+            if (
+                active is not None
+                and active.target_type == target_type
+                and active.target_ref == target_ref
+            ):
+                confirmations = active.confirmations + 1
+            else:
+                confirmations = 1
         if active is not None:
             self._repository.supersede_mapping(active.id)
         return self._repository.save_mapping(
@@ -568,7 +589,68 @@ class MappingService:
                 confidence=confidence,
                 notes=notes,
                 created_by=created_by,
+                confirmations=confirmations,
             )
+        )
+
+    def promote_mapping(
+        self,
+        installation_id: str,
+        mapping_id: str,
+        *,
+        promoted_by: str | None = None,
+    ) -> IntegrationMapping:
+        """Promote an ACTIVE Suggest mapping to Auto (US-552, §7.2).
+
+        The learning loop's last step: a rule the operator confirmed
+        ``MAPPING_AUTO_MIN_CONFIRMATIONS`` times may be promoted —
+        the promotion creates a NEW version in ``auto`` mode (the
+        old Suggest version is superseded, never rewritten) with the
+        confirmation count carried unchanged. An already-auto
+        mapping, a superseded version, or an under-confirmed rule
+        raises :class:`IntegrationMappingNotPromotableError`; an
+        unknown id (or another installation's) raises
+        :class:`IntegrationMappingNotFoundError`.
+        """
+        mapping = self._repository.get_mapping(mapping_id)
+        if mapping is None or mapping.installation_id != installation_id:
+            raise IntegrationMappingNotFoundError(
+                f"Mapping {mapping_id!r} is not in this installation's registry.",
+                details={"mapping_id": mapping_id},
+            )
+        if not mapping.auto_eligible:
+            if mapping.status != MappingStatus.ACTIVE:
+                reason = f"mapping is {mapping.status.value}, not active"
+            elif mapping.suggestion_mode != SuggestionMode.SUGGEST:
+                reason = f"mapping is already {mapping.suggestion_mode.value}"
+            else:
+                reason = (
+                    f"mapping has {mapping.confirmations} confirmation(s); "
+                    f"{MAPPING_AUTO_MIN_CONFIRMATIONS} are required to promote to Auto"
+                )
+            raise IntegrationMappingNotPromotableError(
+                f"Mapping {mapping_id!r} cannot be promoted to Auto: {reason}.",
+                details={
+                    "mapping_id": mapping_id,
+                    "status": mapping.status.value,
+                    "suggestion_mode": mapping.suggestion_mode.value,
+                    "confirmations": mapping.confirmations,
+                    "required_confirmations": MAPPING_AUTO_MIN_CONFIRMATIONS,
+                },
+            )
+        return self.create_mapping(
+            installation_id,
+            mapping_kind=mapping.mapping_kind,
+            channel_key=mapping.channel_key,
+            source_key=mapping.source_key,
+            target_type=mapping.target_type,
+            target_ref=mapping.target_ref,
+            suggestion_mode=SuggestionMode.AUTO,
+            source=mapping.source,
+            confidence=mapping.confidence,
+            notes=mapping.notes,
+            created_by=promoted_by,
+            confirmations=mapping.confirmations,
         )
 
     def resolve_mapping(

@@ -458,3 +458,57 @@ def test_list_filters_by_kind_purpose_and_storage(
         endorsee_type="supplier",
     )
     assert [c.id for c in by_endorsee] == [commercial.id]
+
+
+# -- company filter (US-551) ------------------------------------------------------
+
+
+def _create_for_company(
+    repository: SqlAlchemyChequeRepository, company_engine_id: int, **overrides: object
+):
+    registration = validate_registration_payload(_payload(**overrides))
+    return repository.create(
+        registration_to_cheque(
+            registration,
+            cheque_id=str(uuid.uuid4()),
+            tenant_id=TENANT_ID,
+            installation_id=INSTALLATION_ID,
+            company_engine_id=company_engine_id,
+            source="manual",
+        )
+    )
+
+
+def test_list_filters_by_company_engine_id(
+    repository: SqlAlchemyChequeRepository,
+) -> None:
+    first = _create_for_company(repository, 2, sayad_id="1111111111111111")
+    second = _create_for_company(repository, 3, sayad_id="2222222222222222")
+
+    scoped = repository.list(
+        tenant_id=TENANT_ID,
+        installation_id=INSTALLATION_ID,
+        company_engine_id=2,
+    )
+    assert [c.id for c in scoped] == [first.id]
+
+    other = repository.list(
+        tenant_id=TENANT_ID,
+        installation_id=INSTALLATION_ID,
+        company_engine_id=3,
+    )
+    assert [c.id for c in other] == [second.id]
+
+    # Absent filter: tenant-wide, the default.
+    tenant_wide = repository.list(
+        tenant_id=TENANT_ID, installation_id=INSTALLATION_ID
+    )
+    assert {c.id for c in tenant_wide} == {first.id, second.id}
+
+    # A company with no cheques: empty, not an error.
+    empty = repository.list(
+        tenant_id=TENANT_ID,
+        installation_id=INSTALLATION_ID,
+        company_engine_id=99,
+    )
+    assert empty == []

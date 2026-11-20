@@ -51,6 +51,7 @@ INTEGRATION_MAPPING_NOT_FOUND = "INTEGRATION_MAPPING_NOT_FOUND"
 INTEGRATION_MAPPING_INVALID = "INTEGRATION_MAPPING_INVALID"
 INTEGRATION_MAPPING_SUGGESTION_NOT_FOUND = "INTEGRATION_MAPPING_SUGGESTION_NOT_FOUND"
 INTEGRATION_MAPPING_SUGGESTION_RESOLVED = "INTEGRATION_MAPPING_SUGGESTION_RESOLVED"
+INTEGRATION_MAPPING_NOT_PROMOTABLE = "INTEGRATION_MAPPING_NOT_PROMOTABLE"
 INTEGRATION_BANK_CONNECTION_NOT_FOUND = "INTEGRATION_BANK_CONNECTION_NOT_FOUND"
 INTEGRATION_BANK_CONNECTION_CONFLICT = "INTEGRATION_BANK_CONNECTION_CONFLICT"
 INTEGRATION_CREDENTIALS_FORBIDDEN = "INTEGRATION_CREDENTIALS_FORBIDDEN"
@@ -63,6 +64,7 @@ REVIEW_ITEM_NOT_FOUND = "REVIEW_ITEM_NOT_FOUND"
 REVIEW_ACTION_NOT_PERMITTED = "REVIEW_ACTION_NOT_PERMITTED"
 REVIEW_INVALID_STATE = "REVIEW_INVALID_STATE"
 REVIEW_INVALID_SLA_POLICY = "REVIEW_INVALID_SLA_POLICY"
+REVIEW_REPLAY_NOT_POSSIBLE = "REVIEW_REPLAY_NOT_POSSIBLE"
 CASHBOX_NOT_FOUND = "CASHBOX_NOT_FOUND"
 CASHBOX_JOURNAL_CONFLICT = "CASHBOX_JOURNAL_CONFLICT"
 CASHBOX_INVALID = "CASHBOX_INVALID"
@@ -344,6 +346,19 @@ class IntegrationMappingSuggestionResolvedError(ApplicationError):
         super().__init__(message, code=INTEGRATION_MAPPING_SUGGESTION_RESOLVED, details=details)
 
 
+class IntegrationMappingNotPromotableError(ApplicationError):
+    """Raised when a mapping cannot be promoted Suggest → Auto (US-552).
+
+    Promotion needs an ACTIVE mapping in ``suggest`` mode with at
+    least ``MAPPING_AUTO_MIN_CONFIRMATIONS`` confirmations — an
+    already-auto mapping, a superseded version, or an unconfirmed
+    rule is refused, never silently promoted.
+    """
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__(message, code=INTEGRATION_MAPPING_NOT_PROMOTABLE, details=details)
+
+
 class IntegrationBankConnectionNotFoundError(ApplicationError):
     """Raised when a bank connection is not in the installation's registry."""
 
@@ -438,6 +453,20 @@ class ReviewInvalidSlaPolicyError(ApplicationError):
 
     def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
         super().__init__(message, code=REVIEW_INVALID_SLA_POLICY, details=details)
+
+
+class ReviewReplayNotPossibleError(ApplicationError):
+    """Raised when a replay action cannot run (US-552).
+
+    A ``replay`` / ``fix_source_retry`` action needs a source event
+    to replay and a wired DLQ replay service: an item filed without
+    a ``source_event_ref`` (or a service built without the replay
+    seam) cannot be replayed — the action fails loudly instead of
+    recording a replay that never happened.
+    """
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__(message, code=REVIEW_REPLAY_NOT_POSSIBLE, details=details)
 
 
 class CashBoxNotFoundError(ApplicationError):

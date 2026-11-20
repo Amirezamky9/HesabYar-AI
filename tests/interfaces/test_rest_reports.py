@@ -469,3 +469,306 @@ def test_openapi_lists_report_endpoints(settings: AppSettings, world: World) -> 
     assert "/api/v1/reports/trial-balance" in paths
     assert "/api/v1/report-validation-runs" in paths
     assert "/api/v1/report-validation-runs/{run_id}" in paths
+
+
+# ---------------------------------------------------------------------------
+# US-550: financial-report endpoints
+# ---------------------------------------------------------------------------
+
+# One Jalali year before November 2026 (2026-11-01..30 = 1405-08-10..09-09).
+PERIOD_NOV_2025 = ("2025-11-01", "2025-11-30")
+
+
+def _report_urls(world: World) -> dict[str, str]:
+    base = f"company={world.engine_id}"
+    return {
+        "general_ledger": f"/api/v1/reports/general-ledger?{base}&date_from=2026-11-01&date_to=2026-11-30",
+        "balance_sheet": f"/api/v1/reports/balance-sheet?{base}&as_of=2026-11-30",
+        "income_statement": f"/api/v1/reports/income-statement?{base}&date_from=2026-11-01&date_to=2026-11-30",
+        "cash_flow": f"/api/v1/reports/cash-flow?{base}&date_from=2026-11-01&date_to=2026-11-30",
+        "notes_balance": f"/api/v1/reports/notes-balance?{base}&as_of=2026-11-30",
+    }
+
+
+def _assert_freshness(body: dict, calculation_version: str, world: World) -> None:
+    freshness = body["freshness"]
+    assert freshness["source"] == f"tryton:{body['source_endpoint']}"
+    assert freshness["source_timestamp"] == freshness["generated_at"]
+    assert freshness["company_id"] == str(world.engine_id)
+    assert freshness["report_version"] == "1.0.0"
+    assert freshness["freshness_indicator"] == "live"
+    reproducibility = freshness["reproducibility"]
+    assert reproducibility["engine"] == "tryton"
+    assert reproducibility["engine_version"] == "8.2.x"
+    assert reproducibility["company_id"] == str(world.engine_id)
+    assert freshness["calculation_version"] == calculation_version
+
+
+@pytest.mark.parametrize(
+    "report_key",
+    ["general_ledger", "balance_sheet", "income_statement", "cash_flow", "notes_balance"],
+)
+def test_financial_reports_require_auth(
+    settings: AppSettings, world: World, report_key: str
+) -> None:
+    client = _test_client(settings)
+    response = client.get(_report_urls(world)[report_key])
+    assert response.status_code == 401
+    assert response.json()["code"] == "UNAUTHORIZED"
+
+
+@pytest.mark.parametrize(
+    "report_key",
+    ["general_ledger", "balance_sheet", "income_statement", "cash_flow", "notes_balance"],
+)
+def test_financial_reports_require_scope(
+    settings: AppSettings, world: World, report_key: str
+) -> None:
+    client = _test_client(settings)
+    response = client.get(
+        _report_urls(world)[report_key],
+        headers=_auth(world.key_standards_secret),
+    )
+    assert response.status_code == 403
+    assert response.json()["code"] == "FORBIDDEN"
+
+
+@pytest.mark.parametrize(
+    "report_key",
+    ["general_ledger", "balance_sheet", "income_statement", "cash_flow", "notes_balance"],
+)
+def test_financial_reports_other_tenant_company_404(
+    settings: AppSettings, world: World, report_key: str
+) -> None:
+    client = _test_client(settings)
+    response = client.get(
+        _report_urls(world)[report_key],
+        headers=_auth(world.key_other_reports_secret),
+    )
+    assert response.status_code == 404
+    assert response.json()["code"] == "COMPANY_NOT_FOUND"
+
+
+def test_trial_balance_carries_freshness(settings: AppSettings, world: World) -> None:
+    client = _test_client(settings)
+    response = client.get(
+        _trial_balance_url(world, *PERIOD_NOV_2026),
+        headers=_auth(world.key_reports_secret),
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    _assert_freshness(body, "tryton-posted-lines/1.0", world)
+    assert body["freshness"]["period_start"] == PERIOD_NOV_2026[0]
+    assert body["freshness"]["period_end"] == PERIOD_NOV_2026[1]
+
+
+def test_general_ledger_summary_matches_trial_balance(
+    settings: AppSettings, world: World
+) -> None:
+    client = _test_client(settings)
+    trial = client.get(
+        _trial_balance_url(world, *PERIOD_NOV_2026),
+        headers=_auth(world.key_reports_secret),
+    )
+    assert trial.status_code == 200, trial.text
+    response = client.get(
+        _report_urls(world)["general_ledger"],
+        headers=_auth(world.key_reports_secret),
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["total_debit"] == trial.json()["total_debit"]
+    assert body["total_credit"] == trial.json()["total_credit"]
+    assert body["accounts"], "November 2026 has posted moves"
+    assert [a["code"] for a in body["accounts"]] == sorted(a["code"] for a in body["accounts"])
+    for account in body["accounts"]:
+        assert account["lines"] == [], "summary mode carries totals only"
+        assert (
+            account["closing_balance"]
+            == account["opening_balance"] + account["total_debit"] - account["total_credit"]
+        )
+    _assert_freshness(body, "tryton-posted-lines/1.0", world)
+
+
+def test_general_ledger_detail_lines_and_running_balances(
+    settings: AppSettings, world: World
+) -> None:
+    client = _test_client(settings)
+    trial = client.get(
+        _trial_balance_url(world, *PERIOD_NOV_2026),
+        headers=_auth(world.key_reports_secret),
+    )
+    assert trial.status_code == 200, trial.text
+    account_id = trial.json()["lines"][0]["account_id"]
+    response = client.get(
+        _report_urls(world)["general_ledger"] + f"&account_id={account_id}",
+        headers=_auth(world.key_reports_secret),
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert len(body["accounts"]) == 1
+    account = body["accounts"][0]
+    assert account["account_id"] == account_id
+    assert account["lines"], "the trial-balance account has posted lines"
+    assert body["move_count"] >= 1
+    assert body["line_count"] == len(account["lines"])
+    running = account["opening_balance"]
+    for line in account["lines"]:
+        running += line["debit"] - line["credit"]
+        assert line["balance"] == running
+    assert account["closing_balance"] == running
+    assert account["total_debit"] == sum(line["debit"] for line in account["lines"])
+    assert account["total_credit"] == sum(line["credit"] for line in account["lines"])
+
+
+def test_general_ledger_unknown_account_404(settings: AppSettings, world: World) -> None:
+    client = _test_client(settings)
+    response = client.get(
+        _report_urls(world)["general_ledger"] + "&account_id=999999",
+        headers=_auth(world.key_reports_secret),
+    )
+    assert response.status_code == 404
+    assert response.json()["code"] == "ACCOUNT_NOT_FOUND"
+
+
+def test_general_ledger_reversed_range_422(settings: AppSettings, world: World) -> None:
+    client = _test_client(settings)
+    response = client.get(
+        f"/api/v1/reports/general-ledger?company={world.engine_id}&date_from=2026-11-30&date_to=2026-11-01",
+        headers=_auth(world.key_reports_secret),
+    )
+    assert response.status_code == 422
+    assert response.json()["code"] == "VALIDATION_ERROR"
+
+
+def test_balance_sheet_balances_with_comparison_default(
+    settings: AppSettings, world: World
+) -> None:
+    client = _test_client(settings)
+    response = client.get(
+        _report_urls(world)["balance_sheet"],
+        headers=_auth(world.key_reports_secret),
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["as_of"] == "2026-11-30"
+    # Same Jalali date one year earlier (1405-09-09 -> 1404-09-09).
+    assert body["comparison_as_of"] == PERIOD_NOV_2025[1]
+    assert [section["key"] for section in body["sections"]] == ["assets", "liabilities", "equity"]
+    assert body["total_assets"] == body["total_liabilities"] + body["total_equity"]
+    assert body["balanced"] is True
+    totals = {section["key"]: section["total"] for section in body["sections"]}
+    assert totals["assets"] == body["total_assets"]
+    assert totals["liabilities"] == body["total_liabilities"]
+    assert totals["equity"] == body["total_equity"]
+    _assert_freshness(body, "tryton-account-balance/1.0", world)
+    assert body["freshness"]["reproducibility"]["comparison_as_of"] == PERIOD_NOV_2025[1]
+
+
+def test_income_statement_monthly_ties_out(settings: AppSettings, world: World) -> None:
+    client = _test_client(settings)
+    response = client.get(
+        _report_urls(world)["income_statement"],
+        headers=_auth(world.key_reports_secret),
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["comparison_from"] == PERIOD_NOV_2025[0]
+    assert body["comparison_to"] == PERIOD_NOV_2025[1]
+    assert [section["key"] for section in body["sections"]] == ["revenue", "expenses"]
+    assert body["net_income"] == body["total_revenue"] - body["total_expense"]
+    assert body["monthly_ties_out"] is True
+    assert sum(m["revenue"] for m in body["monthly"]) == body["total_revenue"]
+    assert sum(m["expense"] for m in body["monthly"]) == body["total_expense"]
+    assert [m["jalali_month"] for m in body["monthly"]] == ["1405-08", "1405-09"]
+    _assert_freshness(body, "tryton-account-balance/1.0", world)
+
+
+def test_income_statement_mismatched_comparison_422(
+    settings: AppSettings, world: World
+) -> None:
+    client = _test_client(settings)
+    response = client.get(
+        _report_urls(world)["income_statement"] + "&comparison_from=2025-11-01",
+        headers=_auth(world.key_reports_secret),
+    )
+    assert response.status_code == 422
+    assert response.json()["code"] == "VALIDATION_ERROR"
+
+
+def test_cash_flow_ties_out(settings: AppSettings, world: World) -> None:
+    client = _test_client(settings)
+    response = client.get(
+        _report_urls(world)["cash_flow"],
+        headers=_auth(world.key_reports_secret),
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert [section["key"] for section in body["sections"]] == ["operating", "investing", "financing"]
+    for section in body["sections"]:
+        assert section["net"] == section["inflow"] - section["outflow"]
+    assert body["net_change"] == body["closing_cash"] - body["opening_cash"]
+    assert body["net_change"] == sum(section["net"] for section in body["sections"])
+    assert body["ties_out"] is True
+    assert body["unclassified_count"] == 0
+    assert "1.1.1" in body["cash_accounts"]
+    _assert_freshness(body, "direct-method/1.0", world)
+
+
+def test_notes_balance_buckets_sum_to_totals(settings: AppSettings, world: World) -> None:
+    client = _test_client(settings)
+    response = client.get(
+        _report_urls(world)["notes_balance"],
+        headers=_auth(world.key_reports_secret),
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["as_of"] == "2026-11-30"
+    assert body["instrument"] == "both"
+    assert set(body["accounts_read"]) == {"1.2.4", "1.2.5", "2.1.5"}
+    buckets = [
+        "bucket_not_yet_due",
+        "bucket_0_30",
+        "bucket_30_60",
+        "bucket_60_90",
+        "bucket_90_120",
+        "bucket_120_plus",
+    ]
+    for row in [*body["rows"], body["totals"]]:
+        assert row["total"] == sum(row[b] for b in buckets)
+    _assert_freshness(body, "tryton-aged-balance-rule/1.0", world)
+
+
+def test_notes_balance_instrument_filter(settings: AppSettings, world: World) -> None:
+    client = _test_client(settings)
+    response = client.get(
+        _report_urls(world)["notes_balance"] + "&instrument=receivable",
+        headers=_auth(world.key_reports_secret),
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["instrument"] == "receivable"
+    assert all(row["instrument"] == "receivable" for row in body["rows"])
+    assert set(body["accounts_read"]) == {"1.2.4", "1.2.5"}
+
+
+def test_notes_balance_bad_instrument_422(settings: AppSettings, world: World) -> None:
+    client = _test_client(settings)
+    response = client.get(
+        _report_urls(world)["notes_balance"] + "&instrument=other",
+        headers=_auth(world.key_reports_secret),
+    )
+    assert response.status_code == 422
+    assert response.json()["code"] == "VALIDATION_ERROR"
+
+
+def test_openapi_lists_financial_report_endpoints(settings: AppSettings, world: World) -> None:
+    client = _test_client(settings)
+    response = client.get("/openapi.json")
+    assert response.status_code == 200
+    paths = response.json()["paths"]
+    assert "/api/v1/reports/general-ledger" in paths
+    assert "/api/v1/reports/balance-sheet" in paths
+    assert "/api/v1/reports/income-statement" in paths
+    assert "/api/v1/reports/cash-flow" in paths
+    assert "/api/v1/reports/notes-balance" in paths

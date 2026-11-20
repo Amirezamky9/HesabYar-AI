@@ -201,6 +201,18 @@ is recorded in the audit log (`REPLAYED`, with the actor and the
 previous attempt count). Only dead-lettered events can be replayed
 (otherwise 409 `EVENT_NOT_DEAD_LETTERED`).
 
+US-552 adds `DlqReplayService.reprocess` — the review queue's path
+for a mapping that was just completed: it additionally accepts
+`needs_review` events (a processed event is already done and a
+received/processing event is already in flight — both are 409
+`EVENT_NOT_REPROCESSABLE`). Both paths share one reset
+(`_reset_to_received`), so there is still a single replay
+mechanism. The queue calls it best-effort from
+`complete_mapping_retry` (a non-reprocessable event is noted in
+the item's audit trail, not an error); the strict `replay` is what
+the queue's `replay` / `fix_source_retry` actions use. See
+[review-queue.md](review-queue.md).
+
 ## 8. REST API
 
 All under `/api/v1/integrations` (RFC 9457 problem envelope on
@@ -228,15 +240,15 @@ in behind the same ports. In production with F1 alone, every event
 routes to `needs_review` — correct per §10.5 (unknown mapping never
 falls back to a default account). US-511 (Phase 5-2, stream S1)
 filled the three F3 seams marked below with the store
-implementations; the inbox-backed review queue stays until F4
-replaces it.
+implementations; US-552 (Phase 5-6, ۵ح) replaced the inbox-backed
+review queue with the persistent F4 adapter (below).
 
 | Port | F1 default | Replaced by |
 |---|---|---|
 | `MappingResolverPort` | `FailClosedMappingResolver` (always raises `MappingUnresolvedError`) | US-511 `StoreMappingResolver` (registry + id map + chart) |
 | `DraftBuilderPort` | `FailClosedDraftBuilder` (always raises) | US-511 `StoreDraftBuilder` (invoice / cancel / credit note / payment) |
 | `PolicyGatePort` | `DraftOnlyPolicyGate` (never auto-posts; version `draft-only-v1`) | US-511 `RegistryPolicyGate` (US-503 `PolicyGateService`: settings opt-in + policy row + cap + open period + channel contract) |
-| `ReviewQueuePort` | `InboxReviewQueueAdapter` (the inbox row IS the review item) | F4 review queue |
+| `ReviewQueuePort` | `InboxReviewQueueAdapter` (the inbox row IS the review item) | US-552 `PersistentReviewQueueAdapter` (files real `ReviewItem` rows; tenantless drafts fall back to the F1 behaviour) |
 | `WebhookSecretPort` | `NoWebhookSecretStore` (no secret → signature check skipped + recorded) | US-511 `RegistryWebhookSecretStore` (registry + vault, fail-closed 503) |
 | `AccountingEnginePort` | Real Tryton adapter (unused while mappings fail closed) | F2 extends it (sale/invoice/payment) |
 | `OutboxPublisherPort` | `InProcessOutboxPublisher` (zero handlers by default) | Consumers subscribe as modules land |

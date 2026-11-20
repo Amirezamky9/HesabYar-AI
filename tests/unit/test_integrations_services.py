@@ -38,6 +38,7 @@ from hesabyar.application.errors import (
     IntegrationHolidayNotFoundError,
     IntegrationMappingInvalidError,
     IntegrationMappingNotFoundError,
+    IntegrationMappingNotPromotableError,
     IntegrationMappingSuggestionNotFoundError,
     IntegrationMappingSuggestionResolvedError,
     IntegrationSettingsInvalidError,
@@ -68,6 +69,7 @@ from hesabyar.domain.integrations.commands import (
     UpsertPolicyGateConfig,
 )
 from hesabyar.domain.integrations.models import (
+    MAPPING_AUTO_MIN_CONFIRMATIONS,
     AutoPostPolicy,
     BankConnection,
     ChannelStatus,
@@ -382,6 +384,7 @@ class FakeIntegrationsRepository:
             confidence=command.confidence,
             notes=command.notes,
             created_by=command.created_by,
+            confirmations=command.confirmations,
             created_at=NOW,
             updated_at=NOW,
         )
@@ -1103,6 +1106,172 @@ class TestMappingService:
     def test_accept_unknown_suggestion_not_found(self, repo) -> None:  # type: ignore[no-untyped-def]
         with pytest.raises(IntegrationMappingSuggestionNotFoundError):
             MappingService(repo).accept_suggestion(INSTALLATION_ID, "ghost")
+
+    # -- US-552: confirmations + Suggest → Auto promotion ------------------
+
+    def test_first_mapping_starts_with_one_confirmation(self, repo) -> None:  # type: ignore[no-untyped-def]
+        mapping = MappingService(repo).create_mapping(
+            INSTALLATION_ID,
+            mapping_kind=MappingKind.REVENUE_CATEGORY,
+            source_key="coffee",
+            target_type="account",
+            target_ref="4101",
+        )
+        assert mapping.confirmations == 1
+        assert mapping.auto_eligible is False
+
+    def test_same_target_reconfirmation_increments_confirmations(self, repo) -> None:  # type: ignore[no-untyped-def]
+        service = MappingService(repo)
+        versions = [
+            service.create_mapping(
+                INSTALLATION_ID,
+                mapping_kind=MappingKind.REVENUE_CATEGORY,
+                source_key="coffee",
+                target_type="account",
+                target_ref="4101",
+            )
+            for _ in range(3)
+        ]
+        assert [mapping.confirmations for mapping in versions] == [1, 2, 3]
+        assert versions[-1].auto_eligible is True
+
+    def test_changed_target_resets_confirmations(self, repo) -> None:  # type: ignore[no-untyped-def]
+        service = MappingService(repo)
+        service.create_mapping(
+            INSTALLATION_ID,
+            mapping_kind=MappingKind.REVENUE_CATEGORY,
+            source_key="coffee",
+            target_type="account",
+            target_ref="4101",
+        )
+        service.create_mapping(
+            INSTALLATION_ID,
+            mapping_kind=MappingKind.REVENUE_CATEGORY,
+            source_key="coffee",
+            target_type="account",
+            target_ref="4101",
+        )
+        changed = service.create_mapping(
+            INSTALLATION_ID,
+            mapping_kind=MappingKind.REVENUE_CATEGORY,
+            source_key="coffee",
+            target_type="account",
+            target_ref="4102",
+        )
+        assert changed.confirmations == 1
+        assert changed.auto_eligible is False
+
+    def test_accept_suggestion_twice_increments_confirmations(self, repo) -> None:  # type: ignore[no-untyped-def]
+        """Accepting the same learned mapping twice is a re-confirmation."""
+        service = MappingService(repo)
+        mapping = None
+        for _ in range(2):
+            suggestion = service.create_suggestion(
+                INSTALLATION_ID,
+                mapping_kind=MappingKind.EXTERNAL_PARTY,
+                source_key="09120000000",
+                suggested_target_type="party",
+                suggested_target_ref="P-7",
+                confidence=Decimal("0.9"),
+                basis="learned_from_manual_mapping",
+            )
+            mapping = service.accept_suggestion(INSTALLATION_ID, suggestion.id)
+        assert mapping is not None
+        assert mapping.confirmations == 2
+        assert mapping.suggestion_mode == SuggestionMode.SUGGEST
+
+    def test_promote_at_threshold_creates_auto_version(self, repo) -> None:  # type: ignore[no-untyped-def]
+        service = MappingService(repo)
+        mapping = None
+        for _ in range(MAPPING_AUTO_MIN_CONFIRMATIONS):
+            mapping = service.create_mapping(
+                INSTALLATION_ID,
+                mapping_kind=MappingKind.REVENUE_CATEGORY,
+                source_key="coffee",
+                target_type="account",
+                target_ref="4101",
+            )
+        assert mapping is not None
+        assert mapping.auto_eligible is True
+        promoted = service.promote_mapping(INSTALLATION_ID, mapping.id, promoted_by="operator")
+        assert promoted.suggestion_mode == SuggestionMode.AUTO
+        assert promoted.version == mapping.version + 1
+        # Promotion is not a confirmation: the count carries unchanged.
+        assert promoted.confirmations == MAPPING_AUTO_MIN_CONFIRMATIONS
+        assert promoted.target_ref == "4101"
+        assert promoted.created_by == "operator"
+        assert repo.get_mapping(mapping.id).status == MappingStatus.SUPERSEDED
+        assert (
+            repo.resolve_mapping(INSTALLATION_ID, MappingKind.REVENUE_CATEGORY, "", "coffee").id
+            == promoted.id
+        )
+
+    def test_promote_below_threshold_rejected(self, repo) -> None:  # type: ignore[no-untyped-def]
+        service = MappingService(repo)
+        mapping = service.create_mapping(
+            INSTALLATION_ID,
+            mapping_kind=MappingKind.REVENUE_CATEGORY,
+            source_key="coffee",
+            target_type="account",
+            target_ref="4101",
+        )
+        with pytest.raises(IntegrationMappingNotPromotableError):
+            service.promote_mapping(INSTALLATION_ID, mapping.id)
+        # The rejection changed nothing: still the active Suggest mapping.
+        assert repo.get_mapping(mapping.id).status == MappingStatus.ACTIVE
+        assert repo.get_mapping(mapping.id).suggestion_mode == SuggestionMode.SUGGEST
+
+    def test_promote_already_auto_rejected(self, repo) -> None:  # type: ignore[no-untyped-def]
+        service = MappingService(repo)
+        mapping = None
+        for _ in range(MAPPING_AUTO_MIN_CONFIRMATIONS):
+            mapping = service.create_mapping(
+                INSTALLATION_ID,
+                mapping_kind=MappingKind.REVENUE_CATEGORY,
+                source_key="coffee",
+                target_type="account",
+                target_ref="4101",
+            )
+        assert mapping is not None
+        promoted = service.promote_mapping(INSTALLATION_ID, mapping.id)
+        with pytest.raises(IntegrationMappingNotPromotableError, match="already auto"):
+            service.promote_mapping(INSTALLATION_ID, promoted.id)
+
+    def test_promote_superseded_rejected(self, repo) -> None:  # type: ignore[no-untyped-def]
+        service = MappingService(repo)
+        old = service.create_mapping(
+            INSTALLATION_ID,
+            mapping_kind=MappingKind.REVENUE_CATEGORY,
+            source_key="coffee",
+            target_type="account",
+            target_ref="4101",
+        )
+        service.create_mapping(
+            INSTALLATION_ID,
+            mapping_kind=MappingKind.REVENUE_CATEGORY,
+            source_key="coffee",
+            target_type="account",
+            target_ref="4102",
+        )
+        assert repo.get_mapping(old.id).status == MappingStatus.SUPERSEDED
+        with pytest.raises(IntegrationMappingNotPromotableError, match="not active"):
+            service.promote_mapping(INSTALLATION_ID, old.id)
+
+    def test_promote_unknown_mapping_not_found(self, repo) -> None:  # type: ignore[no-untyped-def]
+        with pytest.raises(IntegrationMappingNotFoundError):
+            MappingService(repo).promote_mapping(INSTALLATION_ID, "ghost")
+
+    def test_promote_other_installation_not_found(self, repo) -> None:  # type: ignore[no-untyped-def]
+        service = MappingService(repo)
+        mapping = service.create_mapping(
+            INSTALLATION_ID,
+            mapping_kind=MappingKind.REVENUE_CATEGORY,
+            source_key="coffee",
+            target_type="account",
+            target_ref="4101",
+        )
+        with pytest.raises(IntegrationMappingNotFoundError):
+            service.promote_mapping("other-installation", mapping.id)
 
 
 # -- policy gate ----------------------------------------------------------

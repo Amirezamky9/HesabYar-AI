@@ -39,6 +39,7 @@ from hesabyar.domain.review_queue.models import (
     ReviewSeverity,
 )
 from hesabyar.domain.review_queue.ports import ReviewItemFilters
+from hesabyar.domain.review_queue.suggestions import derive_suggestion
 from hesabyar.domain.settlement.commands import (
     ApproveSettlementImport,
     CreateGatewayPayment,
@@ -203,6 +204,8 @@ class FakeReviewQueue:
                 sla_deadline=NOW + datetime.timedelta(hours=24),
                 sla_breached=False,
                 sla_warn=False,
+                suggested_action_code=derive_suggestion(item).action_code,
+                suggested_reason_key=derive_suggestion(item).reason_key,
             )
             for item in found
         ]

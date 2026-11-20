@@ -37,6 +37,7 @@ from hesabyar.domain.review_queue.ports import (
     ReviewItemFilters,
     ReviewQueuePort,
 )
+from hesabyar.domain.review_queue.suggestions import derive_suggestion
 
 #: Default sort: severity rank first (critical 0, warning 1, info 2),
 #: then oldest first. The rank is part of the service, not the port —
@@ -50,13 +51,22 @@ _SEVERITY_RANK = {
 
 @dataclass(frozen=True)
 class ReviewItemView:
-    """A review item with its computed ageing/SLA fields at read time."""
+    """A review item with its computed ageing/SLA fields at read time.
+
+    US-552 adds the derived suggestion: the action the system would
+    take for this item (from its type + payload, never hard-coded per
+    item) and the stable reason key behind it — the Persian sentence
+    lives in the frontend. The item's stored ``suggested_action``
+    free text is the filer's note, not this derived suggestion.
+    """
 
     item: ReviewItem
     age_hours: float
     sla_deadline: datetime.datetime
     sla_breached: bool
     sla_warn: bool
+    suggested_action_code: str
+    suggested_reason_key: str
 
 
 class ReviewQueueQueryService:
@@ -91,12 +101,15 @@ class ReviewQueueQueryService:
         self, item: ReviewItem, policies: dict[ReviewItemType, SlaPolicy], now: datetime.datetime
     ) -> ReviewItemView:
         policy = policies[item.item_type]
+        suggestion = derive_suggestion(item)
         return ReviewItemView(
             item=item,
             age_hours=item.age_hours(now),
             sla_deadline=item.sla_deadline(policy),
             sla_breached=item.sla_breached(now, policy),
             sla_warn=item.sla_warn(now, policy),
+            suggested_action_code=suggestion.action_code,
+            suggested_reason_key=suggestion.reason_key,
         )
 
     def list_items(

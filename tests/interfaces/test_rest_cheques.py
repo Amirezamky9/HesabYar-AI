@@ -22,6 +22,7 @@ from hesabyar.application.queries.cheques import ChequeQueryService
 from hesabyar.domain.accounting.ports import AccountingEnginePort
 from hesabyar.domain.accounting.refs import CheckbookEngineRef, CompanyRef
 from hesabyar.domain.accounting.value_objects import CheckbookEngineView
+from hesabyar.domain.cheques.models import Cheque
 from hesabyar.infrastructure.auth.identity import AuthenticatedClient
 from hesabyar.infrastructure.config import AppSettings
 from hesabyar.infrastructure.persistence.postgres.models import EngineCompanyModel
@@ -33,6 +34,7 @@ from hesabyar.interfaces.rest.dependencies import (
     get_db_session,
 )
 from tests.unit.test_cheque_services import (
+    ACTOR,
     COMPANY_ENGINE_ID,
     INSTALLATION_ID,
     TENANT_ID,
@@ -49,6 +51,8 @@ from tests.unit.test_cheque_services import (
 )
 
 COMPANY_ROW_ID = "00000000-0000-0000-0000-000000000531"
+OTHER_COMPANY_ENGINE_ID = 3
+OTHER_COMPANY_ROW_ID = "00000000-0000-0000-0000-000000000534"
 ALL_CHEQUE_SCOPES = ("cheques:read", "cheques:write", "cheques:transition")
 
 
@@ -595,3 +599,158 @@ def test_checkbooks_list_and_get(api: TestClient, world: _World) -> None:
         "/api/v1/cheques/checkbooks/9999", params={"company_id": COMPANY_ENGINE_ID}
     )
     assert response.status_code == 404
+
+
+# -- company filter (US-551) ------------------------------------------------------
+
+
+def _other_company_row() -> EngineCompanyModel:
+    return EngineCompanyModel(
+        id=OTHER_COMPANY_ROW_ID,
+        tenant_id=TENANT_ID,
+        engine_connection_id="00000000-0000-0000-0000-000000000599",
+        external_company_id=str(OTHER_COMPANY_ENGINE_ID),
+        company_name="Other Company",
+    )
+
+
+def _register_other_company(world: _World, **overrides) -> Cheque:
+    return world.commands.register_manual(
+        tenant_id=TENANT_ID,
+        installation_id=INSTALLATION_ID,
+        company_engine_id=OTHER_COMPANY_ENGINE_ID,
+        payload=_payload(**overrides),
+        actor=ACTOR,
+    )
+
+
+def _held_other_company(world: _World, **overrides) -> Cheque:
+    cheque = _register_other_company(world, **overrides)
+    return world.commands.confirm_receipt(
+        tenant_id=TENANT_ID,
+        installation_id=INSTALLATION_ID,
+        cheque_id=cheque.id,
+        actor=ACTOR,
+        items_matched=True,
+        sayad_accepted=True,
+        color_code=2,
+    )
+
+
+def _in_clearing_other_company(world: _World, **overrides) -> Cheque:
+    cheque = _held_other_company(world, **overrides)
+    return world.commands.deposit(
+        tenant_id=TENANT_ID,
+        installation_id=INSTALLATION_ID,
+        cheque_id=cheque.id,
+        actor=ACTOR,
+        destination_account_id=42,
+        destination_bank_name="بانک سامان",
+    )
+
+
+def test_list_cheques_company_filter_scopes_to_one_company(
+    api: TestClient, world: _World
+) -> None:
+    world.held(sayad_id="1111111111111111")
+    _register_other_company(world, sayad_id="2222222222222222")
+    response = api.get("/api/v1/cheques", params={"company": COMPANY_ROW_ID})
+    assert response.status_code == 200, response.text
+    assert [c["sayad_id"] for c in response.json()] == ["1111111111111111"]
+
+
+def test_list_cheques_company_filter_accepts_the_engine_id(
+    api: TestClient, world: _World
+) -> None:
+    world.held(sayad_id="1111111111111111")
+    _register_other_company(world, sayad_id="2222222222222222")
+    response = api.get("/api/v1/cheques", params={"company": str(COMPANY_ENGINE_ID)})
+    assert response.status_code == 200, response.text
+    assert [c["sayad_id"] for c in response.json()] == ["1111111111111111"]
+
+
+def test_list_cheques_without_company_is_tenant_wide(
+    api: TestClient, world: _World
+) -> None:
+    world.held(sayad_id="1111111111111111")
+    _register_other_company(world, sayad_id="2222222222222222")
+    response = api.get("/api/v1/cheques")
+    assert response.status_code == 200, response.text
+    assert {c["sayad_id"] for c in response.json()} == {
+        "1111111111111111",
+        "2222222222222222",
+    }
+
+
+def test_list_cheques_out_of_scope_company_is_empty(
+    api: TestClient, world: _World
+) -> None:
+    """A company with no cheques answers an empty list, not an error."""
+    world.held(sayad_id="1111111111111111")
+    cast(FastAPI, api.app).dependency_overrides[get_db_session] = lambda: _FakeSession(
+        _other_company_row()
+    )
+    response = api.get("/api/v1/cheques", params={"company": OTHER_COMPANY_ROW_ID})
+    assert response.status_code == 200, response.text
+    assert response.json() == []
+
+
+def test_list_cheques_unknown_company_is_404(api: TestClient) -> None:
+    cast(FastAPI, api.app).dependency_overrides[get_db_session] = lambda: _FakeSession(None)
+    response = api.get("/api/v1/cheques", params={"company": COMPANY_ROW_ID})
+    assert response.status_code == 404, response.text
+
+
+def test_list_cheques_restricted_key_other_company_is_403(api: TestClient) -> None:
+    restricted = AuthenticatedClient(
+        client_id="test-client",
+        tenant_id=TENANT_ID,
+        installation_id=INSTALLATION_ID,
+        key_id="test-key",
+        key_prefix="hya_live_test1234",
+        client_name="test client",
+        scopes=frozenset(ALL_CHEQUE_SCOPES),
+        engine_company_id=OTHER_COMPANY_ROW_ID,
+    )
+    cast(FastAPI, api.app).dependency_overrides[get_authenticated_client] = (
+        lambda: restricted
+    )
+    response = api.get("/api/v1/cheques", params={"company": COMPANY_ROW_ID})
+    assert response.status_code == 403, response.text
+
+
+def test_collateral_summary_company_filter_scopes_totals(
+    api: TestClient, world: _World
+) -> None:
+    world.collateral_held(sayad_id="1111111111111111", amount_toman=1000000)
+    _held_other_company(
+        world, sayad_id="2222222222222222", purpose="collateral", amount_toman=2000000
+    )
+    response = api.get(
+        "/api/v1/cheques/collateral-summary", params={"company": COMPANY_ROW_ID}
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["received_total_irr"] == 10_000_000
+    assert [c["sayad_id"] for c in body["cheques"]] == ["1111111111111111"]
+    tenant_wide = api.get("/api/v1/cheques/collateral-summary")
+    assert tenant_wide.status_code == 200, tenant_wide.text
+    assert tenant_wide.json()["received_total_irr"] == 30_000_000
+
+
+def test_in_clearing_aging_company_filter_scopes_rows(
+    api: TestClient, world: _World
+) -> None:
+    world.in_clearing(sayad_id="1111111111111111")
+    _in_clearing_other_company(world, sayad_id="2222222222222222")
+    response = api.get(
+        "/api/v1/cheques/reports/in-clearing-aging", params={"company": COMPANY_ROW_ID}
+    )
+    assert response.status_code == 200, response.text
+    assert [row["sayad_id"] for row in response.json()] == ["1111111111111111"]
+    tenant_wide = api.get("/api/v1/cheques/reports/in-clearing-aging")
+    assert tenant_wide.status_code == 200, tenant_wide.text
+    assert {row["sayad_id"] for row in tenant_wide.json()} == {
+        "1111111111111111",
+        "2222222222222222",
+    }

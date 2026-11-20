@@ -128,6 +128,19 @@ class EventNotDeadLetteredError(EventError):
         super().__init__(message, code="EVENT_NOT_DEAD_LETTERED", details=details)
 
 
+class EventNotReprocessableError(EventError):
+    """Raised when reprocessing is requested for an event in the wrong state.
+
+    Only a dead-lettered or needs-review event can be reprocessed
+    (US-552): a processed event is already done, and a
+    received/processing event is already in flight — reprocessing
+    either would be a second effect, not a retry.
+    """
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__(message, code="EVENT_NOT_REPROCESSABLE", details=details)
+
+
 # ---------------------------------------------------------------------------
 # Store reconciliation & backfill (US-512, S2)
 # ---------------------------------------------------------------------------

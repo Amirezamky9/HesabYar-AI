@@ -20,10 +20,13 @@ from __future__ import annotations
 
 import datetime
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from hesabyar.domain.accounting.ports import AccountingEnginePort
 from hesabyar.domain.accounting.refs import CheckbookEngineRef, CompanyRef
+from hesabyar.domain.accounting.value_objects import ReportFreshness
+from hesabyar.domain.cash_forecast.forecast import build_monthly_match_trend
+from hesabyar.domain.cash_forecast.models import MonthlyMatchTrend
 from hesabyar.domain.cheques.checkbook import CheckbookStatus, checkbook_status
 from hesabyar.domain.cheques.clearing import (
     ClearingAging,
@@ -43,6 +46,7 @@ from hesabyar.domain.cheques.models import (
 )
 from hesabyar.domain.cheques.ports import ChequeRepositoryPort
 from hesabyar.domain.common.dates import FiscalDate
+from hesabyar.domain.reports.statements import CALCULATION_VERSIONS, REPORT_VERSION
 
 __all__ = [
     "CashboxLeaf",
@@ -170,9 +174,11 @@ class ChequeQueryService:
         purpose: ChequePurpose | None = None,
         endorsee_type: str | None = None,
         storage_location: StorageLocation | None = None,
+        company_engine_id: int | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> Sequence[Cheque]:
+        """List registry rows; ``company_engine_id=None`` is tenant-wide (US-551)."""
         return self._repository.list(
             tenant_id=tenant_id,
             installation_id=installation_id,
@@ -183,6 +189,7 @@ class ChequeQueryService:
             purpose=purpose,
             endorsee_type=endorsee_type,
             storage_location=storage_location,
+            company_engine_id=company_engine_id,
             limit=limit,
             offset=offset,
         )
@@ -192,6 +199,7 @@ class ChequeQueryService:
         *,
         tenant_id: str,
         installation_id: str,
+        company_engine_id: int | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> Sequence[Cheque]:
@@ -200,12 +208,14 @@ class ChequeQueryService:
         Every commercial report, receivables/payables balance, cash
         forecast and sales/tax report reads through here (or an
         equivalent ``purpose=payment`` filter): a collateral cheque
-        can never leak into one.
+        can never leak into one. ``company_engine_id`` (US-551)
+        scopes the list to one company; ``None`` is tenant-wide.
         """
         return self.list_cheques(
             tenant_id=tenant_id,
             installation_id=installation_id,
             purpose=ChequePurpose.PAYMENT,
+            company_engine_id=company_engine_id,
             limit=limit,
             offset=offset,
         )
@@ -215,13 +225,19 @@ class ChequeQueryService:
         *,
         tenant_id: str,
         installation_id: str,
+        company_engine_id: int | None = None,
     ) -> CollateralSummary:
-        """Report 6 data: all collateral cheques + memorandum totals."""
+        """Report 6 data: all collateral cheques + memorandum totals.
+
+        ``company_engine_id`` (US-551) scopes the summary to one
+        company; ``None`` is the tenant-wide default.
+        """
         cheques = tuple(
             self._repository.list(
                 tenant_id=tenant_id,
                 installation_id=installation_id,
                 purpose=ChequePurpose.COLLATERAL,
+                company_engine_id=company_engine_id,
                 limit=1000,
             )
         )
@@ -359,6 +375,7 @@ class ChequeQueryService:
         *,
         tenant_id: str,
         installation_id: str,
+        company_engine_id: int | None = None,
         today: datetime.date | None = None,
     ) -> tuple[ClearingAging, ...]:
         """Ages of all in-clearing cheques (US-534, report 4 inputs).
@@ -366,6 +383,8 @@ class ChequeQueryService:
         A stale cheque stays in_clearing — this only reports the
         flag; a bounce still needs the bank's non-payment
         certificate or an inquiry, never age alone.
+        ``company_engine_id`` (US-551) scopes the aging to one
+        company; ``None`` is the tenant-wide default.
         """
         day = FiscalDate(today or datetime.date.today())
         settings = self.get_settings(installation_id)
@@ -373,6 +392,7 @@ class ChequeQueryService:
             tenant_id=tenant_id,
             installation_id=installation_id,
             state=ChequeState.IN_CLEARING,
+            company_engine_id=company_engine_id,
             limit=1000,
         )
         return tuple(
@@ -392,6 +412,54 @@ class ChequeQueryService:
                 clearing_window_days=settings.clearing_window_days,
             )
             for cheque in cheques
+        )
+
+    def get_monthly_match_trend(
+        self, *, tenant_id: str, installation_id: str, months: int = 12
+    ) -> MonthlyMatchTrend:
+        """Monthly clearing-match trend from STORED history (US-553, report 12).
+
+        The trend renders from the ``cheque_match_history`` rows the
+        clearing service records — never recomputed from raw match
+        records at read time. An empty history is an honest empty
+        trend: history starts with the first matching run after
+        deploy (no backfill — see ``MonthlyMatchHistory``).
+
+        The freshness indicator is ``"stored"`` (not ``"live"``):
+        the figures are the stored history, and the source
+        timestamp is the newest row's last update — the last time
+        the history changed.
+        """
+        if months < 1:
+            raise ValueError("months must be at least 1.")
+        history = self._repository.list_match_history(
+            tenant_id=tenant_id, installation_id=installation_id, months=months
+        )
+        now = datetime.datetime.now(datetime.UTC)
+        source_timestamp = max(
+            (row.updated_at for row in history), default=now
+        )
+        trend = build_monthly_match_trend(history)
+        return replace(
+            trend,
+            generated_at=now,
+            freshness=ReportFreshness(
+                source="hesabyar:cheque_match_history",
+                source_timestamp=source_timestamp,
+                generated_at=now,
+                company_id="",
+                period_start=None,
+                period_end=None,
+                report_version=REPORT_VERSION,
+                calculation_version=CALCULATION_VERSIONS["monthly_match_trend"],
+                freshness_indicator="stored",
+                reproducibility={
+                    "source": "cheque_match_history",
+                    "installation_id": installation_id,
+                    "months_requested": months,
+                    "months_stored": len(history),
+                },
+            ),
         )
 
     def inquiry_ledger(

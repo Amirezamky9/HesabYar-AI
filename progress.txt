@@ -1,277 +1,373 @@
-# HesabYar Phase 5-5 (۵ج — Installments + BNPL) — progress log
-# Branch: ralph/phase-5-5. Plan: US-540–545 (phased design §1.3 ۵ج + batch-1 reqs).
-# Waves: A = US-540; B = US-541+542+543+544; C = US-545.
-# Parent-verified ۵ث (6267e88) is the base. ۵ث parent-verified COMPLETE
-# 2026-11-20 ~18:50 (9th phase, 53 stories); wave-end verdict was CI run #2
-# green (2864/17/0 live Tryton); Playwright 17/17 as amended.
+# HesabYar Phase 5-6 (۵ح — Unified panel + review queue) — progress log
+# Branch: ralph/phase-5-6. Plan: US-550–555 (phased design §1.3 ۵ح + §7).
+# Waves: A = US-550; B = US-551+552+553+554; C = US-555.
+# Parent-verified ۵ج (33331df) is the base. ۵ج parent-verified COMPLETE
+# 2026-11-20 ~22:03 (10th phase, 59 stories); wave-end verdict was CI run #8
+# green (3318/17/0 live Tryton); US-545 Playwright still pending the ci.yml
+# paste — do NOT re-verify it here.
 
-## Coordinator setup (2026-11-20 ~18:52)
-- Coordinator works in worktree ~/workspace/projects/hesabyar-worktrees/phase-5-5
-  (branch ralph/phase-5-5, plan ae581a5) and NEVER touches the parent's
-  checkout, the phase-5-4 worktree, or the Playwright-CI subagent's worktree
-  (hesabyar-wt-ci-playwright). Forbidden ports: :8001/:3000/:8010/:8011
-  (parent) and :8022/:8002/:3001 (Playwright-CI). Own ports: trytond :8020
-  (local), backend :8003, Next :3002.
-- Local postgres :5433 was DOWN at launch (29th VM replacement wiped the
-  binaries). Restore #1 (restore-local-postgres.sh) failed on the apt lock
-  (pid 9434 apt-get update, running 9+ min — another agent's apt); a retry
-  loop (/tmp/restore-retry-5-5.sh, log restore-local-postgres-5-5-retry.log)
-  waits for the lock then re-runs the restore. Workers must NOT run the
-  restore themselves.
+## Coordinator setup (2026-11-20 ~22:14)
+- Coordinator works in worktree ~/workspace/projects/hesabyar-worktrees/phase-5-6
+  (branch ralph/phase-5-6, plan a418322) and NEVER touches any other worktree,
+  the parent's checkout, or the main checkout. Never pushes anything.
+- STANDING RULE (user order): NO test runs on this VM at all — no pytest, no
+  vitest, no Playwright, no Supabase/local DB test runs. ALL test execution
+  on GitHub Actions CI. Static gates only locally: ruff, pyright, tsc,
+  eslint, pnpm build. Workers WRITE all tests for CI; passes NOT marked.
 - Migration numbering (assigned up front; coordinator re-chains at merge if
-  parallel workers collide): US-540 → 0027, US-541 → 0028, US-542 → 0029,
-  US-543 → 0030, US-544 → 0031, US-545 → none (UI only). Alembic head at
-  launch: 0026.
-- Wave A launched: US-540 (worktree hesabyar-wt-us540, branch
-  ralph/phase-5-5-us540, local lane; ADR 0005 + plan core + linkage guard).
+  parallel workers collide): US-550 → none expected (reports via the Tryton
+  port; if one is needed, take 0032 and tell the coordinator); US-551 →
+  none (list filter only); US-552 → 0032 (only if a learned-mapping table is
+  needed, else none); US-553 → 0033 (monthly match history); US-554 → 0034
+  (import batches); US-555 → none. Alembic head at launch: 0031. Every
+  worker chains down_revision to the head at its branch time; the
+  coordinator re-chains at merge in merge order and keeps test_migrations.py
+  true (HEAD_REVISION + EXPECTED_TABLES) at every merge.
+- Wave A launched: US-550 (worktree hesabyar-wt-us550, branch
+  ralph/phase-5-6-us550).
 
-## REDIRECT (2026-11-20 ~18:54 — user standing rule, effective immediately)
-- NO test runs on this VM at all: no pytest, no vitest, no Playwright, no
-  Supabase test runs. ALL test execution on GitHub Actions CI. Static gates
-  only locally: ruff, pyright, tsc, eslint, pnpm build.
-- Restore retry loop KILLED (pkill hit my own shell too — SIGTERM collateral;
-  verified afterwards: no restore processes running). Local postgres restore
-  CANCELLED; :5433 stays down. No local DB operations of any kind.
-- US-540 worker redirected (interrupt): still WRITES all tests (CI runs
-  them), verifies with static gates only, reports file list + static-gate
-  results, does NOT mark passes=true. Same rule applies to all later waves.
-- Revised flow: implement all 6 stories (static gates only, passes NOT
-  marked) → STOP and report "implementation complete, ready for CI
-  verification" with per-story file lists → parent pushes to fork, reads CI,
-  sends failures back for a fix pass.
+## US-550 — IMPLEMENTED + MERGED (fast-forward to db4f5cd; worker commits
+## 833d6e7 / 763e5f0 / db4f5cd)
+- 34 files, +7737/−129. Five §11.2 reports + cheque report 7 live end to
+  end: 5 new AccountingEnginePort methods (general ledger, balance sheet,
+  P&L, cash flow, notes balance) + adapter reads; domain/reports/
+  statements.py (pure builders, cash-flow classification, aging buckets,
+  Jalali months); 5 new GET /reports/* endpoints (reports:read) + freshness
+  on trial balance; live UI sections (financial-sections.tsx,
+  general-ledger-section.tsx, report-charts.tsx, financial-report-data.ts)
+  with source + §7.5 chart type + §11.1 freshness lines; CSV exports carry
+  applied filters in a `#` header block; cheque report 7 wired to
+  GET /reports/notes-balance (backend "none" → "endpoint"). No migration
+  (head stays 0031). Docs: docs/financial-reports.md.
+- Judgment calls (documented in docs/financial-reports.md): balance sheet /
+  P&L read account balances, not type `amount` (universal chart sets the
+  `assets` sign flag inconsistently); cash flow has NO Tryton reference
+  report — documented direct-method derivation (direct-method/1.0),
+  unclassifiable lines break tie-out loudly; notes aging adds a
+  `not_yet_due` bucket so buckets sum to the total; `account_code` filter
+  dropped from notes-balance (instrument + party cover AC 6); bug fixed:
+  _flatten_type_subtree KeyError on companies with income accounts (income
+  types sit under Equity). ReportComingSoon kept as an unused reusable
+  primitive.
+- Tests written for CI: tests/unit/test_reports_us550.py, extended
+  test_rest_reports.py, tests/contract/test_tryton_adapter_financial_
+  reports.py (each report cross-checked against an independent read),
+  vitest helpers + CSV header, Playwright (5 live reports, TB drill-down,
+  CSV header, report 7 live; both coming-soon assertions replaced).
+- Coordinator verification (static only): ruff clean, pyright 0 repo-wide,
+  tsc 0, eslint 0, alembic single head 0031; endpoints + port methods +
+  report-7 flip + docs spot-checked. Build green on the identical tree
+  (worker ran it; fast-forward merge = same tree). prd.json passes NOT
+  marked. CI risks: Function-field reads (balance/debit/credit) with
+  date context over REST; `balanced` assertions assume every posted move
+  on the Adapter Test company falls in FY 2026; cash-flow tie-out assumes
+  no cash move with a memorandum/unknown-code counterpart; P&L monthly
+  labels ["1405-08", "1405-09"] + comparison default 2025-11-30 asserted
+  exactly (hand-verified against the Jalali calendar).
+- Wave B launched (all from merged db4f5cd, own worktrees, static gates
+  only): US-551 (hesabyar-wt-us551, no migration), US-552
+  (hesabyar-wt-us552, migration 0032 only if a learned-mapping table is
+  needed), US-553 (hesabyar-wt-us553, migration 0033 monthly match
+  history), US-554 (hesabyar-wt-us554, migration 0034 import batches).
+  Each worker's migration chains down_revision 0031; coordinator
+  re-chains at merge in merge order.
 
-## US-540 — IMPLEMENTED + MERGED (merge bc0109d; worker commit c19b312)
-- 30 files, +6649/−19. ADR 0005 ACCEPTED: installment.schedule.created is
-  the 12th canonical event, derived inside HesabYar from sales.order.
-  completed, NEVER a store webhook topic. Plan + legs + state machine
-  (computed, no status column), allocation rule (oldest overdue first,
-  overpayment → advance), LINKAGE GUARD (typed 422s
-  INSTALLMENT_RECEIPT_LINKAGE_REQUIRED / INSTALLMENT_INVOICE_MISMATCH,
-  NOT NULL cols), versioned sale contract (user-entered late-fee rule),
-  REST plans/contracts/receipts, scopes 43 → 45, migration 0027 (single
-  head). 110 new tests written for CI (48 domain + 19 services + 10 events
-  + 24 REST + 9 contract). Coordinator verification (static only): ruff
-  clean, pyright 0 repo-wide, alembic single head 0027, ADR + guard +
-  scopes spot-checked, no pinned-count breaks found (only unrelated hit:
-  reversal_draft_id == 43). prd.json passes NOT marked (CI verifies).
-  Deferred to later stories (in docs/installments.md): order.completed →
-  schedule derivation, pending_clearance (US-542), finance income/dunning/
-  late fee/early settlement (US-541), BNPL (US-543), SMS (US-544), UI (US-545).
-- Wave B launched (all from merged bc0109d, own worktrees, static gates
-  only): US-541 (hesabyar-wt-us541, migration 0028), US-542
-  (hesabyar-wt-us542, migration 0029), US-543 (hesabyar-wt-us543,
-  migration 0030), US-544 (hesabyar-wt-us544, migration 0031). Each
-  worker's migration chains down_revision 0027; coordinator re-chains at
-  merge (merge order = chain order).
+## US-551 — IMPLEMENTED + MERGED (merge 0425fea; worker commits 8a40906 /
+## 9a4c9f4)
+- 19 files, +2923/−249. Six live dashboard sections (پولِ امروز، پولِ در
+  راه، نیازمند توجه via US-504 counters read-only, خزانه، هشدارها،
+  ایمپورت‌های دستی) + US-553 cash-forecast placeholder section (marked
+  `INTEGRATION POINT` in widgets.tsx — do not remove) + kept US-302
+  overview widgets; dashboard-home.tsx full rewrite (16 parallel calls,
+  tolerant per-section failures); every KPI carries company + period +
+  unit (WidgetMeta) and links to its filtered operational page.
+  Company-scoped cheque figures at the repository level
+  (ChequeRepositoryPort.list(company_engine_id=…)); `?company=` on
+  GET /cheques, /cheques/collateral-summary,
+  /cheques/reports/in-clearing-aging (row id or engine id; unknown →
+  404, key restricted to another company → 403); dashboard scopes to
+  the shell's active company; cheque center has a company select
+  defaulting to «همهٔ شرکت‌ها». dashboard.spec.ts rewritten for the NEW
+  dashboard + current constants verified against code (153 accounts /
+  114 postable, FY 2027, 24 open periods, standards nav live + cheque/
+  installments/settlement/packaging nav live); file timeout 180s.
+  mint-dev-key.py now includes installments:read/write (keys minted
+  before this change must be re-minted). Docs: docs/unified-dashboard.md;
+  docs/ci-playwright.md dashboard risk marked RESOLVED.
+- Honest gaps (docs/unified-dashboard.md): bank book balances + real
+  withdrawable balance have NO API source → coming-soon row, never a
+  zero; installments have no backend company filter → dashboard filters
+  plans client-side (≤10 open internal plans, BNPL excluded); settlement
+  tranches + stale-inbox alert are installation-wide (no company field);
+  cheque reports page (/cheques/reports) still tenant-wide — follow-up
+  should thread the filter through; absent `company=` = tenant-wide even
+  for a company-restricted key (deliberate, task-literal — tightening is
+  a product decision).
+- Coordinator verification (static only): ruff clean, pyright 0 repo-wide,
+  tsc 0, eslint 0, alembic single head 0031. Build green on the worker
+  tree (merge adds only the progress.txt commit). prd.json passes NOT
+  marked.
+- COORDINATOR FIX (follow-up from the US-551 report): journey.spec.ts
+  still asserted the US-550-removed testIds
+  report-coming-soon-trial-balance / report-coming-soon-ledger — replaced
+  with live assertions (report-trial-balance + «تراز متوازن است»,
+  report-general-ledger + «جمع بدهکار»). Committed separately on the
+  phase branch.
+  Remaining Wave B: US-552, US-553, US-554 (running).
 
-## US-543 — IMPLEMENTED + MERGED (merge 4e79f41; worker commit a0532a5)
-- 21 files, +3648/−162. BNPL: gateway receivable via US-521 engine
-  (record_payment/cancel_payment/transition_tranche — no duplicated
-  tranche/fee/posting code); PlanKind internal|bnpl; BNPL legs never
-  overdue, never accrue finance income, never enter dunning (predicates
-  plan_accrues_finance_income / plan_enters_dunning for US-541/US-545);
-  lifecycle expected → gateway_confirmed → settled_per_tranche → paid;
-  rejection cancels the gateway payment, returns legs to expected, files
-  ONE review item (settlement_variance/bnpl_gateway_rejection); REST
-  bnpl receipts + kind filter + POST receipts/{id}/reject-bnpl; migration
-  0030 chains 0027 directly (no re-chain needed — landed first).
-  Coordinator verification (static only): ruff clean, pyright 0
-  repo-wide, alembic single head 0030 on the merged tree; engine reuse +
-  separation predicates + delimited BNPL blocks spot-checked. Tests
-  written for CI: test_installment_bnpl.py (new) + test_installments_
-  us543.py (contract) + 9 REST tests. prd.json passes NOT marked.
-  Remaining Wave B: US-541, US-542, US-544 (running).
+## US-553 — IMPLEMENTED + MERGED (merge 65f647e; worker commits c8f9434 /
+## 9b59d4f)
+- 39 files, +5424/−28. Cash forecast calendar: new domain/cash_forecast/
+  (pure builders — report-14 cheque rule, tranche/leg/invoice/purchase
+  items, Jalali calendar, overdue/0–30/31–60/61–90/91–120/beyond-120
+  horizon); CashForecastQueryService (tranches outstanding net, internal
+  legs uncovered balance only, commercial cheques, posted invoices,
+  packaging requests at cost price); double-count guards (BNPL legs never
+  items — the tranche is the cash; pending-clearance slice via the cheque
+  channel; plan-linked invoices excluded, matched on engine id + invoice
+  number). Collateral rule enforced twice (source filter +
+  list_commercial_cheques + builder re-check) with a dedicated test.
+  Endpoints: GET /reports/cash-forecast (reports:read, §11.1 freshness,
+  registered-records/1.0) + GET /cheques/reports/monthly-match-trend
+  (cheques:read, stored freshness, months 1–24 default 12).
+- Report 12: migration 0033 (cheque_match_history, one row per
+  installation + Jalali month; chains 0031 — NO re-chain needed, phase
+  head was still 0031); the clearing service records each run's newly
+  decided lines only (re-runs never double-count; recording failure is
+  logged loudly, never fails the run). Trend chart (donut + monthly
+  trend line, new LineChart) renders FROM stored history; report-12 meta
+  backend → "endpoint". No backfill (documented: pre-existing
+  BankStatementMatch rows cannot seed it faithfully — unmatched clearing
+  lines are indistinguishable from generic-reconcile unmatched lines, and
+  suggested matches carry no decision timestamp; history starts at the
+  first clearing run after deploy).
+- Frontend: features/cash-forecast/ (section with Jalali month grid
+  Sat–Fri, month nav, day-detail panel, قطعی/پیش‌بینی cards, horizon
+  table, source breakdown, freshness line; dashboard-cash-card.tsx
+  self-contained); route /reports/cash-forecast; «پیش‌بینی جریان نقد»
+  tab on the reports page. پیش‌بینی has NO source yet — the column is
+  always empty, honestly so, with an on-screen note.
+- Tests written for CI: test_cash_forecast.py + test_cash_forecast_
+  service.py + test_match_history.py + test_rest_cash_forecast.py,
+  cash-forecast-data.test.ts (vitest), e2e/cash-forecast.spec.ts (6 tests,
+  resilient to empty AND non-empty dev DB, no seeds, no figure
+  assertions). Docs: docs/cash-forecast.md.
+- Merge (1 conflict: dashboard-home.tsx): coordinator integration —
+  kept the US-551 DashboardSection structure; replaced the US-553
+  placeholder section with the real DashboardCashCard (companyId from
+  useCompany); deleted the stale CashForecastPlaceholder + INTEGRATION
+  POINT comment + orphaned CalendarRange import; added
+  data-testid="widget-cash-forecast" to all three DashboardCashCard
+  branches; dashboard.spec.ts now asserts the live card (title +
+  empty/net state + «مشاهدهٔ تقویم پیش‌بینی» → /reports/cash-forecast)
+  instead of the placeholder.
+- Coordinator verification (static only): ruff clean, pyright 0 repo-wide,
+  tsc 0, eslint 0, alembic single head 0033. Build green on the worker
+  tree (merge adds only the dashboard integration + spec updates; full
+  build re-run at wave end). prd.json passes NOT marked. CI risks:
+  invoice↔plan matching is a heuristic (free-form invoice_id); packaging
+  pricing assumes current cost price (missing cost drops the request);
+  tranche/leg read shapes are the US-521/US-540 repositories reused
+  unchanged.
+  Remaining Wave B: US-552, US-554 (running).
 
-## US-542 — IMPLEMENTED + MERGED (worker commit ed2319c)
-- 25 files, +3325/−171. LegStatus.PENDING_CLEARANCE; split_allocations()
-  splits allocations by cheque state (cleared → received, held/in_clearing
-  → pending, bounced/returned/endorsed/voided/expired/rejected → neither,
-  unknown cheque → pending fail-closed); precedence paid → pending_clearance
-  → overdue → partially_paid → due → expected. Cheque receipts:
-  payment_method=cheque + cheque_id, receivable states held/in_clearing
-  only (registered rejected — no journal until held), single-leg allocation,
-  one receipt per cheque, amount ≤ cheque amount; four typed 422s
-  (INSTALLMENT_CHEQUE_NOT_RECEIVABLE / _ALREADY_USED / _AMOUNT_EXCEEDED /
-  _LINK_MISMATCH); unknown cheque → 404. Collection hook:
-  InstallmentLegOutcomeHook port + InstallmentCollectionHook, wired into
-  ChequeCommandService clear()/bounce(); on clear sets receipt collected_at
-  (income on COLLECTION, never receipt/pending); on bounce writes nothing;
-  idempotent, never raises into the cheque transition (failure → logged +
-  installment_collection_hook_failed review item). Migration 0029
-  (re-chained 0027 → 0030 at merge — US-543 landed first; chain is now
-  0026 → 0027 → 0030 → 0029, single head 0029). Tests written for CI:
-  domain + ~17 service tests + 4 test_cheque_services.py hook tests + REST
-  tests + NEW tests/contract/test_installments_us542.py — the two-way test
-  deferred from US-531 (clear → leg paid + collected_at set; bounce → leg
-  unpaid + overdue + collected_at None).
-- Merge (16 files, 58 hunks vs US-543): union everywhere — InstallmentReceipt
-  carries BOTH cheque fields (cheque_id, collected_at) AND BNPL fields;
-  RECEIPT_METHODS = all 5 methods; both services take cheques (positional,
-  US-542 callers) + settlement/review or settlement_repository (keyword,
-  US-543 callers); record_receipt runs BOTH guards + single-leg cheque
-  allocation + gateway payment recording before storage; repository uses
-  US-543's _receipt_from_row helper (extended with the cheque fields) for
-  all readers incl. get_receipt_by_cheque; query service dispatches on plan
-  kind (BNPL → tranche machine, internal → cheque-aware split + linked
-  cheque). Coordinator merge fixes: (1) split_allocations() now skips
-  receipts where counts_toward_legs is False — a rejected BNPL receipt's
-  allocations must not count as received (US-542's split treated every
-  non-cheque receipt as received); (2) deleted the stale US-542 REST test
-  test_receipt_by_bnpl_is_still_refused (bnpl is implemented now — it
-  would fail on CI); the two stale domain "until" tests were dropped by
-  the merge itself; removed the orphaned InstallmentPaymentMethodError
-  import in test_installment_domain.py; (3) fixed stale
-  tests/infrastructure/test_migrations.py — HEAD_REVISION 0026 → 0029 +
-  the 5 installment tables in EXPECTED_TABLES (US-540/US-543 never bumped
-  it; those tests skip on CI, but the file should stay true).
-  Coordinator verification (static only): ruff clean, pyright 0 repo-wide,
-  alembic single head 0029. prd.json passes NOT marked.
-  Remaining Wave B: US-541, US-544 (running).
+## US-554 — IMPLEMENTED + MERGED (merge 487bc2e; worker commits f0b9ebe /
+## b511212)
+- 33 files, +9611/−105. Unified manual-import batches (one lifecycle for
+  statement B1 + settlement P2) + the payment.settlement.received pipeline
+  consumer (US-523 deferred item). Lifecycle: uploaded → mapped →
+  validated → previewed → awaiting_review → approved → posted (or
+  rejected → archived, re-runnable); parse stages complete inside the
+  upload call (file bytes never stored); reject archives in the same call
+  with the reason; re-run reopens the underlying import from stored rows,
+  recomputes the preview, files a fresh review item, increments `attempt`.
+  Approve: statement → draft statement written; settlement → tranches
+  confirmed, then tie-out + auto-post ONLY with explicit auto_post=true
+  (ADR 0003 decision 1), gate denial holds at approved/held_gate. The
+  batch is orchestration only — parse/validation/dedup/matching/policy-
+  gate/tie-out stay in the existing US-514/US-523 services; preview and
+  variance use the same code as the real posting effect (no second
+  calculator). The event consumer runs the SHARED run_tieout_for_batch —
+  same tie-out + auto-post rules as file imports, incl. the fail-closed
+  no-company path; unattributed receipts file a settlement_variance
+  review item and are processed, not retried; redelivery suppressed via
+  the §10.4 mapping.
+- Migration 0034 (manual_import_batches + settlement_column_mappings;
+  re-chained 0031 → 0033 at merge — US-553 landed first). Mapping-storage
+  decision (documented): settlement column mappings live in the new
+  batch-scoped table, NOT the US-503 mapping center (the center's nine
+  MappingKinds are a closed entity-mapping vocabulary with a different
+  lifecycle; a column mapping is file layout per source). Bank mappings
+  already live in bank_column_mappings; the settlement table mirrors it.
+  13 REST endpoints (per-kind scopes: statement banking:read/import,
+  settlement settlement:read/manage; Idempotency-Key required on
+  mutations; upload dedupes on file hash, returns existing batch with
+  duplicate=true).
+- Frontend: features/imports/ (import-batch-data.ts + import-batch-
+  detail.tsx — shared detail: preview, variance, stage timeline,
+  approve/reject/re-run/retry-posting); batch detail pages under banking
+  (statements/imports/[batchId]) + settlements (imports/batch/[batchId]);
+  settlement-import.tsx rewritten onto batch endpoints (all e2e-visible
+  text/ids preserved); statement-import.tsx migrated (upload/approve/
+  reject via batch endpoints, save-mapping checkbox + name input,
+  cancel-reason textarea). No unified "imports" page (§7.1/§7.4).
+  Dashboard section is US-551's; it reads GET /imports/batches.
+- Tests written for CI: test_manual_imports.py (state machine incl.
+  reject→archive→re-run, preview figures, mapping detection, dedup,
+  service flows) + test_settlement_received_consumer.py (payload
+  validation, handler outcomes, pipeline branch incl. idempotent
+  redelivery) + test_rest_imports.py (scopes per kind, state guards,
+  preview→approve→post, reject+re-run, mapping CRUD),
+  import-batch-data.test.ts (vitest), e2e/import-batches.spec.ts (full
+  settlement batch flow + reject→archive→re-run; serial, 90s waits,
+  reuses seedSettlementWiring + recordSnappPayPayment, no Tryton sale
+  seed). Docs: docs/manual-imports.md.
+- Deferred: staged upload (detect→map→validate as separate calls —
+  needs persisted parsed grid); IMAP fetch (still deferred); statement
+  auto-post (no such flow — approve always writes a DRAFT); separate
+  archive endpoint (none — reject archives in the same call).
+- Merge (1 conflict: test_migrations.py): coordinator fixes — re-chained
+  0034 to 0033; unioned EXPECTED_TABLES (0033 + 0034 tables) +
+  HEAD_REVISION 0034; added the US-554 upload-dedup unique constraint
+  (uq_manual_import_batches_tenant_kind_source_hash) to
+  SECTION_10_4_CONSTRAINTS (the worker omitted it).
+- Coordinator verification (static only): ruff clean, pyright 0 repo-wide,
+  tsc 0, eslint 0, alembic single head 0034. Build green on the worker
+  tree (merge adds only the re-chain + test_migrations union; full build
+  re-run at wave end). prd.json passes NOT marked. CI risks: shared
+  tie-out path (extraction behavior-preserving by construction, only CI
+  exercises the full chain); no-company fail-closed depends on the real
+  PolicyGateService + company resolution; the settlement pipeline branch
+  deliberately bypasses validate_store_payload (no settlement branch —
+  handler validates itself); file-format detection heuristics;
+  e2e variance-card assertion on an `approved` (not yet posted) batch.
+  Remaining Wave B: US-552 (running).
 
-## US-541 — IMPLEMENTED + MERGED (worker commit 211b2cb)
-- 23 files, +6168/−64. Finance income (gradual recognition on COLLECTION
-  via recognised_income; per-leg principal × contract rate, HALF_UP),
-  stepped dunning (installment_overdue review items, one per leg per
-  stage, source_event_ref idempotency), late fee from the ORIGINAL due
-  date (daily/monthly/fixed bases, grace days, draft journal Dr
-  receivable / Cr penalty, auto-post opt-in only), early settlement
-  (payoff quote = remaining principal + income due + late fees due −
-  advance held; full close + partial + re-amortisation with schedule
-  amendments; contract-by-code effective-version selection), overdue
-  report (GET /installments/overdue). New: domain finance.py (pure
-  math), InstallmentFinanceService, 4 REST endpoints (payoff-quote,
-  early-settlement, overdue, dunning/run), migration 0028 (2 new
-  tables: installment_late_fee_assessments, installment_schedule_
-  amendments; re-chained 0027 → 0029 at merge; chain now 0026 → 0027
-  → 0030 → 0029 → 0028, single head 0028). Tests written for CI:
-  test_installment_finance_us541.py + test_installment_finance_
-  services_us541.py + test_rest_installments_us541.py +
-  test_installments_us541.py (contract).
-- Merge (13 files conflicted vs US-542+US-543): union everywhere;
-  commands/installments.py + errors.py + postgres/models.py
-  auto-merged. Coordinator integration fixes (US-541 branched from
-  bc0109d, before US-542/US-543 existed): (1) REMOVED
-  received_totals() (summed ALL receipts as received — wrong for
-  pending cheques + dead BNPL receipts); the finance service and
-  the finance queries now use the cheque-aware split_allocations()
-  via a new optional cheques collaborator (wired in dependencies;
-  without it cheque receipts stay pending — fail-closed). (2) BNPL
-  guards: settle_early + get_payoff_quote refuse BNPL plans with
-  new typed 422 InstallmentBnplEarlySettlementError
-  (INSTALLMENT_BNPL_EARLY_SETTLEMENT_NOT_ALLOWED); run_dunning +
-  list_overdue skip BNPL plans via plan_enters_dunning. (3)
-  assess_leg accrues late fee + dunning stage ONLY while the leg
-  is OVERDUE — a pending_clearance leg is not chased (on bounce
-  the fee accrues from the ORIGINAL due date, per the US-541
-  decision). (4) validate_settlement_payload kept its
-  cash/bank/other-only method set but with the REAL reasons (a
-  cheque settlement cannot allocate across all legs + settles
-  income before collection; BNPL is internal-plan only) — the
-  "refused until US-542/US-543" wording + the stale test name
-  were fixed. (5) test_migrations.py: HEAD_REVISION → "0028" +
-  the 2 new tables in EXPECTED_TABLES. Coordinator verification
-  (static only): ruff clean, pyright 0 repo-wide, alembic single
-  head 0028. prd.json passes NOT marked.
-  Remaining Wave B: US-544 (running).
+## US-552 — One review queue (MERGED 2026-11-20 ~23:35, merge 183bc6d)
+- Worker: branch ralph/phase-5-6-us552, head 9eb952a (6 commits, 40 files,
+  +3471/-98). All 5 criteria met: derived suggestions (pure function of
+  type + payload, 14 reason keys, always a permitted §7.2 action);
+  real replay via DlqReplayService (same idempotency key; strict 422/404/
+  409 guards; new reprocess() for complete_mapping_retry best-effort);
+  mapping learning Suggest → Auto (mapping center IS the store; promotion
+  is a human decision via POST /integrations/mappings/{id}/promote, new
+  AUTO version at 3 confirmations); F4 pipeline adapter
+  (PersistentReviewQueueAdapter replaces the F1 inbox adapter in DI —
+  pipeline exceptions now file real ReviewItem rows); no scope changes
+  (review:read/resolve/file reused; promote uses integrations:manage).
+  Stale "nine types" wording fixed to ten everywhere.
+- Migration 0032: ONE column only — integration_mappings.confirmations
+  (NOT NULL, default 1). No new table.
+- Tests written for CI: unit review services / event pipeline /
+  integrations, REST review queue / integrations, new contract
+  test_review_queue_replay_us552.py, vitest data + api-error,
+  e2e/review-queue.spec.ts. Docs: docs/review-queue.md rewritten,
+  docs/event-platform.md (reprocess + F4 adapter).
+- Deferred: positive replay through the UI NOT covered in Playwright
+  (needs a genuinely dead-lettered event; covered at REST level);
+  DLQ replay idempotency + learning threshold verifiable only by
+  reasoning + CI; no mapping-center UI exists, so promotion is API-only
+  (frontend exposes promoteIntegrationMapping for when it lands).
+  policy_version on audit entries stays None honestly (no review action
+  consults a versioned policy); the decision audit log can't mirror
+  review actions (keyed by inbox event id).
+- Merge (2 conflicts): coordinator fixes — dependencies.py:
+  get_event_pipeline_service takes BOTH the US-554 settlement_received
+  handler and the US-552 review_commands service (constructor call
+  already passed both, auto-merged); test_migrations.py: kept the HEAD
+  table/constraint lists (superset incl. 0033/0034), HEAD_REVISION 0032.
+  RE-CHAINED 0032 to 0034 (US-553's 0033 + US-554's 0034 landed first;
+  merge order is the chain order). Chain is now
+  0031 -> 0033 -> 0034 -> 0032 (single head 0032).
+- Coordinator verification (static only): ruff clean, pyright 0, tsc 0,
+  eslint 0, pnpm build green, alembic single head 0032. No duplicate
+  api-client methods; no conflict markers; merged files compile.
+  prd.json passes NOT marked. CI risks: live Tryton behaviour of the
+  DLQ replay idempotency (contract test asserts same draft ref, no
+  duplicate invoice) + the learning threshold boundary; the F4 adapter
+  changes pipeline-exception filing for ALL event types (US-511/533/
+  554 paths included) — the full suite is the proof.
+- Wave B COMPLETE (US-551, US-552, US-553, US-554 all merged).
+  Wave C: US-555 (last) launching next.
 
-## US-544 — IMPLEMENTED + MERGED (worker commit ea9d89d)
-- 51 files, +9934/−48. SMS due-date reminders: multi-provider
-  registry (Kavenegar + sms.ir built-ins + simulator default;
-  price / rate limit / line type / contract / eNamad all
-  USER-ENTERED, never hard-coded; Fernet-encrypted credentials),
-  installation reminder policy + per-contract opt-ins, manual
-  trigger (POST /installments/plans/{id}/remind, sms:manage) +
-  reminder log (GET .../reminders), daily Procrastinate job
-  (sms.daily_reminders, Jalali-aware offsets, DLQ = failed log
-  rows, replay = manual trigger, review item on failure —
-  NEW 10th review type SMS_DELIVERY_FAILED), new scope
-  sms:manage (catalog 45 → 46; test_api_key_auth pinned count
-  bumped), migration 0031 (4 tables: sms_providers,
-  sms_reminder_settings, sms_contract_reminder_settings,
-  sms_reminder_log; re-chained 0027 → 0028 at merge; chain now
-  0026 → 0027 → 0030 → 0029 → 0028 → 0031, single head 0031).
-  Tests written for CI: test_sms_domain.py + test_sms_services.py
-  + test_rest_sms.py + test_sms_us544.py (contract) + queue +
-  review-queue updates. Docs: docs/sms-providers.md.
-- Merge (3 files conflicted): models.py interleaved-model conflict
-  resolved by splicing both sides' regions verbatim (2 US-541
-  models, then the 4 SMS models); router + docs unioned (14
-  installment endpoints now). Coordinator integration fixes
-  (US-544 branched from bc0109d, before US-542/US-543): (1) the
-  reminder service's _leg_views used a NAIVE sum (all receipts =
-  received) and took pending_clearance_leg_ids from NO caller —
-  it now takes an optional cheques collaborator (wired in
-  dependencies + run_event_worker) and computes received vs
-  pending with split_allocations() + resolve_cheque_states; a
-  leg fully covered by a cheque in flight is not reminded, a
-  bounced cheque's money counts as nothing; without a cheque
-  repository cheque receipts stay pending (fail-closed). (2)
-  BNPL guards: the daily job SKIPS BNPL plans (new skipped_bnpl
-  counter on SmsDailyReport) and the manual trigger refuses BNPL
-  legs (SmsLegNotRemindableError) — the customer owes the
-  gateway, not the seller. (3) test_migrations.py: HEAD_REVISION
-  → "0031" + the 4 SMS tables in EXPECTED_TABLES. Coordinator
-  verification (static only): ruff clean, pyright 0 repo-wide,
-  alembic single head 0031, tsc clean, eslint clean, pnpm build
-  OK. prd.json passes NOT marked.
-  Wave B COMPLETE (US-540, US-541, US-542, US-543, US-544 all merged).
-  Remaining: Wave C — US-545 (installments center UI).
+## US-555 — Hygiene (MERGED 2026-11-20 ~23:50, fast-forward to 6bc2442)
+- Worker: branch ralph/phase-5-6-us555, head 6bc2442 (3 commits, 17 files,
+  +1208/-19). All 5 criteria met: FK-flush sweep (bank save_batch fixed —
+  flush batch before rows; sweep doc docs/fk-flush-sweep.md covers every
+  repository: installments ۵ج fix verified complete, settlement/cheque/
+  manual-import/review-queue/integrations/moadian/packaging/sms/cashbox/
+  event/audit/idempotency/manual-entry/report-snapshot/tax-policy/
+  standards all clean, seeders flush per stage, seed_payment_channels
+  N/A); tick-created late_tranche review filing (closes the US-523
+  deferral — SettlementCommandService gains keyword-only tenant_resolver;
+  InstallationTenantResolver port resolves installation -> tenant via
+  api_keys.installation_id -> client_id -> tenant_id; files a
+  settlement_variance item with Persian reason; idempotent via the
+  open-exception lookup; TickReport/TickResponse gain review_items_filed;
+  run_event_worker.py now wires review + resolver); unified-panel
+  Playwright spec (e2e/unified-panel.spec.ts, 5 tests, serial, 180s file
+  timeout, 2 journeys test.slow() = 540s: dashboard -> cash calendar ->
+  back via breadcrumb; attention widget -> queue -> one dialog action per
+  type-group -> dashboard counter drops by 3, baseline-delta assertions;
+  dashboard imports section -> full statement-import wizard -> batch in
+  the imports widget; cash calendar no-overflow at 360px + 390px).
+- Pre-existing US-551 defect found + fixed by the worker: dashboard.spec.ts
+  asserted testIds widget-attention and widget-in-clearing, which do not
+  exist anywhere in the app — corrected to widget-review-queue and
+  widget-cheque-in-clearing (coordinator verified all 16 widget testIds
+  used by dashboard.spec.ts exist in the app, 1 definition each).
+- Tests written for CI: unit bank repository (deterministic fake-session
+  add->flush->add order assertion) + infra bank repository (real-DB
+  persistence); 6 unit tick-filing tests + 2 REST tick tests (tick files
+  4 items with exact context; re-tick files 0) + 2 resolver infra tests;
+  unified-panel.spec.ts. No vitest tests needed (no UI code changed).
+  Docs: docs/fk-flush-sweep.md (new), docs/settlement.md updated.
+- Coordinator verification (static only): ruff clean, pyright 0, tsc 0,
+  eslint 0, pnpm build green (56/56 pages), alembic single head 0032.
+  Coordinator spot-checked the worker's reasoning-only claims: the
+  corrected testIds exist (passed as testId props in widgets.tsx);
+  run_event_worker.py wires BOTH review and tenant_resolver; the
+  save_batch flush sits between batch add and row adds with an
+  explanatory comment; every selector the unified-panel spec uses
+  (review-item-card/dialog, #review-action, perform-action, load-more,
+  empty-queue + waiting-count widget text) exists in the app code.
+  prd.json passes NOT marked. CI risks: the DB test for save_batch may
+  pass even unfixed (hash-order luck) — the deterministic unit test is
+  the real guard; REST tick tests assume serial pytest + no other test
+  leaving overdue tranches in the shared DB; unified-panel counter
+  assertions depend on the active company being the first company
+  (verified in source, fails loudly otherwise); CI runs spec files in
+  parallel workers, so a parallel spec mutating review items mid-journey
+  could shift the counter delta — first place to look if flaky.
 
-## US-545 — IMPLEMENTED + MERGED (worker commit 074829a)
-- 20 files, +5618/−6. Installments center UI: /installments
-  (plan list: kind tabs, status/invoice server filters, customer
-  client filter, summary cards, CSV), /installments/new (terms-
-  based or explicit legs; internal/BNPL with gateway-channel
-  select from the live channel registry), /installments/[id]
-  (schedule table with leg states + linked cheque + BNPL tranche
-  status, receipts, payoff quote, contract summary, record-
-  receipt / early-settlement / manual-remind / reject-BNPL
-  actions, amendment timeline, reminder log),
-  /installments/reports (ALL 11 reports LIVE, none coming-soon:
-  overdue, collection forecast, finance income recognised,
-  dunning stages, BNPL vs internal split, per-customer statement,
-  per-plan schedule, early settlements, bounced-cheque legs, SMS
-  reminder log, installment aging — each with data source +
-  §7.5 chart type + honest per-figure caveats). Overdue report
-  first-class: Jalali dates, plan/invoice links, CSV export,
-  dunning sweep with result summary. Nav module "مرکز اقساط"
-  added; breadcrumb for the shared `new` segment made generic
-  ("ثبت جدید"). One minimal backend read added (GET plan
-  amendments — the audit history US-541 recorded but never
-  exposed); no migration, no new scopes. BNPL separation
-  enforced in the UI (no finance-income/dunning/settlement UI
-  on BNPL plans; figures never summed). Tests written for CI:
-  installment-data.test.ts (vitest, ~30 cases, pinned dates),
-  e2e/installments.spec.ts (7 Playwright tests, serial),
-  test_rest_installments_us545.py (4 REST tests).
-- Merge: branched from the phase head (5fb528a) — clean,
-  no conflicts. Coordinator verification (static only): ruff
-  clean, pyright 0 repo-wide, alembic single head 0031, tsc
-  clean, eslint clean, pnpm build OK (53 pages, all 4
-  installments routes present). All 11 report ids + the
-  amendments endpoint + the 7 Playwright tests spot-checked.
-  prd.json passes NOT marked.
+## COORDINATOR FIX — pydantic date-field clash (b9fec67, 2026-11-20 ~23:55)
+- Caught while counting OpenAPI paths on the merged head: importing the
+  app raised PydanticUserError (unevaluable-type-annotation) —
+  GeneralLedgerLineResponse, ForecastItemResponse and CalendarDayResponse
+  all declared 'date: date'. With 'from __future__ import annotations'
+  pydantic resolves the annotation against the class namespace, where
+  'date' is the field itself. This broke the WHOLE app import (every
+  REST test + the server would fail at collection/startup) and was
+  invisible to ruff/pyright/tsc/eslint/build — static gates do not
+  evaluate pydantic models. Fixed with the 'date as _date' alias
+  (precedent: domain/bank/parsing.py); field name + JSON shape unchanged.
+  NOTE: the 'datetime.date' qualification used in journals.py etc. does
+  NOT work here — this module imports datetime the class, so
+  datetime.date is the .date() method (proven by the second error).
+  After the fix the app imports cleanly and OpenAPI reports 252 paths.
 
-## PHASE 5-5 — IMPLEMENTATION COMPLETE (all 6 stories merged)
-- Head 0f3171f (merge of US-545). Branch ralph/phase-5-5,
-  109 files changed vs plan commit ae581a5, +35,341/−77.
-  Alembic single head 0031 (chain 0026 → 0027 → 0030 → 0029 →
-  0028 → 0031). OpenAPI 232 paths (213 → 232). Scope catalog
-  46 (installments:read/write + sms:manage added). Build 53
-  pages. Static gates all green (ruff, pyright 0, tsc, eslint,
-  build). NO tests run locally anywhere — all test execution
-  is on GitHub Actions CI. prd.json passes NOT marked on any
-  story. READY FOR CI VERIFICATION — parent pushes to the fork,
-  reads CI, sends failures back for a fix pass.
-
-## Parent verification — CI run #8 GREEN (2026-11-20 ~21:48)
-- Fork commit 3ec23c2e, run #8 (44790549118), 6m28s: python-gates green;
-  python-tests 3056 passed / 279 skipped / 0 failed; python-tests-tryton
-  3318 passed / 17 skipped / 0 failed; frontend 299/299 vitest + build green.
-- US-540–544 marked passes: true (verified by the CI suite).
-- US-545 stays passes: false ONLY because its Playwright spec
-  (e2e/installments.spec.ts, 7 tests) has not run yet: the Playwright CI
-  job starts only after the user pastes the 5-job ci.yml on
-  ralph/phase-5-5. Its backend (REST tests) passed in run #8. When the
-  paste lands, read the Playwright job result; fix failures from CI
-  evidence; then mark US-545 passes: true.
+## PHASE 5-6 COMPLETE — implementation done, ready for CI (2026-11-20 ~23:57)
+- Phase-complete head: b9fec67 (branch ralph/phase-5-6); two follow-up
+  commits sit on top (ruff I001 import-sort fix + this log correction).
+  31 commits on top of the plan commit a418322; 157 files changed,
+  +30721/-626. The true final head hash is in the coordinator's final
+  report (it cannot name itself inside this log).
+- All 6 stories implemented + merged (US-550, US-551, US-552, US-553,
+  US-554, US-555). prd.json passes NOT marked on any story (Git-only
+  rule — CI is the verifier). Nothing pushed.
+- Final state: Alembic single head 0032 (chain 0031 -> 0033 -> 0034 ->
+  0032); OpenAPI 252 paths (was 232); scope catalog 46 (unchanged);
+  build 56/56 pages (was 53); Playwright specs 22 files (was 18).
+- Final static gates on the merged head: ruff clean, pyright 0, tsc 0,
+  eslint 0, pnpm build green, alembic heads single 0032, app import OK.
+- Deferred items (all phases): see the coordinator final report.

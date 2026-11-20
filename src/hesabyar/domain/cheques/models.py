@@ -28,6 +28,7 @@ from __future__ import annotations
 import datetime
 import uuid
 from dataclasses import dataclass, field
+from decimal import Decimal
 from enum import StrEnum
 
 from hesabyar.domain.common.dates import FiscalDate
@@ -400,3 +401,76 @@ class Cheque:
 
     def touch(self) -> None:
         self.updated_at = datetime.datetime.now(datetime.UTC)
+
+
+@dataclass
+class MonthlyMatchHistory:
+    """One Jalali month of clearing-match outcomes (US-553, report 12).
+
+    The clearing service records every matching run's newly decided
+    lines here (``cheque_match_history`` table, one row per
+    (installation, Jalali month)); the trend chart renders FROM
+    these rows, never recomputed from raw match records at read
+    time. ``match_rate`` is the share of lines the matcher decided
+    (exact + probable) out of all lines it saw, as an exact
+    decimal fraction (0–1); a month with no lines rates 0.
+
+    NO BACKFILL: history starts with the first matching run after
+    deploy. The pre-existing match records cannot seed it faithfully
+    — an unmatched clearing line is indistinguishable from a generic
+    reconcile unmatched line (both are ``target_type=MANUAL`` with
+    an empty ``target_ref``), and suggested matches carry no
+    decision timestamp. See docs/cash-forecast.md.
+    """
+
+    id: str
+    tenant_id: str
+    installation_id: str
+    month_jalali: str  # Jalali "YYYY-MM"
+    exact_count: int = 0
+    probable_count: int = 0
+    ambiguous_count: int = 0
+    unmatched_count: int = 0
+    created_at: datetime.datetime = field(
+        default_factory=lambda: datetime.datetime.now(datetime.UTC)
+    )
+    updated_at: datetime.datetime = field(
+        default_factory=lambda: datetime.datetime.now(datetime.UTC)
+    )
+
+    @property
+    def total_lines(self) -> int:
+        """All lines the matcher saw this month."""
+        return (
+            self.exact_count
+            + self.probable_count
+            + self.ambiguous_count
+            + self.unmatched_count
+        )
+
+    @property
+    def match_rate(self) -> Decimal:
+        """Share of decided lines (exact + probable), 0–1, 4 places."""
+        total = self.total_lines
+        if total == 0:
+            return Decimal("0")
+        return (Decimal(self.exact_count + self.probable_count) / Decimal(total)).quantize(
+            Decimal("0.0001")
+        )
+
+    def add_counts(
+        self, *, exact: int, probable: int, ambiguous: int, unmatched: int
+    ) -> MonthlyMatchHistory:
+        """Return a copy with one run's counts added (the upsert-add)."""
+        return MonthlyMatchHistory(
+            id=self.id,
+            tenant_id=self.tenant_id,
+            installation_id=self.installation_id,
+            month_jalali=self.month_jalali,
+            exact_count=self.exact_count + exact,
+            probable_count=self.probable_count + probable,
+            ambiguous_count=self.ambiguous_count + ambiguous,
+            unmatched_count=self.unmatched_count + unmatched,
+            created_at=self.created_at,
+            updated_at=datetime.datetime.now(datetime.UTC),
+        )

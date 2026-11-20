@@ -70,11 +70,12 @@ def register_settlement_tasks(
             handle.commit()
             logger.info(
                 "Settlement tick done: moved_to_due=%d moved_to_overdue=%d "
-                "exceptions_created=%d exceptions_escalated=%d",
+                "exceptions_created=%d exceptions_escalated=%d review_items_filed=%d",
                 report.moved_to_due,
                 report.moved_to_overdue,
                 report.exceptions_created,
                 report.exceptions_escalated,
+                report.review_items_filed,
             )
         finally:
             handle.close()

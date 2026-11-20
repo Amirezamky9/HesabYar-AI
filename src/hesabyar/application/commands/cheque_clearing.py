@@ -60,6 +60,7 @@ from hesabyar.domain.bank.models import (
     ReconcileOutcome,
 )
 from hesabyar.domain.bank.ports import BankRepositoryPort
+from hesabyar.domain.cash_forecast.forecast import jalali_month_key
 from hesabyar.domain.cheques.clearing import (
     ClearingAging,
     ClearingCandidate,
@@ -73,7 +74,13 @@ from hesabyar.domain.cheques.errors import (
     ChequeNotFoundError,
     ChequeValidationError,
 )
-from hesabyar.domain.cheques.models import Cheque, ChequeKind, ChequePurpose, ChequeState
+from hesabyar.domain.cheques.models import (
+    Cheque,
+    ChequeKind,
+    ChequePurpose,
+    ChequeState,
+    MonthlyMatchHistory,
+)
 from hesabyar.domain.cheques.ports import ChequeRepositoryPort
 from hesabyar.domain.common.dates import FiscalDate
 from hesabyar.domain.common.errors import BankStatementNotFoundError
@@ -247,6 +254,11 @@ class ChequeClearingService:
             )
             decisions.append(decision)
             items_filed += filed
+        self._record_match_history(
+            tenant_id=tenant_id,
+            installation_id=installation_id,
+            decisions=decisions,
+        )
         return ChequeClearingResult(
             statement_id=statement_id,
             total_lines=len(decisions),
@@ -266,6 +278,53 @@ class ChequeClearingService:
             review_items_filed=items_filed,
             lines=tuple(decisions),
         )
+
+    def _record_match_history(
+        self,
+        *,
+        tenant_id: str,
+        installation_id: str,
+        decisions: list[ClearingLineDecision],
+    ) -> None:
+        """Record this run's newly decided lines in the monthly history (US-553).
+
+        Report 12 renders FROM the stored history, so every run
+        adds its counts to its Jalali month. Only NEWLY decided
+        lines count: a re-run's ``already_matched`` lines were
+        recorded by the run that decided them — counting them again
+        would inflate the month. A history-write failure must never
+        fail the clearing run (the run's job is clearing); it is
+        logged loudly instead, and the month simply misses this run.
+        """
+        newly_decided = [d for d in decisions if d.action != "already_matched"]
+        if not newly_decided:
+            return
+        entry = MonthlyMatchHistory(
+            id=str(uuid.uuid4()),
+            tenant_id=tenant_id,
+            installation_id=installation_id,
+            month_jalali=jalali_month_key(self._clock_date()),
+            exact_count=sum(
+                1 for d in newly_decided if d.confidence == ClearingConfidence.EXACT
+            ),
+            probable_count=sum(
+                1 for d in newly_decided if d.confidence == ClearingConfidence.PROBABLE
+            ),
+            ambiguous_count=sum(
+                1 for d in newly_decided if d.confidence == ClearingConfidence.AMBIGUOUS
+            ),
+            unmatched_count=sum(
+                1 for d in newly_decided if d.confidence == ClearingConfidence.UNMATCHED
+            ),
+        )
+        try:
+            self._cheques.record_match_history(entry)
+        except Exception:  # noqa: BLE001 - a history failure must not fail the clearing run
+            logger.exception(
+                "Failed to record monthly match history for %s/%s",
+                tenant_id,
+                entry.month_jalali,
+            )
 
     # -- human confirm of a probable/ambiguous match ---------------------------
 

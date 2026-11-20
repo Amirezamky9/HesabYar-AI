@@ -53,6 +53,7 @@ TEST_DB_URL = os.getenv(
 
 BASE = "/api/v1/settlements"
 INTEGRATIONS = "/api/v1/integrations"
+REVIEW_QUEUE = "/api/v1/review-queue"
 
 FOUR_TRANCHES = [
     {"month_offset": 1, "payout_day": 5, "percent": "25"},
@@ -169,6 +170,8 @@ def world(engine: Engine, settings: AppSettings) -> Generator[World, None, None]
                 "settlement:manage",
                 "integrations:read",
                 "integrations:manage",
+                # The tick-filing tests read the queue the tick files into.
+                "review:read",
             ],
         )
         key_other = _key(client, ["company:read"])
@@ -243,7 +246,7 @@ def _auth(secret: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {secret}"}
 
 
-def _setup_channel(api: TestClient, world: World) -> None:
+def _setup_channel(api: TestClient, world: World, valid_from: str = "2026-10-23") -> None:
     """Create the snapppay channel + active 4-tranche contract via REST."""
     response = api.post(
         f"{INTEGRATIONS}/channels",
@@ -258,7 +261,7 @@ def _setup_channel(api: TestClient, world: World) -> None:
     response = api.post(
         f"{INTEGRATIONS}/channels/snapppay/contracts",
         json={
-            "valid_from": "2026-10-23",
+            "valid_from": valid_from,
             "fee_percent": "10",
             "fee_vat_rate": "10",
             "settlement_model": "tranches_4",
@@ -610,3 +613,58 @@ def test_tick_moves_due_tranches(api: TestClient, world: World) -> None:
     data = response.json()
     assert data["moved_to_due"] == 0
     assert data["moved_to_overdue"] == 0
+
+
+def test_tick_files_late_tranche_review_items(api: TestClient, world: World) -> None:
+    """A tick that creates late tranches files review items (US-555)."""
+    _setup_channel(api, world, valid_from="2026-01-01")
+    # Confirmed 2026-02-06: all four tranches (due Mar–Jun 2026) are
+    # long overdue whenever the suite runs.
+    _record_payment(api, world, gateway_confirmed_at="2026-02-06T12:00:00Z")
+    response = api.post(f"{BASE}/tick", headers=_auth(world.key_manage_secret))
+    assert response.status_code == 200
+    data = response.json()
+    assert data["moved_to_overdue"] == 4
+    assert data["exceptions_created"] == 4
+    assert data["review_items_filed"] == 4
+
+    response = api.get(
+        f"{REVIEW_QUEUE}/items?type=settlement_variance",
+        headers=_auth(world.key_manage_secret),
+    )
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert len(items) == 4
+    for item in items:
+        assert item["subtype"] == "late_tranche"
+        assert item["channel"] == "snapppay"
+        assert item["amount_irr"] == 22_250_000
+        assert item["status"] == "open"
+        assert item["source_event_ref"].startswith("settlement-exception:")
+        assert "snapppay" in item["reason"]
+        assert "22,250,000" in item["reason"]
+        assert item["suggested_action"]
+    reasons = [item["reason"] for item in items]
+    for index in range(1, 5):
+        assert any(f"قسط {index} از 4" in reason for reason in reasons)
+
+
+def test_tick_retick_files_no_duplicate_review_items(api: TestClient, world: World) -> None:
+    """A re-run tick files nothing: one item per late tranche (US-555)."""
+    _setup_channel(api, world, valid_from="2026-01-01")
+    _record_payment(api, world, gateway_confirmed_at="2026-02-06T12:00:00Z")
+    first = api.post(f"{BASE}/tick", headers=_auth(world.key_manage_secret))
+    assert first.status_code == 200
+    assert first.json()["review_items_filed"] == 4
+
+    second = api.post(f"{BASE}/tick", headers=_auth(world.key_manage_secret))
+    assert second.status_code == 200
+    assert second.json()["exceptions_created"] == 0
+    assert second.json()["review_items_filed"] == 0
+
+    response = api.get(
+        f"{REVIEW_QUEUE}/items?type=settlement_variance",
+        headers=_auth(world.key_manage_secret),
+    )
+    assert response.status_code == 200
+    assert len(response.json()["items"]) == 4

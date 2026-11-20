@@ -189,20 +189,30 @@ from hesabyar.domain.accounting.value_objects import (
     AccountView,
     AnalyticAccountView,
     AnalyticLineView,
+    BalanceSheetView,
     BankStatementLineView,
     BankStatementView,
+    CashFlowSectionView,
+    CashFlowView,
     CheckbookEngineView,
     ChequeEngineView,
     CompanyView,
     FiscalPeriodView,
     FiscalYearView,
+    GeneralLedgerAccountView,
+    GeneralLedgerLineView,
+    GeneralLedgerView,
+    IncomeStatementView,
     InventoryView,
     InvoiceLineView,
     InvoiceTotalView,
     InvoiceView,
     JournalDraftView,
     JournalLineView,
+    MonthlyRevenueExpenseView,
     MoveLineView,
+    NotesBalanceRowView,
+    NotesBalanceView,
     OrderPointView,
     OutShipmentCostView,
     PackagingProductView,
@@ -253,6 +263,20 @@ from hesabyar.domain.common.errors import (
 from hesabyar.domain.common.money import MoneyIRR
 from hesabyar.domain.packaging.errors import FifoUnavailableError
 from hesabyar.domain.reports.models import TRIAL_BALANCE_SOURCE_ENDPOINT
+from hesabyar.domain.reports.statements import (
+    CASH_TYPE_NAMES,
+    NOTES_ACCOUNT_CODES,
+    NOTES_PAYABLE_CODES,
+    NOTES_RECEIVABLE_CODES,
+    AccountBalanceRow,
+    AccountTypeNode,
+    aging_bucket,
+    build_balance_sheet_sections,
+    build_income_statement_sections,
+    classify_cash_flow_section,
+    classify_income_types,
+    jalali_months_in_range,
+)
 from hesabyar.infrastructure.accounting.tryton.client import TrytonRestClient
 from hesabyar.infrastructure.accounting.tryton.contracts import Record
 from hesabyar.infrastructure.accounting.tryton.errors import (
@@ -306,6 +330,10 @@ from hesabyar.infrastructure.accounting.tryton.mapping import (
 _CHART_PAGE_SIZE = 500
 _STOCK_PAGE_SIZE = 500
 _TRIAL_BALANCE_PAGE_SIZE = 500
+
+#: Source endpoint for statement reads through the account balance
+#: Function field (balance sheet, income statement — US-550).
+_ACCOUNT_BALANCE_SOURCE_ENDPOINT = "account.account.balance (Tryton REST)"
 
 # Template fields read back for packaging products (single + batch).
 _PACKAGING_TEMPLATE_FIELDS = [
@@ -1575,6 +1603,903 @@ class TrytonAccountingAdapter:
             total_credit=total_credit,
             move_count=len(move_ids),
             line_count=len(lines),
+            source_endpoint=TRIAL_BALANCE_SOURCE_ENDPOINT,
+        )
+
+    # -- financial reports (Phase 5-6, US-550) -----------------------------
+    #
+    # All five reports read LIVE from the engine, never from a HesabYar
+    # cache (§11.1). Two read shapes:
+    #
+    # - posted ``account.move.line`` rows, paged through in full (general
+    #   ledger detail, cash flow, notes aging) — the trial-balance
+    #   pattern;
+    # - the ``account.account`` balance/debit/credit Function fields
+    #   with the report context (balance sheet, income statement,
+    #   general-ledger summary + opening balances) — the same figures
+    #   Tryton's own reference reports render (the general ledger and
+    #   type-statement templates read these fields in the same
+    #   company/fiscalyear/date/posted context). Reading Function
+    #   fields via REST is an established adapter pattern (invoice
+    #   ``total_amount`` / ``amount_to_pay``, product quantities).
+    #
+    # Context dates travel as real dates (the wire encoder turns them
+    # into Tryton date dicts), so ``query_get`` sees the same context
+    # the reference reports use: ``date`` for a point in time,
+    # ``from_date``/``to_date`` for a period, ``posted`` True always
+    # (HesabYar reports are posted-only, like the trial balance).
+
+    def _report_context(
+        self, company_id: int, **extra: Any
+    ) -> dict[str, Any]:
+        """Report context for Function-field reads: company + posted-only."""
+        context: dict[str, Any] = {"company": company_id, "posted": True}
+        context.update(extra)
+        return context
+
+    def _account_type_tree(self, company_id: int) -> list[AccountTypeNode]:
+        """Read the company's account-type tree (statement grouping)."""
+        records: list[Record] = []
+        offset = 0
+        while True:
+            page = self._client.search(
+                "account.account.type",
+                domain=[("company", "=", company_id)],
+                fields=["name", "parent", "statement", "sequence"],
+                limit=_CHART_PAGE_SIZE,
+                offset=offset,
+                order=[["sequence", "ASC"], ["name", "ASC"]],
+                context={"company": company_id},
+            )
+            records.extend(page)
+            if len(page) < _CHART_PAGE_SIZE:
+                break
+            offset += len(page)
+        return [
+            AccountTypeNode(
+                type_id=int(record["id"]),
+                name=str(record.get("name") or ""),
+                parent_id=(
+                    int(record["parent"]) if record.get("parent") is not None else None
+                ),
+                statement=(
+                    str(record["statement"])
+                    if record.get("statement") is not None
+                    else None
+                ),
+                sequence=int(record.get("sequence") or 0),
+            )
+            for record in records
+        ]
+
+    def _account_balance_records(
+        self, company_id: int, context: dict[str, Any]
+    ) -> list[Record]:
+        """Read every account's code/name/type/balance in a report context.
+
+        The ``balance`` Function field is computed by the engine with
+        the context: a ``date`` context gives the point-in-time
+        balance (cumulative over closed fiscal years), a
+        ``from_date``/``to_date`` context the period's net activity.
+        """
+        records: list[Record] = []
+        offset = 0
+        while True:
+            page = self._client.search(
+                "account.account",
+                domain=[("company", "=", company_id)],
+                fields=["code", "name", "type", "balance"],
+                limit=_CHART_PAGE_SIZE,
+                offset=offset,
+                order=[["code", "ASC"]],
+                context=context,
+            )
+            records.extend(page)
+            if len(page) < _CHART_PAGE_SIZE:
+                break
+            offset += len(page)
+        return records
+
+    def _account_balance_rows(
+        self,
+        company_id: int,
+        context: dict[str, Any],
+        comparison_context: dict[str, Any] | None,
+    ) -> list[AccountBalanceRow]:
+        """Merge a balance read with its comparison read, per account."""
+        current = {
+            int(record["id"]): record
+            for record in self._account_balance_records(company_id, context)
+        }
+        comparison: dict[int, Record] = {}
+        if comparison_context is not None:
+            comparison = {
+                int(record["id"]): record
+                for record in self._account_balance_records(company_id, comparison_context)
+            }
+        rows: list[AccountBalanceRow] = []
+        for account_id, record in current.items():
+            comparison_record = comparison.get(account_id)
+            rows.append(
+                AccountBalanceRow(
+                    account_id=account_id,
+                    code=str(record.get("code") or ""),
+                    name=str(record.get("name") or ""),
+                    type_id=(
+                        int(record["type"])
+                        if record.get("type") is not None
+                        else None
+                    ),
+                    balance=money_from_tryton(record.get("balance", 0)),
+                    balance_cmp=(
+                        money_from_tryton(comparison_record.get("balance", 0))
+                        if comparison_record is not None
+                        else None
+                    ),
+                )
+            )
+        rows.sort(key=lambda row: (row.code == "", row.code))
+        return rows
+
+    def _posted_move_lines(
+        self,
+        company_id: int,
+        domain: list[Any],
+        fields: list[str],
+    ) -> list[Record]:
+        """Page through posted move lines matching a domain, in full."""
+        lines: list[Record] = []
+        offset = 0
+        while True:
+            page = self._client.search(
+                "account.move.line",
+                domain=[
+                    ("move.company", "=", company_id),
+                    ("move.state", "=", "posted"),
+                    *domain,
+                ],
+                fields=fields,
+                limit=_TRIAL_BALANCE_PAGE_SIZE,
+                offset=offset,
+                order=[["account", "ASC"], ["id", "ASC"]],
+                context={"company": company_id},
+            )
+            lines.extend(page)
+            if len(page) < _TRIAL_BALANCE_PAGE_SIZE:
+                break
+            offset += len(page)
+        return lines
+
+    def _move_numbers(
+        self, move_ids: list[int], company_id: int
+    ) -> dict[int, tuple[str, str]]:
+        """Batch-read (number, description) for move ids."""
+        if not move_ids:
+            return {}
+        records = self._client.search(
+            "account.move",
+            domain=[("id", "in", move_ids)],
+            fields=["number", "description"],
+            context={"company": company_id},
+        )
+        return {
+            int(record["id"]): (
+                str(record.get("number") or ""),
+                str(record.get("description") or ""),
+            )
+            for record in records
+        }
+
+    def get_general_ledger(
+        self,
+        company: CompanyRef,
+        date_from: FiscalDate,
+        date_to: FiscalDate,
+        account: AccountRef | None = None,
+    ) -> GeneralLedgerView:
+        """General ledger over posted moves: summary or one account's lines.
+
+        Summary mode (no account) reads the period's per-account
+        debit/credit through the account Function fields plus the
+        opening balances at the day before ``date_from`` — two
+        searches, no line paging. Detail mode pages the account's
+        posted lines in full and builds running balances from the
+        engine-read opening balance.
+        """
+        if date_to < date_from:
+            raise ValueError("date_to must be on or after date_from.")
+        self._require_irr_company_for_reads(company.engine_id)
+        day_before = FiscalDate.from_gregorian(
+            date_from.gregorian_date - datetime.timedelta(days=1)
+        )
+        opening_context = self._report_context(
+            company.engine_id, date=date_to_tryton(day_before)
+        )
+        if account is None:
+            period_context = self._report_context(
+                company.engine_id,
+                from_date=date_to_tryton(date_from),
+                to_date=date_to_tryton(date_to),
+            )
+            # One search for the period's per-account debit/credit
+            # (the account Function fields in the period context),
+            # one for the opening balances at the day before.
+            period_records: dict[int, Record] = {}
+            offset = 0
+            while True:
+                page = self._client.search(
+                    "account.account",
+                    domain=[("company", "=", company.engine_id)],
+                    fields=["code", "name", "debit", "credit"],
+                    limit=_CHART_PAGE_SIZE,
+                    offset=offset,
+                    order=[["code", "ASC"]],
+                    context=period_context,
+                )
+                for record in page:
+                    period_records[int(record["id"])] = record
+                if len(page) < _CHART_PAGE_SIZE:
+                    break
+                offset += len(page)
+            opening = {
+                int(record["id"]): money_from_tryton(record.get("balance", 0))
+                for record in self._account_balance_records(
+                    company.engine_id, opening_context
+                )
+            }
+            views: list[GeneralLedgerAccountView] = []
+            total_debit = MoneyIRR.zero()
+            total_credit = MoneyIRR.zero()
+            for account_id, record in sorted(
+                period_records.items(),
+                key=lambda item: (
+                    str(item[1].get("code") or "") == "",
+                    str(item[1].get("code") or ""),
+                ),
+            ):
+                debit = money_from_tryton(record.get("debit", 0))
+                credit = money_from_tryton(record.get("credit", 0))
+                if debit.is_zero and credit.is_zero:
+                    continue
+                total_debit = total_debit.add(debit)
+                total_credit = total_credit.add(credit)
+                views.append(
+                    GeneralLedgerAccountView(
+                        account=AccountRef(engine_id=account_id),
+                        code=str(record.get("code") or ""),
+                        name=str(record.get("name") or ""),
+                        opening_balance=opening.get(account_id, MoneyIRR(0)),
+                        total_debit=debit,
+                        total_credit=credit,
+                    )
+                )
+            return GeneralLedgerView(
+                company=company,
+                date_from=date_from,
+                date_to=date_to,
+                accounts=tuple(views),
+                total_debit=total_debit,
+                total_credit=total_credit,
+                source_endpoint=TRIAL_BALANCE_SOURCE_ENDPOINT,
+            )
+
+        record = self._client.read(
+            "account.account",
+            account.engine_id,
+            fields=["company", "code", "name"],
+            context={"company": company.engine_id},
+        )
+        if record is None or int(record.get("company") or -1) != company.engine_id:
+            raise AccountNotFoundError(
+                f"Account {account.engine_id} does not exist for company {company.engine_id}.",
+                details={"account_id": account.engine_id, "company_id": company.engine_id},
+            )
+        opening_record = self._client.read(
+            "account.account",
+            account.engine_id,
+            fields=["balance"],
+            context=opening_context,
+        )
+        opening_balance = money_from_tryton(
+            (opening_record or {}).get("balance", 0)
+        )
+        lines = self._posted_move_lines(
+            company.engine_id,
+            [
+                ("account", "=", account.engine_id),
+                ("move.date", ">=", date_to_tryton(date_from)),
+                ("move.date", "<=", date_to_tryton(date_to)),
+            ],
+            ["move", "date", "debit", "credit", "description"],
+        )
+        move_ids = sorted({int(line["move"]) for line in lines})
+        moves = self._move_numbers(move_ids, company.engine_id)
+        total_debit = MoneyIRR.zero()
+        total_credit = MoneyIRR.zero()
+        running = opening_balance.amount
+        views_lines: list[GeneralLedgerLineView] = []
+        for line in sorted(
+            lines,
+            key=lambda item: (
+                str(item.get("date") or ""),
+                int(item["move"]),
+                int(item["id"]),
+            ),
+        ):
+            debit = money_from_tryton(line.get("debit", 0))
+            credit = money_from_tryton(line.get("credit", 0))
+            total_debit = total_debit.add(debit)
+            total_credit = total_credit.add(credit)
+            running += debit.amount - credit.amount
+            move_id = int(line["move"])
+            number, move_description = moves.get(move_id, ("", ""))
+            line_date = line.get("date")
+            if line_date is None:
+                raise TrytonAdapterError(
+                    "A posted move line has no effective date.",
+                    code=ENGINE_ERROR,
+                    details={"move_id": move_id, "line_id": int(line["id"])},
+                )
+            views_lines.append(
+                GeneralLedgerLineView(
+                    move_id=move_id,
+                    move_number=number,
+                    date=date_from_tryton(line_date),
+                    description=str(line.get("description") or "") or move_description,
+                    debit=debit,
+                    credit=credit,
+                    balance=MoneyIRR(running),
+                )
+            )
+        return GeneralLedgerView(
+            company=company,
+            date_from=date_from,
+            date_to=date_to,
+            accounts=(
+                GeneralLedgerAccountView(
+                    account=account,
+                    code=str(record.get("code") or ""),
+                    name=str(record.get("name") or ""),
+                    opening_balance=opening_balance,
+                    lines=tuple(views_lines),
+                    total_debit=total_debit,
+                    total_credit=total_credit,
+                ),
+            ),
+            total_debit=total_debit,
+            total_credit=total_credit,
+            move_count=len(move_ids),
+            line_count=len(lines),
+            source_endpoint=TRIAL_BALANCE_SOURCE_ENDPOINT,
+        )
+
+    def get_balance_sheet(
+        self,
+        company: CompanyRef,
+        as_of: FiscalDate,
+        comparison_as_of: FiscalDate | None = None,
+    ) -> BalanceSheetView:
+        """Balance sheet from the engine's point-in-time account balances."""
+        self._require_irr_company_for_reads(company.engine_id)
+        types = self._account_type_tree(company.engine_id)
+        context = self._report_context(
+            company.engine_id, date=date_to_tryton(as_of)
+        )
+        comparison_context = (
+            self._report_context(
+                company.engine_id, date=date_to_tryton(comparison_as_of)
+            )
+            if comparison_as_of is not None
+            else None
+        )
+        rows = self._account_balance_rows(company.engine_id, context, comparison_context)
+        built = build_balance_sheet_sections(types, rows)
+        return BalanceSheetView(
+            company=company,
+            as_of=as_of,
+            comparison_as_of=comparison_as_of,
+            sections=built.sections,
+            total_assets=built.total_assets,
+            total_liabilities=built.total_liabilities,
+            total_equity=built.total_equity,
+            total_assets_cmp=built.total_assets_cmp,
+            total_liabilities_cmp=built.total_liabilities_cmp,
+            total_equity_cmp=built.total_equity_cmp,
+            balanced=built.balanced,
+            balanced_cmp=built.balanced_cmp,
+            source_endpoint=_ACCOUNT_BALANCE_SOURCE_ENDPOINT,
+        )
+
+    def get_income_statement(
+        self,
+        company: CompanyRef,
+        date_from: FiscalDate,
+        date_to: FiscalDate,
+        comparison_from: FiscalDate | None = None,
+        comparison_to: FiscalDate | None = None,
+    ) -> IncomeStatementView:
+        """Income statement from the engine's period account balances.
+
+        The monthly breakdown pages the period's posted lines on
+        income-statement accounts once and buckets them by Jalali
+        month, classified by each account type's sign over the whole
+        period — so the monthly figures always sum to the statement
+        totals (asserted as ``monthly_ties_out``).
+        """
+        if date_to < date_from:
+            raise ValueError("date_to must be on or after date_from.")
+        if (comparison_from is None) != (comparison_to is None):
+            raise ValueError("comparison_from and comparison_to go together.")
+        if (
+            comparison_from is not None
+            and comparison_to is not None
+            and comparison_to < comparison_from
+        ):
+            raise ValueError("comparison_to must be on or after comparison_from.")
+        self._require_irr_company_for_reads(company.engine_id)
+        types = self._account_type_tree(company.engine_id)
+        context = self._report_context(
+            company.engine_id,
+            from_date=date_to_tryton(date_from),
+            to_date=date_to_tryton(date_to),
+        )
+        comparison_context = (
+            self._report_context(
+                company.engine_id,
+                from_date=date_to_tryton(comparison_from),
+                to_date=date_to_tryton(comparison_to),
+            )
+            if comparison_from is not None and comparison_to is not None
+            else None
+        )
+        rows = self._account_balance_rows(company.engine_id, context, comparison_context)
+        built = build_income_statement_sections(types, rows)
+        classification = classify_income_types(types, rows)
+        type_by_id = {node.type_id: node for node in types}
+        income_account_ids = [
+            row.account_id
+            for row in rows
+            if row.type_id is not None
+            and type_by_id.get(row.type_id) is not None
+            and type_by_id[row.type_id].statement == "income"
+        ]
+        account_kind = {
+            row.account_id: classification.get(row.type_id)
+            for row in rows
+            if row.type_id is not None
+        }
+        months = jalali_months_in_range(date_from, date_to)
+        monthly_revenue: dict[str, int] = {label: 0 for label, _, _ in months}
+        monthly_expense: dict[str, int] = {label: 0 for label, _, _ in months}
+        if income_account_ids:
+            lines = self._posted_move_lines(
+                company.engine_id,
+                [
+                    ("account", "in", income_account_ids),
+                    ("move.date", ">=", date_to_tryton(date_from)),
+                    ("move.date", "<=", date_to_tryton(date_to)),
+                ],
+                ["account", "date", "debit", "credit"],
+            )
+            for line in lines:
+                kind = account_kind.get(int(line["account"]))
+                if kind is None:
+                    continue
+                line_date = line.get("date")
+                if line_date is None:
+                    raise TrytonAdapterError(
+                        "A posted move line has no effective date.",
+                        code=ENGINE_ERROR,
+                        details={"line_id": int(line["id"])},
+                    )
+                jalali = date_from_tryton(line_date).jalali_date
+                label = f"{jalali.year:04d}-{jalali.month:02d}"
+                if label not in monthly_revenue:
+                    continue
+                debit = money_from_tryton(line.get("debit", 0)).amount
+                credit = money_from_tryton(line.get("credit", 0)).amount
+                if kind == "revenue":
+                    monthly_revenue[label] += credit - debit
+                else:
+                    monthly_expense[label] += debit - credit
+        monthly = tuple(
+            MonthlyRevenueExpenseView(
+                jalali_month=label,
+                month_start=start,
+                month_end=end,
+                revenue=MoneyIRR(monthly_revenue[label]),
+                expense=MoneyIRR(monthly_expense[label]),
+            )
+            for label, start, end in months
+        )
+        monthly_ties_out = (
+            sum(view.revenue.amount for view in monthly) == built.total_revenue.amount
+            and sum(view.expense.amount for view in monthly) == built.total_expense.amount
+        )
+        return IncomeStatementView(
+            company=company,
+            date_from=date_from,
+            date_to=date_to,
+            comparison_from=comparison_from,
+            comparison_to=comparison_to,
+            sections=built.sections,
+            total_revenue=built.total_revenue,
+            total_expense=built.total_expense,
+            net_income=built.net_income,
+            total_revenue_cmp=built.total_revenue_cmp,
+            total_expense_cmp=built.total_expense_cmp,
+            net_income_cmp=built.net_income_cmp,
+            monthly=monthly,
+            monthly_ties_out=monthly_ties_out,
+            source_endpoint=_ACCOUNT_BALANCE_SOURCE_ENDPOINT,
+        )
+
+    def get_cash_flow(
+        self,
+        company: CompanyRef,
+        date_from: FiscalDate,
+        date_to: FiscalDate,
+    ) -> CashFlowView:
+        """Direct-method cash flow from the engine's posted cash moves.
+
+        Cash accounts are the accounts whose type is cash or petty
+        cash (universal-chart type names). Each cash line is
+        classified by its largest non-cash counterpart's account code
+        (``domain/reports/statements.py``); cash-to-cash transfers
+        are excluded from every section.
+        """
+        if date_to < date_from:
+            raise ValueError("date_to must be on or after date_from.")
+        self._require_irr_company_for_reads(company.engine_id)
+        types = self._account_type_tree(company.engine_id)
+        cash_type_ids = {
+            node.type_id for node in types if node.name in CASH_TYPE_NAMES
+        }
+        chart = self._client.search(
+            "account.account",
+            domain=[("company", "=", company.engine_id)],
+            fields=["code", "name", "type"],
+            context={"company": company.engine_id},
+        )
+        account_code = {
+            int(record["id"]): str(record.get("code") or "") for record in chart
+        }
+        cash_accounts = [
+            record
+            for record in chart
+            if record.get("type") is not None
+            and int(record["type"]) in cash_type_ids
+        ]
+        cash_ids = [int(record["id"]) for record in cash_accounts]
+        cash_codes = tuple(
+            sorted(str(record.get("code") or "") for record in cash_accounts)
+        )
+        day_before = FiscalDate.from_gregorian(
+            date_from.gregorian_date - datetime.timedelta(days=1)
+        )
+        opening_cash = self._cash_total(
+            company.engine_id, cash_ids, day_before
+        )
+        closing_cash = self._cash_total(company.engine_id, cash_ids, date_to)
+        sections_data: dict[str, dict[str, int]] = {
+            "operating": {"inflow": 0, "outflow": 0, "count": 0},
+            "investing": {"inflow": 0, "outflow": 0, "count": 0},
+            "financing": {"inflow": 0, "outflow": 0, "count": 0},
+        }
+        transfer_count = 0
+        unclassified_count = 0
+        unclassified_total = 0
+        if cash_ids:
+            cash_lines = self._posted_move_lines(
+                company.engine_id,
+                [
+                    ("account", "in", cash_ids),
+                    ("move.date", ">=", date_to_tryton(date_from)),
+                    ("move.date", "<=", date_to_tryton(date_to)),
+                ],
+                ["move", "account", "debit", "credit"],
+            )
+            move_ids = sorted({int(line["move"]) for line in cash_lines})
+            counterpart_lines: dict[int, list[Record]] = {}
+            if move_ids:
+                offset = 0
+                cash_id_set = set(cash_ids)
+                while True:
+                    page = self._client.search(
+                        "account.move.line",
+                        domain=[("move", "in", move_ids)],
+                        fields=["move", "account", "debit", "credit"],
+                        limit=_TRIAL_BALANCE_PAGE_SIZE,
+                        offset=offset,
+                        order=[["move", "ASC"], ["id", "ASC"]],
+                        context={"company": company.engine_id},
+                    )
+                    for record in page:
+                        if int(record["account"]) in cash_id_set:
+                            continue
+                        counterpart_lines.setdefault(int(record["move"]), []).append(record)
+                    if len(page) < _TRIAL_BALANCE_PAGE_SIZE:
+                        break
+                    offset += len(page)
+            for line in cash_lines:
+                counterparts = counterpart_lines.get(int(line["move"]), [])
+                if not counterparts:
+                    transfer_count += 1
+                    continue
+                largest = max(
+                    counterparts,
+                    key=lambda item: abs(
+                        money_from_tryton(item.get("debit", 0)).amount
+                        - money_from_tryton(item.get("credit", 0)).amount
+                    ),
+                )
+                section = classify_cash_flow_section(
+                    account_code.get(int(largest["account"]), "")
+                )
+                debit = money_from_tryton(line.get("debit", 0)).amount
+                credit = money_from_tryton(line.get("credit", 0)).amount
+                if section == "transfer":
+                    transfer_count += 1
+                elif section == "unclassified":
+                    unclassified_count += 1
+                    unclassified_total += debit - credit
+                else:
+                    bucket = sections_data[section]
+                    bucket["inflow"] += debit
+                    bucket["outflow"] += credit
+                    bucket["count"] += 1
+        sections = tuple(
+            CashFlowSectionView(
+                key=key,
+                title=title,
+                inflow=MoneyIRR(sections_data[key]["inflow"]),
+                outflow=MoneyIRR(sections_data[key]["outflow"]),
+                net=MoneyIRR(
+                    sections_data[key]["inflow"] - sections_data[key]["outflow"]
+                ),
+                line_count=sections_data[key]["count"],
+            )
+            for key, title in (
+                ("operating", "Operating activities"),
+                ("investing", "Investing activities"),
+                ("financing", "Financing activities"),
+            )
+        )
+        net_change = MoneyIRR(closing_cash.amount - opening_cash.amount)
+        section_net = sum(section.net.amount for section in sections)
+        return CashFlowView(
+            company=company,
+            date_from=date_from,
+            date_to=date_to,
+            opening_cash=opening_cash,
+            closing_cash=closing_cash,
+            sections=sections,
+            net_change=net_change,
+            ties_out=(
+                opening_cash.amount + section_net == closing_cash.amount
+                and unclassified_count == 0
+            ),
+            cash_accounts=cash_codes,
+            transfer_count=transfer_count,
+            unclassified_count=unclassified_count,
+            unclassified_total=MoneyIRR(unclassified_total),
+            source_endpoint=TRIAL_BALANCE_SOURCE_ENDPOINT,
+        )
+
+    def _cash_total(
+        self, company_id: int, cash_ids: list[int], as_of: FiscalDate
+    ) -> MoneyIRR:
+        """Sum of the cash accounts' engine balances at a date (0 when none)."""
+        if not cash_ids:
+            return MoneyIRR(0)
+        records = self._client.search(
+            "account.account",
+            domain=[("id", "in", cash_ids)],
+            fields=["balance"],
+            context=self._report_context(
+                company_id, date=date_to_tryton(as_of)
+            ),
+        )
+        return MoneyIRR(
+            sum(money_from_tryton(record.get("balance", 0)).amount for record in records)
+        )
+
+    def get_notes_balance(
+        self,
+        company: CompanyRef,
+        as_of: FiscalDate,
+        instrument: str = "both",
+        party: PartyRef | None = None,
+    ) -> NotesBalanceView:
+        """Notes receivable/payable balances with aging (cheque report 7).
+
+        Open posted lines on the notes accounts, aged by the Tryton
+        aged-balance rule: a line ages from its maturity date
+        (falling back to the move date) and is open while
+        unreconciled or reconciled after the as-of date.
+        """
+        if instrument not in {"both", "receivable", "payable"}:
+            raise ValueError(
+                f"instrument must be 'both', 'receivable' or 'payable', got {instrument!r}."
+            )
+        self._require_irr_company_for_reads(company.engine_id)
+        wanted_codes = (
+            NOTES_ACCOUNT_CODES
+            if instrument == "both"
+            else (
+                NOTES_RECEIVABLE_CODES
+                if instrument == "receivable"
+                else NOTES_PAYABLE_CODES
+            )
+        )
+        notes_records = self._client.search(
+            "account.account",
+            domain=[("company", "=", company.engine_id), ("code", "in", list(wanted_codes))],
+            fields=["code", "name"],
+            context={"company": company.engine_id},
+        )
+        notes_accounts = {
+            int(record["id"]): record for record in notes_records
+        }
+        accounts_read = tuple(
+            sorted(str(record.get("code") or "") for record in notes_records)
+        )
+        if not notes_accounts:
+            return NotesBalanceView(
+                company=company,
+                as_of=as_of,
+                instrument=instrument,
+                totals=NotesBalanceRowView(
+                    party_id=None,
+                    party_name="",
+                    instrument=instrument,
+                    account_code="",
+                    account_name="",
+                ),
+                accounts_read=accounts_read,
+                source_endpoint=TRIAL_BALANCE_SOURCE_ENDPOINT,
+            )
+        domain: list[Any] = [
+            ("account", "in", sorted(notes_accounts)),
+            ("move.date", "<=", date_to_tryton(as_of)),
+        ]
+        if party is not None:
+            domain.append(("party", "=", party.engine_id))
+        lines = self._posted_move_lines(
+            company.engine_id,
+            domain,
+            ["account", "party", "maturity_date", "date", "debit", "credit", "reconciliation"],
+        )
+        reconciliation_ids = sorted(
+            {
+                int(line["reconciliation"])
+                for line in lines
+                if line.get("reconciliation") is not None
+            }
+        )
+        reconciliation_dates: dict[int, FiscalDate] = {}
+        if reconciliation_ids:
+            for record in self._client.search(
+                "account.move.reconciliation",
+                domain=[("id", "in", reconciliation_ids)],
+                fields=["date"],
+                context={"company": company.engine_id},
+            ):
+                if record.get("date") is not None:
+                    reconciliation_dates[int(record["id"])] = date_from_tryton(
+                        record["date"]
+                    )
+        party_ids = sorted(
+            {int(line["party"]) for line in lines if line.get("party") is not None}
+        )
+        party_names = self._party_names(party_ids)
+        buckets: dict[tuple[int | None, int], dict[str, int]] = {}
+        counts: dict[tuple[int | None, int], int] = {}
+        for line in lines:
+            reconciliation_id = line.get("reconciliation")
+            if reconciliation_id is not None:
+                recon_date = reconciliation_dates.get(int(reconciliation_id))
+                if recon_date is not None and recon_date.gregorian_date <= as_of.gregorian_date:
+                    continue
+            account_id = int(line["account"])
+            account_code = str(notes_accounts[account_id].get("code") or "")
+            debit = money_from_tryton(line.get("debit", 0)).amount
+            credit = money_from_tryton(line.get("credit", 0)).amount
+            if account_code in NOTES_PAYABLE_CODES:
+                amount = credit - debit
+            else:
+                amount = debit - credit
+            maturity = line.get("maturity_date")
+            line_date = line.get("date")
+            if maturity is not None:
+                base = date_from_tryton(maturity)
+            elif line_date is not None:
+                base = date_from_tryton(line_date)
+            else:
+                raise TrytonAdapterError(
+                    "A posted move line has no maturity or effective date.",
+                    code=ENGINE_ERROR,
+                    details={"line_id": int(line["id"])},
+                )
+            age_days = (as_of.gregorian_date - base.gregorian_date).days
+            bucket = aging_bucket(age_days)
+            party_id = int(line["party"]) if line.get("party") is not None else None
+            key = (party_id, account_id)
+            row_buckets = buckets.setdefault(
+                key,
+                {
+                    "not_yet_due": 0,
+                    "bucket_0_30": 0,
+                    "bucket_30_60": 0,
+                    "bucket_60_90": 0,
+                    "bucket_90_120": 0,
+                    "bucket_120_plus": 0,
+                },
+            )
+            row_buckets[bucket] += amount
+            counts[key] = counts.get(key, 0) + 1
+        rows: list[NotesBalanceRowView] = []
+        totals = {
+            "not_yet_due": 0,
+            "bucket_0_30": 0,
+            "bucket_30_60": 0,
+            "bucket_60_90": 0,
+            "bucket_90_120": 0,
+            "bucket_120_plus": 0,
+        }
+        for (party_id, account_id), row_buckets in sorted(
+            buckets.items(),
+            key=lambda item: (
+                party_names.get(item[0][0] or -1, ""),
+                str(notes_accounts[item[0][1]].get("code") or ""),
+            ),
+        ):
+            account_code = str(notes_accounts[account_id].get("code") or "")
+            total = sum(row_buckets.values())
+            for name, value in row_buckets.items():
+                totals[name] += value
+            rows.append(
+                NotesBalanceRowView(
+                    party_id=party_id,
+                    party_name=party_names.get(party_id or -1, ""),
+                    instrument=(
+                        "payable"
+                        if account_code in NOTES_PAYABLE_CODES
+                        else "receivable"
+                    ),
+                    account_code=account_code,
+                    account_name=str(notes_accounts[account_id].get("name") or ""),
+                    bucket_not_yet_due=MoneyIRR(row_buckets["not_yet_due"]),
+                    bucket_0_30=MoneyIRR(row_buckets["bucket_0_30"]),
+                    bucket_30_60=MoneyIRR(row_buckets["bucket_30_60"]),
+                    bucket_60_90=MoneyIRR(row_buckets["bucket_60_90"]),
+                    bucket_90_120=MoneyIRR(row_buckets["bucket_90_120"]),
+                    bucket_120_plus=MoneyIRR(row_buckets["bucket_120_plus"]),
+                    total=MoneyIRR(total),
+                    line_count=counts[(party_id, account_id)],
+                )
+            )
+        return NotesBalanceView(
+            company=company,
+            as_of=as_of,
+            instrument=instrument,
+            rows=tuple(rows),
+            totals=NotesBalanceRowView(
+                party_id=None,
+                party_name="",
+                instrument=instrument,
+                account_code="",
+                account_name="",
+                bucket_not_yet_due=MoneyIRR(totals["not_yet_due"]),
+                bucket_0_30=MoneyIRR(totals["bucket_0_30"]),
+                bucket_30_60=MoneyIRR(totals["bucket_30_60"]),
+                bucket_60_90=MoneyIRR(totals["bucket_60_90"]),
+                bucket_90_120=MoneyIRR(totals["bucket_90_120"]),
+                bucket_120_plus=MoneyIRR(totals["bucket_120_plus"]),
+                total=MoneyIRR(sum(totals.values())),
+                line_count=sum(counts.values()),
+            ),
+            accounts_read=accounts_read,
             source_endpoint=TRIAL_BALANCE_SOURCE_ENDPOINT,
         )
 

@@ -129,6 +129,20 @@ grace, opening (or escalating) a `late_tranche` exception at the
 touches the engine; it is idempotent (a re-run finds no new
 candidates). `POST /settlements/tick` runs it on demand.
 
+Every NEW `late_tranche` exception the tick creates is also filed
+as a `settlement_variance` review item (US-555, closing the US-523
+deferral) — never silent. The tick has no caller tenant, so it
+resolves the tenant per installation through the API-key store
+(`InstallationTenantResolver`: the oldest key for an installation
+identifies its tenant); an installation with no key keeps its
+exception but gets no queue item. Filing is idempotent per
+(tranche, exception): a re-run tick finds the open exception and
+files nothing; only a new exception files a new item. The item
+carries the tranche (index/count), the gateway channel key and the
+net amount, with `source_event_ref`
+`settlement-exception:<exception id>` and subtype `late_tranche`.
+The tick report counts filed items (`review_items_filed`).
+
 ## REST API (13 paths, scopes `settlement:read` / `settlement:manage`)
 
 | Method + path | Purpose |

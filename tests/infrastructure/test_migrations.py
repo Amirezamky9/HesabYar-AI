@@ -151,6 +151,11 @@ EXPECTED_TABLES = {
     "sms_reminder_settings",
     "sms_contract_reminder_settings",
     "sms_reminder_log",
+    # 0033 monthly clearing-match history (US-553)
+    "cheque_match_history",
+    # 0034 manual-import batches (US-554)
+    "manual_import_batches",
+    "settlement_column_mappings",
 }
 
 # Design-eng §10.4 unique constraints: (table, constraint name, columns).
@@ -301,9 +306,21 @@ SECTION_10_4_CONSTRAINTS = [
         "uq_settlement_postings_tranche_kind",
         ["tranche_id", "kind"],
     ),
+    # US-553: one match-history row per (installation, Jalali month).
+    (
+        "cheque_match_history",
+        "uq_cheque_match_history_installation_month",
+        ["installation_id", "month_jalali"],
+    ),
+    # US-554: upload dedup — one batch per (tenant, kind, source, file hash).
+    (
+        "manual_import_batches",
+        "uq_manual_import_batches_tenant_kind_source_hash",
+        ["tenant_id", "kind", "source_key", "file_hash_sha256"],
+    ),
 ]
 
-HEAD_REVISION = "0031"
+HEAD_REVISION = "0032"
 
 
 def _alembic_config() -> Config:

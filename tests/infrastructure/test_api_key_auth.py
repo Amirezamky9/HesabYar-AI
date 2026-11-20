@@ -52,6 +52,7 @@ from hesabyar.infrastructure.persistence.postgres.models import (
 from hesabyar.infrastructure.persistence.postgres.repositories import (
     ApiClientRepository,
     ApiKeyRepository,
+    SqlAlchemyInstallationTenantResolver,
 )
 
 TEST_DB_URL = os.getenv(
@@ -658,3 +659,29 @@ def test_keys_never_appear_in_logs(
     assert unknown.secret not in caplog.text
     # The prefix (safe to log) does appear for the unknown-key failure.
     assert unknown.key_prefix in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# Installation → tenant resolver (US-555)
+# ---------------------------------------------------------------------------
+
+
+def test_resolver_returns_tenant_for_installation(db: Session, service: ApiKeyService) -> None:
+    """The tick's lookup: the oldest key for an installation names its tenant."""
+    tenant = _make_tenant(db)
+    client = _make_client(db, tenant.id)
+    installation_id = str(uuid.uuid4())
+    service.issue_key(
+        db,
+        client=client,
+        name="tick key",
+        scopes=["settlement:read"],
+        installation_id=installation_id,
+    )
+    resolver = SqlAlchemyInstallationTenantResolver(db)
+    assert resolver.tenant_id_for_installation(installation_id) == tenant.id
+
+
+def test_resolver_returns_none_for_unknown_installation(db: Session) -> None:
+    resolver = SqlAlchemyInstallationTenantResolver(db)
+    assert resolver.tenant_id_for_installation(str(uuid.uuid4())) is None

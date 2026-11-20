@@ -69,6 +69,7 @@ from hesabyar.domain.events.envelope import (
 from hesabyar.domain.events.errors import (
     EventNotDeadLetteredError,
     EventNotFoundError,
+    EventNotReprocessableError,
     EventSignatureError,
     IdempotencyConflictError,
     InvalidEventEnvelopeError,
@@ -139,6 +140,12 @@ TARGET_ENGINE_TRYTON = "tryton"
 #: engine record (US-533).
 TARGET_ENTITY_CHEQUE = "account.check"
 
+#: Target entity type for a settlement receipt in the §10.4
+#: external-id map: a ``payment.settlement.received`` event maps to
+#: its HesabYar settlement event (US-554) — the exactly-once
+#: pre-check suppresses a redelivery of the same gateway receipt.
+TARGET_ENTITY_SETTLEMENT_EVENT = "settlement.event"
+
 
 @dataclass(frozen=True)
 class ChequeIntakeOutcome:
@@ -192,6 +199,52 @@ class ChequeIntakeHandlerPort(Protocol):
         installation_id: str,
     ) -> ChequeIntakeOutcome:
         """Handle ``cheque.received.cancelled``; return its outcome."""
+        ...
+
+
+@dataclass(frozen=True)
+class SettlementReceivedOutcome:
+    """Outcome of one settlement-received event handled by the consumer.
+
+    ``settlement_event_id`` is the HesabYar settlement event the
+    receipt tied out against (None when the receipt was
+    unattributed). ``posted`` is True only when the tie-out posted
+    the bank receipt; ``tryton_journal_id`` is the posted move.
+    ``needs_review`` is True when the receipt could not be tied to
+    a settlement event/batch or the tie-out failed (a review item
+    was already filed in both cases).
+    """
+
+    settlement_event_id: str | None
+    import_batch_id: str | None
+    tieout_holds: bool | None
+    posted: bool
+    tryton_journal_id: int | None
+    needs_review: bool
+    detail: str
+
+
+class SettlementReceivedHandlerPort(Protocol):
+    """The settlement-received handler the pipeline delegates receipts to.
+
+    A receipt creates NO engine document directly — it runs the
+    settlement tie-out + auto-post path (the same code file imports
+    use) through :class:`SettlementImportService
+    <hesabyar.application.commands.settlement_import.SettlementImportService>`,
+    so it cannot go through the draft-builder path. The pipeline
+    owns the envelope, idempotency, mapping resolution and audit;
+    the handler owns the receipt → tie-out → post-or-hold decision.
+    """
+
+    def handle_settlement_received(
+        self,
+        *,
+        event: NormalizedEvent,
+        mapping: ResolvedMapping,
+        tenant_id: str,
+        installation_id: str,
+    ) -> SettlementReceivedOutcome:
+        """Handle ``payment.settlement.received``; return its outcome."""
         ...
 
 
@@ -604,6 +657,7 @@ class EventPipelineService:
         review_queue: ReviewQueuePort,
         engine: AccountingEnginePort,
         cheque_intake: ChequeIntakeHandlerPort | None = None,
+        settlement_received: SettlementReceivedHandlerPort | None = None,
     ) -> None:
         self._inbox = inbox
         self._outbox = outbox
@@ -616,6 +670,7 @@ class EventPipelineService:
         self._review_queue = review_queue
         self._engine = engine
         self._cheque_intake = cheque_intake
+        self._settlement_received = settlement_received
 
     def process(self, event_id: str) -> PipelineResult:
         """Process one inbox event; flushes, the caller commits."""
@@ -737,6 +792,15 @@ class EventPipelineService:
             CanonicalEventType.CHEQUE_RECEIVED_CANCELLED,
         ):
             return self._run_cheque_intake(
+                inbox_event, started_at, normalized, mapping
+            )
+
+        # Settlement receipts (US-554) branch off here too: they run
+        # the settlement tie-out + auto-post path, not the
+        # draft-builder path — a receipt confirms money the gateway
+        # already paid, it never drafts a new document.
+        if event_type is CanonicalEventType.PAYMENT_SETTLEMENT_RECEIVED:
+            return self._run_settlement_received(
                 inbox_event, started_at, normalized, mapping
             )
 
@@ -873,6 +937,83 @@ class EventPipelineService:
             ),
             posted_ref=None,
             decision_kind=AutomationDecisionKind.DRAFT,
+            policy_version="n/a",
+            mapping_version=mapping.mapping_version,
+            gate_results=(),
+            reason=outcome.detail,
+        )
+
+    def _run_settlement_received(
+        self,
+        inbox_event: InboxEvent,
+        started_at: datetime.datetime,
+        normalized: NormalizedEvent,
+        mapping: ResolvedMapping,
+    ) -> PipelineResult:
+        """Process a settlement receipt: tie out + auto-post, never a draft (US-554).
+
+        The payload is validated fail-closed inside the handler (the
+        store payload contract does not cover settlement receipts —
+        ``validate_store_payload`` has no branch for this type). The
+        handler runs the shared tie-out + auto-post path; the
+        policy gate inside it decides post vs draft-hold, so no
+        second gate evaluation happens here. The §10.4
+        external-entity mapping (gateway receipt → HesabYar
+        settlement event) is still recorded, so a redelivery
+        suppresses in the pre-check. A receipt the handler could
+        not attribute still marks the event processed — the review
+        item is already filed, and retrying cannot create the
+        missing settlement event.
+        """
+        event = normalized.event
+        if self._settlement_received is None:
+            raise MappingUnresolvedError(
+                "No settlement-received handler is wired for this pipeline; "
+                "a payment.settlement.received event cannot be ingested.",
+                details={"event_type": normalized.event_type.value},
+            )
+        if inbox_event.tenant_id is None or inbox_event.installation_id is None:
+            raise MappingUnresolvedError(
+                "A settlement receipt event needs a tenant context.",
+                details={"event_type": normalized.event_type.value},
+            )
+        outcome = self._settlement_received.handle_settlement_received(
+            event=normalized,
+            mapping=mapping,
+            tenant_id=inbox_event.tenant_id,
+            installation_id=inbox_event.installation_id,
+        )
+        if (
+            event.external_entity_type is not None
+            and event.external_entity_id is not None
+            and outcome.settlement_event_id is not None
+        ):
+            self._external_ids.save(
+                ExternalIdMapping(
+                    source_system=event.source_system,
+                    external_entity_type=event.external_entity_type,
+                    external_entity_id=event.external_entity_id,
+                    target_engine=TARGET_ENGINE_TRYTON,
+                    target_entity_type=TARGET_ENTITY_SETTLEMENT_EVENT,
+                    target_external_id=outcome.settlement_event_id,
+                    engine_company_id=None,
+                    tenant_id=inbox_event.tenant_id,
+                )
+            )
+        return self._finish_processed(
+            inbox_event,
+            started_at,
+            draft_ref=outcome.settlement_event_id,
+            posted_ref=(
+                str(outcome.tryton_journal_id)
+                if outcome.tryton_journal_id is not None
+                else None
+            ),
+            decision_kind=(
+                AutomationDecisionKind.AUTO_POST
+                if outcome.posted
+                else AutomationDecisionKind.DRAFT
+            ),
             policy_version="n/a",
             mapping_version=mapping.mapping_version,
             gate_results=(),
@@ -1135,6 +1276,7 @@ class EventPipelineService:
                 suggested_action="Resolve the mapping or fix the source data, then reprocess the event.",
                 amount_irr=None,
                 details={"error_code": code, "event_type": inbox_event.event_type},
+                tenant_id=inbox_event.tenant_id,
             )
         )
         decision = self._audit_log.record(
@@ -1193,6 +1335,7 @@ class EventPipelineService:
                     suggested_action="Inspect the error, fix the cause, then replay the event from the review queue.",
                     amount_irr=None,
                     details={"error_code": code, "event_type": inbox_event.event_type},
+                    tenant_id=inbox_event.tenant_id,
                 )
             )
             decision = self._audit_log.record(
@@ -1463,6 +1606,13 @@ class DlqReplayService:
     reprocessing effect-free when the engine record already exists:
     no duplicate draft, no duplicate post. Attempts reset so the
     event gets a fresh retry budget.
+
+    ``replay`` is the strict DLQ path (dead-lettered events only);
+    ``reprocess`` (US-552) is the review-queue path for a mapping
+    that was just completed: it additionally accepts ``needs_review``
+    events, whose permanent failure (a mapping gap) the reviewer has
+    now fixed. Both share one reset — there is a single replay
+    mechanism, not two.
     """
 
     def __init__(
@@ -1486,6 +1636,35 @@ class DlqReplayService:
                 "only dead-lettered events can be replayed.",
                 details={"status": inbox_event.status.value},
             )
+        return self._reset_to_received(inbox_event, actor, reason="Manual DLQ replay from the UI.")
+
+    def reprocess(self, event_id: str, *, actor: str, tenant_id: str | None = None) -> InboxEvent:
+        """Reset a dead-lettered or needs-review event to ``received`` (US-552).
+
+        The review queue's ``complete_mapping_retry`` path: after the
+        reviewer completes the mapping that failed the event closed,
+        the event is reprocessed through the same pipeline with the
+        same idempotency key. A processed event is already done and
+        a received/processing event is already in flight — both raise
+        :class:`EventNotReprocessableError`. Flushes; caller commits.
+        """
+        inbox_event = self._inbox.get(event_id, tenant_id)
+        if inbox_event is None:
+            raise EventNotFoundError(f"Inbox event {event_id!r} does not exist.")
+        if inbox_event.status not in (InboxEventStatus.DEAD_LETTERED, InboxEventStatus.NEEDS_REVIEW):
+            raise EventNotReprocessableError(
+                f"Inbox event {event_id!r} is {inbox_event.status.value}; "
+                "only dead-lettered or needs-review events can be reprocessed.",
+                details={"status": inbox_event.status.value},
+            )
+        return self._reset_to_received(
+            inbox_event,
+            actor,
+            reason=f"Manual reprocess from the review queue (was {inbox_event.status.value}).",
+        )
+
+    def _reset_to_received(self, inbox_event: InboxEvent, actor: str, *, reason: str) -> InboxEvent:
+        """The single reset both replay paths share (same idempotency key)."""
         now = _now()
         replayed = self._inbox.save(
             dataclasses.replace(
@@ -1512,7 +1691,11 @@ class DlqReplayService:
                 decided_by=actor,
                 decided_at=now,
                 correlation_id=inbox_event.correlation_id,
-                details={"reason": "Manual DLQ replay from the UI.", "previous_attempts": inbox_event.attempts},
+                details={
+                    "reason": reason,
+                    "previous_status": inbox_event.status.value,
+                    "previous_attempts": inbox_event.attempts,
+                },
             )
         )
         self._job_queue.defer_process_event(replayed.id)

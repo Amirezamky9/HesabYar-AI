@@ -695,6 +695,33 @@ def get_integration_mapping(
     return IntegrationMappingResponse.from_mapping(mapping)
 
 
+@router.post(
+    "/integrations/mappings/{mapping_id}/promote",
+    response_model=IntegrationMappingResponse,
+    summary="Promote an active Suggest mapping to Auto (US-552, §7.2)",
+)
+def promote_integration_mapping(
+    mapping_id: str,
+    client: AuthenticatedClient = Depends(require_scopes("integrations:manage")),
+    session: Session = Depends(get_db_session),
+    service: MappingService = Depends(get_mapping_service),
+) -> IntegrationMappingResponse:
+    """Promote a mapping Suggest → Auto (a human decision).
+
+    Creates a NEW version in ``auto`` mode (the Suggest version is
+    superseded, never rewritten) with the confirmation count carried
+    unchanged. Unknown id → 404 ``INTEGRATION_MAPPING_NOT_FOUND``;
+    already-auto, superseded, or under-confirmed (fewer than 3
+    confirmations) → 409 ``INTEGRATION_MAPPING_NOT_PROMOTABLE``.
+    """
+    with translate_errors():
+        mapping = service.promote_mapping(
+            client.installation_id, mapping_id, promoted_by=client.client_name
+        )
+    session.commit()
+    return IntegrationMappingResponse.from_mapping(mapping)
+
+
 # -- mapping suggestions --------------------------------------------------
 
 

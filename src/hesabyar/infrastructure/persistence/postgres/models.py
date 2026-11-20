@@ -3744,6 +3744,13 @@ class IntegrationMappingModel(Base):
         nullable=True,
         comment="Actor that created this version (user id or key name)",
     )
+    confirmations: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+        server_default="1",
+        comment="Confirmations of the same target (kind, channel, source); Auto needs 3 (US-552)",
+    )
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.datetime.now(datetime.UTC),
@@ -8269,6 +8276,96 @@ class ChequeSettingsModel(Base):
         return f"ChequeSettingsModel(installation_id={self.installation_id!r})"
 
 
+class ChequeMatchHistoryModel(Base):
+    """One Jalali month of clearing-match outcomes (US-553, report 12).
+
+    Maps to the 'cheque_match_history' table. One row per
+    (installation, Jalali month): the clearing service adds every
+    run's newly decided line counts to its month (upsert-add), and
+    the trend chart renders FROM these rows — never recomputed from
+    raw match records at read time.
+    """
+
+    __tablename__ = "cheque_match_history"
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        comment="UUID primary key",
+    )
+    tenant_id: Mapped[str] = mapped_column(
+        String(36),
+        nullable=False,
+        comment="Tenant id (from the authenticated API key)",
+    )
+    installation_id: Mapped[str] = mapped_column(
+        String(36),
+        nullable=False,
+        comment="Installation id (from the authenticated API key)",
+    )
+    month_jalali: Mapped[str] = mapped_column(
+        String(7),
+        nullable=False,
+        comment="Jalali month key 'YYYY-MM' the run's lines belong to",
+    )
+    exact_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        comment="Lines matched exactly this month",
+    )
+    probable_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        comment="Lines matched probably this month",
+    )
+    ambiguous_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        comment="Lines left ambiguous this month",
+    )
+    unmatched_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        comment="Lines left unmatched this month",
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Row creation timestamp (UTC)",
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        onupdate=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Last-modified timestamp (UTC)",
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "installation_id",
+            "month_jalali",
+            name="uq_cheque_match_history_installation_month",
+        ),
+        Index(
+            "ix_cheque_match_history_installation_month",
+            "installation_id",
+            "month_jalali",
+        ),
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"ChequeMatchHistoryModel(installation_id={self.installation_id!r}, "
+            f"month_jalali={self.month_jalali!r})"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Installments (US-540, Phase 5-5 ۵ج)
 # ---------------------------------------------------------------------------
@@ -9447,3 +9544,406 @@ class SmsReminderLogModel(Base):
             f"offset_days={self.offset_days!r}, status={self.status!r})"
         )
 
+
+
+# ---------------------------------------------------------------------------
+# Manual-import batches (US-554, Phase 5-6 ۵ح — migration 0034)
+# ---------------------------------------------------------------------------
+
+
+class ManualImportBatchModel(Base):
+    """One manual-import batch: the cycle wrapper around an import.
+
+    Maps to the 'manual_import_batches' table. One row per manual
+    import, both kinds (``kind`` discriminator: statement /
+    settlement). The batch references the underlying import
+    (``source_import_id``) and adds the staged state machine, the
+    stored accounting-effect preview (``preview_json``), the stage
+    audit trail (``stages_json``), rejection-with-reason + archiving,
+    and re-runs. ``column_mapping_id`` has NO foreign key: it
+    references ``bank_column_mappings`` for statement batches and
+    ``settlement_column_mappings`` for settlement batches.
+    """
+
+    __tablename__ = "manual_import_batches"
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('statement', 'settlement')",
+            name="ck_manual_import_batches_kind",
+        ),
+        CheckConstraint(
+            "file_format IN ('xlsx', 'csv', 'pdf')",
+            name="ck_manual_import_batches_file_format",
+        ),
+        CheckConstraint(
+            "currency_unit IN ('rial', 'toman')",
+            name="ck_manual_import_batches_currency_unit",
+        ),
+        CheckConstraint(
+            "date_kind IN ('jalali', 'gregorian')",
+            name="ck_manual_import_batches_date_kind",
+        ),
+        CheckConstraint("header_row >= 0", name="ck_manual_import_batches_header_row"),
+        CheckConstraint(
+            "status IN ('uploaded', 'mapped', 'validated', 'previewed', "
+            "'awaiting_review', 'approved', 'posted', 'rejected', 'archived')",
+            name="ck_manual_import_batches_status",
+        ),
+        CheckConstraint("attempt >= 1", name="ck_manual_import_batches_attempt"),
+        CheckConstraint(
+            "file_type IS NULL OR file_type IN ('detail', 'payouts', 'statement')",
+            name="ck_manual_import_batches_file_type",
+        ),
+        CheckConstraint(
+            "posting_status IS NULL OR posting_status IN "
+            "('draft_hold', 'held_gate', 'tieout_failed', 'posting_failed', 'posted')",
+            name="ck_manual_import_batches_posting_status",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "kind",
+            "source_key",
+            "file_hash_sha256",
+            name="uq_manual_import_batches_tenant_kind_source_hash",
+        ),
+        Index(
+            "ix_manual_import_batches_tenant_company",
+            "tenant_id",
+            "company_id",
+            "created_at",
+        ),
+        Index(
+            "ix_manual_import_batches_tenant_kind_status",
+            "tenant_id",
+            "kind",
+            "status",
+        ),
+        Index("ix_manual_import_batches_source_import", "source_import_id"),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+        comment="UUID primary key",
+    )
+    tenant_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+        comment="Owning tenant FK (CASCADE delete)",
+    )
+    installation_id: Mapped[str] = mapped_column(
+        String(36),
+        nullable=False,
+        comment="Installation id (plain external reference, no FK)",
+    )
+    company_id: Mapped[str] = mapped_column(
+        String(128),
+        nullable=False,
+        comment="HesabYar company row id (plain external reference, no FK)",
+    )
+    kind: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        comment="statement | settlement",
+    )
+    source_key: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        comment="Bank key (statements) or channel key (settlements)",
+    )
+    filename: Mapped[str] = mapped_column(
+        String(512),
+        nullable=False,
+        comment="Uploaded filename (provenance only — file bytes are never stored)",
+    )
+    file_format: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        comment="xlsx | csv | pdf",
+    )
+    file_hash_sha256: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        comment="SHA-256 hex of the uploaded bytes (file-hash dedupe)",
+    )
+    currency_unit: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        comment="rial | toman — the file's amount unit, as declared on import",
+    )
+    date_kind: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="jalali",
+        comment="jalali | gregorian — how the file's dates are written",
+    )
+    header_row: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        comment="0-based index of the header row in the file grid",
+    )
+    status: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="awaiting_review",
+        comment="uploaded | mapped | validated | previewed | awaiting_review | approved | posted | rejected | archived",
+    )
+    attempt: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+        comment="Upload attempt number on this batch (1 = original; a re-run increments it)",
+    )
+    source_import_id: Mapped[str | None] = mapped_column(
+        String(36),
+        nullable=True,
+        comment="Underlying import id: bank_import_batches.id or settlement_file_imports.id",
+    )
+    source_import_batch_id: Mapped[str | None] = mapped_column(
+        String(36),
+        nullable=True,
+        comment="Settlement import_batch_id (the tie-out key); the batch id for statements",
+    )
+    column_mapping_id: Mapped[str | None] = mapped_column(
+        String(36),
+        nullable=True,
+        comment="Saved mapping used (bank/settlement column mappings by kind; NULL = inline)",
+    )
+    mapping_columns: Mapped[dict] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        comment="Applied mapping: canonical field -> source column",
+    )
+    file_type: Mapped[str | None] = mapped_column(
+        String(16),
+        nullable=True,
+        comment="Settlement file kind: detail | payouts | statement (NULL for statements)",
+    )
+    period_jalali: Mapped[str | None] = mapped_column(
+        String(7),
+        nullable=True,
+        comment="Jalali period the settlement file covers (YYYY/MM; NULL for statements)",
+    )
+    statement_journal_id: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="Engine statement journal id (statements only; kept for re-run provenance)",
+    )
+    default_account_id: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="Engine account id for uncoded rows (statements only)",
+    )
+    preview_json: Mapped[dict | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        comment="Accounting-effect preview (gross/fee/tax/refunds/net/receivable/deposit/row counts)",
+    )
+    review_item_id: Mapped[str | None] = mapped_column(
+        String(36),
+        nullable=True,
+        comment="manual_import_review queue item id for this batch",
+    )
+    rejection_reason: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="Why the batch was rejected (kept on the archived batch)",
+    )
+    auto_post_opt_in: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment="True when the operator explicitly opted this batch into auto-post (ADR 0003 decision 1)",
+    )
+    posting_status: Mapped[str | None] = mapped_column(
+        String(16),
+        nullable=True,
+        comment="draft_hold | held_gate | tieout_failed | posting_failed | posted (NULL before approval)",
+    )
+    posting_detail: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="Why the posting step held/failed, when it did",
+    )
+    engine_ref_id: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="Engine id written on posting (statement id / journal id)",
+    )
+    stages_json: Mapped[list] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=list,
+        comment="Stage audit trail: [{stage, at, note}]",
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Creation timestamp (UTC)",
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Last update timestamp (UTC)",
+    )
+    approved_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Approval timestamp (UTC), when approved",
+    )
+    posted_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Posting timestamp (UTC), when posted",
+    )
+    rejected_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Rejection timestamp (UTC), when rejected",
+    )
+    archived_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Archival timestamp (UTC), when archived",
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"ManualImportBatchModel(id={self.id!r}, kind={self.kind!r}, "
+            f"source_key={self.source_key!r}, status={self.status!r})"
+        )
+
+
+class SettlementColumnMappingModel(Base):
+    """A saved per-channel settlement column mapping (US-554).
+
+    Maps to the 'settlement_column_mappings' table. The settlement
+    twin of 'bank_column_mappings': ``columns`` is a JSONB object
+    (canonical settlement field -> source column). ``company_id``
+    is NULL when the mapping is shared across the tenant's
+    companies (a gateway's layout does not vary by company).
+    """
+
+    __tablename__ = "settlement_column_mappings"
+    __table_args__ = (
+        CheckConstraint(
+            "file_format IN ('xlsx', 'csv', 'pdf')",
+            name="ck_settlement_column_mappings_file_format",
+        ),
+        CheckConstraint(
+            "file_type IN ('detail', 'payouts', 'statement')",
+            name="ck_settlement_column_mappings_file_type",
+        ),
+        CheckConstraint(
+            "date_kind IN ('jalali', 'gregorian')",
+            name="ck_settlement_column_mappings_date_kind",
+        ),
+        CheckConstraint(
+            "currency_unit IN ('rial', 'toman')",
+            name="ck_settlement_column_mappings_currency_unit",
+        ),
+        CheckConstraint(
+            "status IN ('active', 'superseded')",
+            name="ck_settlement_column_mappings_status",
+        ),
+        CheckConstraint(
+            "header_row >= 0", name="ck_settlement_column_mappings_header_row"
+        ),
+        Index(
+            "ix_settlement_column_mappings_tenant_channel",
+            "tenant_id",
+            "channel_key",
+            "status",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+        comment="UUID primary key (column mapping id)",
+    )
+    tenant_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+        comment="Owning tenant FK (CASCADE delete)",
+    )
+    company_id: Mapped[str | None] = mapped_column(
+        String(128),
+        nullable=True,
+        comment="HesabYar company row id when company-scoped; NULL = shared across companies",
+    )
+    channel_key: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        comment="Payment channel key (e.g. 'snapppay') — a registry key, not a hard-coded list",
+    )
+    name: Mapped[str] = mapped_column(
+        String(128),
+        nullable=False,
+        comment="Operator-visible mapping name",
+    )
+    file_format: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        comment="xlsx | csv | pdf",
+    )
+    file_type: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        comment="detail | payouts | statement — the settlement file kind this mapping fits",
+    )
+    columns: Mapped[dict] = mapped_column(
+        JSONB,
+        nullable=False,
+        comment="Canonical settlement field -> source column (header name or '#<index>')",
+    )
+    date_kind: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="jalali",
+        comment="jalali | gregorian — how the file's dates are written",
+    )
+    currency_unit: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="rial",
+        comment="rial | toman — the file's amount unit (last used; the import request may override)",
+    )
+    header_row: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        comment="0-based index of the header row in the file grid",
+    )
+    status: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="active",
+        comment="active | superseded",
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Creation timestamp (UTC)",
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Last update timestamp (UTC)",
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"SettlementColumnMappingModel(id={self.id!r}, channel_key={self.channel_key!r}, "
+            f"name={self.name!r}, status={self.status!r})"
+        )

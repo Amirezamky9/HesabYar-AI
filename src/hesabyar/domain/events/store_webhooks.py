@@ -101,10 +101,12 @@ from hesabyar.domain.events.errors import (
 #: accepts them — but the builder never builds a document for them:
 #: the pipeline branches cheque events to the intake handler before
 #: the builder runs (US-533), and :meth:`StoreDraftBuilder.build`
-#: refuses them explicitly. The other three canonical types
-#: (settlement, purchase invoice, inventory cost, bank transaction)
-#: belong to later streams and fail closed to the review queue when
-#: they reach the store builder.
+#: refuses them explicitly. The settlement type is NOT in this set:
+#: the pipeline branches ``payment.settlement.received`` to the
+#: settlement-received handler before the builder runs (US-554).
+#: The remaining canonical types (purchase invoice, inventory cost,
+#: bank transaction) belong to later streams and fail closed to the
+#: review queue when they reach the store builder.
 STORE_DOCUMENT_EVENT_TYPES: frozenset[CanonicalEventType] = frozenset(
     {
         CanonicalEventType.SALES_ORDER_COMPLETED,
