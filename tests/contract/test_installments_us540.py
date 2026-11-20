@@ -362,7 +362,7 @@ def test_guard_rejects_receipt_without_both_refs_on_real_db(
     detail = queries.get_plan_detail(
         plan.id, tenant_id=tenant, installation_id=installation
     )
-    assert detail.receipts == []
+    assert detail.receipts == ()
     assert detail.total_received.amount == 0
 
 
@@ -393,7 +393,7 @@ def test_guard_rejects_receipt_with_wrong_invoice_on_real_db(
     detail = queries.get_plan_detail(
         plan.id, tenant_id=tenant, installation_id=installation
     )
-    assert detail.receipts == []
+    assert detail.receipts == ()
 
 
 # -- contracts + leg lookup -----------------------------------------------------------

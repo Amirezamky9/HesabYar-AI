@@ -659,5 +659,5 @@ def test_cheque_receipt_for_a_registered_cheque_is_rejected(
     detail = world.queries.get_plan_detail(
         plan.id, tenant_id=world.tenant_id, installation_id=world.installation_id
     )
-    assert detail.receipts == []
+    assert detail.receipts == ()
     assert detail.legs[0].status is LegStatus.OVERDUE

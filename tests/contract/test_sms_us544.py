@@ -43,7 +43,10 @@ from hesabyar.domain.review_queue.models import (
     ReviewItemType,
     ReviewSeverity,
 )
-from hesabyar.domain.sms.errors import SmsReminderAlreadySentError
+from hesabyar.domain.sms.errors import (
+    SmsProviderNotFoundError,
+    SmsReminderAlreadySentError,
+)
 from hesabyar.domain.sms.models import (
     SmsLogStatus,
     SmsReminderLogEntry,
@@ -352,7 +355,11 @@ def test_provider_crud_round_trip_through_real_db(
     session.commit()
     registry.delete_provider(installation_id=installation, provider_id=created.id)
     session.commit()
-    assert queries.get_provider(created.id, installation_id=installation) is None
+    # get_provider raises on a missing provider (mapped to 404 by the
+    # REST layer) — it never returns None; only get_default_provider
+    # and get_contract_settings do (CI run #7).
+    with pytest.raises(SmsProviderNotFoundError):
+        queries.get_provider(created.id, installation_id=installation)
 
 
 @pytest.mark.usefixtures("_cleanup")

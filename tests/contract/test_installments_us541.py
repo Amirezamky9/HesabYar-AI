@@ -427,7 +427,7 @@ def test_settlement_below_the_payoff_is_refused_on_real_db(
     detail = queries.get_plan_detail(
         plan.id, tenant_id=tenant, installation_id=installation
     )
-    assert detail.receipts == []
+    assert detail.receipts == ()
 
 
 # -- partial settlement + re-amortisation ---------------------------------------------
