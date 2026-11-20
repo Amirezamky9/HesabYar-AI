@@ -66,6 +66,7 @@ from hesabyar.infrastructure.persistence.postgres.models import (
     SmsProviderModel,
     SmsReminderLogModel,
     SmsReminderSettingsModel,
+    TenantModel,
 )
 from hesabyar.infrastructure.persistence.postgres.review_queue_repository import (
     SqlAlchemyReviewQueueRepository,
@@ -127,8 +128,22 @@ def session(hesabyar_engine: Engine) -> Generator[Session, None, None]:
 
 
 @pytest.fixture()
-def tenant() -> str:
-    return _tenant_id()
+def tenant(hesabyar_engine: Engine) -> Generator[str, None, None]:
+    """A real tenant row (the review-item FK requires one)."""
+    tenant_id = _tenant_id()
+    setup = sessionmaker(bind=hesabyar_engine)()
+    try:
+        setup.add(
+            TenantModel(
+                id=tenant_id,
+                slug=f"contract-544-{uuid.uuid4().hex[:8]}",
+                name="544 Contract Tenant",
+            )
+        )
+        setup.commit()
+    finally:
+        setup.close()
+    yield tenant_id
 
 
 @pytest.fixture()
@@ -227,6 +242,7 @@ def _cleanup(
         cleanup.execute(
             delete(ReviewItemModel).where(ReviewItemModel.tenant_id == tenant)
         )
+        cleanup.execute(delete(TenantModel).where(TenantModel.id == tenant))
         cleanup.commit()
     finally:
         cleanup.close()
@@ -326,6 +342,14 @@ def test_provider_crud_round_trip_through_real_db(
     assert simulator is not None
     assert simulator.id == created.id
 
+    # The default provider cannot be deleted (guard: mark another
+    # provider default first) — clear the default, then delete.
+    registry.update_provider(
+        installation_id=installation,
+        provider_id=created.id,
+        payload={"is_default": False},
+    )
+    session.commit()
     registry.delete_provider(installation_id=installation, provider_id=created.id)
     session.commit()
     assert queries.get_provider(created.id, installation_id=installation) is None

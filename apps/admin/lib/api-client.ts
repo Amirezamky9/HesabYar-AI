@@ -2202,6 +2202,8 @@ export interface InstallmentReceiptResponse {
   notes: string | null;
   /** US-543 (BNPL): the gateway link — null for non-BNPL receipts. */
   gateway: string | null;
+  /** Same value as `gateway`, under the plan-response name. */
+  gateway_channel_key: string | null;
   gateway_reference: string | null;
   gateway_payment_id: string | null;
   bnpl_status: string | null;

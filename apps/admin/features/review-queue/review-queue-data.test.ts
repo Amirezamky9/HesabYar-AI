@@ -26,6 +26,7 @@ describe("review queue labels", () => {
       "manual_import_review",
       "cashbox_variance",
       "inbox_dead_letter",
+      "sms_delivery_failed",
     ]);
     for (const type of REVIEW_ITEM_TYPES) {
       expect(reviewTypeLabel(type)).not.toBe(type);

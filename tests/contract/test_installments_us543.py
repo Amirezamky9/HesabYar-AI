@@ -78,6 +78,7 @@ from hesabyar.infrastructure.persistence.postgres.models import (
     SettlementMatchModel,
     SettlementPostingModel,
     SettlementTrancheModel,
+    TenantModel,
 )
 from hesabyar.infrastructure.persistence.postgres.review_queue_repository import (
     SqlAlchemyReviewQueueRepository,
@@ -244,6 +245,20 @@ def world(
 ) -> Generator[World, None, None]:
     tenant_id = _tenant_id()
     installation_id = _installation_id()
+    # A real tenant row (the review-item FK requires one — the BNPL
+    # rejection test files an item).
+    setup = sessionmaker(bind=hesabyar_engine)()
+    try:
+        setup.add(
+            TenantModel(
+                id=tenant_id,
+                slug=f"contract-543-{uuid.uuid4().hex[:8]}",
+                name="543 Contract Tenant",
+            )
+        )
+        setup.commit()
+    finally:
+        setup.close()
     session = sessionmaker(bind=hesabyar_engine)()
     repo = SqlAlchemyInstallmentRepository(session)
     settlement_repo = SqlAlchemySettlementRepository(session)
@@ -324,6 +339,7 @@ def world(
             cleanup.execute(
                 delete(ReviewItemModel).where(ReviewItemModel.tenant_id == tenant_id)
             )
+            cleanup.execute(delete(TenantModel).where(TenantModel.id == tenant_id))
             channel_ids = list(
                 cleanup.execute(
                     select(PaymentChannelModel.id).where(

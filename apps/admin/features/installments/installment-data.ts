@@ -35,7 +35,7 @@ import type {
   PayoffQuoteResponse,
   ReminderLogResponse,
 } from "@/lib/api-client";
-import { faNumber } from "@/lib/utils";
+import { fa, faNumber } from "@/lib/utils";
 import { JALALI_MONTHS, isoToJalali } from "@/lib/jalali";
 import { daysToDue, jalaliDaysBetween } from "../cheques/cheque-data";
 
@@ -304,7 +304,9 @@ export function jalaliMonthLabel(monthKey: string): string {
   if (!match) return monthKey;
   const month = Number(match[2]);
   if (month < 1 || month > 12) return monthKey;
-  return `${JALALI_MONTHS[month - 1]} ${faNumber(Number(match[1]))}`;
+  // A year is an identifier, not an amount: fa() (plain Persian
+  // digits), never faNumber() (thousands separator — «۱٬۴۰۵»).
+  return `${JALALI_MONTHS[month - 1]} ${fa(match[1])}`;
 }
 
 /**

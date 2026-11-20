@@ -50,6 +50,13 @@ from hesabyar.domain.installments.models import (
 from hesabyar.domain.installments.validation import to_jalali_string
 
 
+def _clean_decimal(value: Decimal) -> Decimal:
+    """Strip trailing zeros so the decimal-string form is clean
+    (the settlement / integrations / sms / tax-policy convention:
+    ``0.10`` serializes as ``0.1``)."""
+    return Decimal(format(value.normalize(), "f"))
+
+
 class ExplicitLegRequest(BaseModel):
     """One caller-supplied leg (explicit-legs plan creation)."""
 
@@ -445,7 +452,11 @@ class ReceiptResponse(BaseModel):
     reference: str | None
     notes: str | None
     #: US-543 (BNPL): the gateway link — None for non-BNPL receipts.
+    #: ``gateway`` is the request-payload name (kept: the dashboard
+    #: reads it); ``gateway_channel_key`` is the plan-response name
+    #: (kept in sync — both carry the same value).
     gateway: str | None
+    gateway_channel_key: str | None
     gateway_reference: str | None
     gateway_payment_id: str | None
     bnpl_status: str | None
@@ -484,6 +495,7 @@ class ReceiptResponse(BaseModel):
             reference=receipt.reference,
             notes=receipt.notes,
             gateway=receipt.gateway_channel_key,
+            gateway_channel_key=receipt.gateway_channel_key,
             gateway_reference=receipt.gateway_reference,
             gateway_payment_id=receipt.gateway_payment_id,
             bnpl_status=(
@@ -675,17 +687,19 @@ class ContractResponse(BaseModel):
             effective_from=to_jalali_string(contract.effective_from.gregorian_date),
             company_engine_id=contract.company_engine_id,
             late_fee_basis=contract.late_fee_basis.value,
-            late_fee_rate=contract.late_fee_rate,
+            late_fee_rate=_clean_decimal(contract.late_fee_rate),
             late_fee_grace_days=contract.late_fee_grace_days,
             penalty_account_engine_id=contract.penalty_account_engine_id,
             penalty_account_code=contract.penalty_account_code,
-            finance_income_rate=contract.finance_income_rate,
+            finance_income_rate=_clean_decimal(contract.finance_income_rate),
             dunning_offsets=list(contract.dunning_offsets),
             receivable_account_engine_id=contract.receivable_account_engine_id,
             receivable_account_code=contract.receivable_account_code,
             early_settlement_fee_policy=contract.early_settlement_fee_policy.value,
             early_settlement_income_policy=contract.early_settlement_income_policy.value,
-            early_settlement_discount_rate=contract.early_settlement_discount_rate,
+            early_settlement_discount_rate=_clean_decimal(
+                contract.early_settlement_discount_rate
+            ),
             supersedes_contract_id=contract.supersedes_contract_id,
             is_active=contract.is_active,
             created_at=contract.created_at,

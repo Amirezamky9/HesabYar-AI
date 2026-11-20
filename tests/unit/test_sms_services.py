@@ -72,6 +72,7 @@ from hesabyar.domain.sms.models import (
     new_provider_id,
 )
 from hesabyar.domain.sms.ports import SmsDeliveryUpdate, SmsSendResult
+from hesabyar.infrastructure.auth.credential_vault import FernetCredentialVault
 from tests.unit.test_installment_services import (
     COMPANY_ENGINE_ID,
     INSTALLATION_ID,
@@ -426,18 +427,34 @@ class FakeSmsClientFactory:
         raise AssertionError(f"no fake client configured for kind {provider_kind!r}")
 
 
+#: Fixed test-only Fernet key (generated for the test suite; never
+#: used outside tests). Shared across instances so a fresh
+#: FakeVault() can decrypt what another instance encrypted — the
+#: contract tests rely on that (they decrypt the stored row with a
+#: new instance).
+_TEST_FERNET_KEY = "QNvkfjtQultDb0VjT09UBJXV3pB1d07Z1EUPwKnNpCg="
+
+
 class FakeVault:
-    """A reversible test vault (prefix scheme — no real crypto)."""
+    """A real Fernet vault for tests (the production vault class,
+    keyed with a fixed test-only key).
+
+    An earlier prefix scheme (``"enc:" + plaintext``) leaked the
+    plaintext into the stored value, so the "ciphertext must not
+    contain the secret" assertions failed — the product encrypts
+    correctly through the vault port; the fake was the defect.
+    """
 
     key_id = "test-key-1"
 
+    def __init__(self) -> None:
+        self._vault = FernetCredentialVault(_TEST_FERNET_KEY)
+
     def encrypt(self, plaintext: str) -> str:
-        return "enc:" + plaintext
+        return self._vault.encrypt(plaintext)
 
     def decrypt(self, ciphertext: str) -> str:
-        if not ciphertext.startswith("enc:"):
-            raise ValueError("not a fake-vault ciphertext")
-        return ciphertext[4:]
+        return self._vault.decrypt(ciphertext)
 
 
 @dataclass

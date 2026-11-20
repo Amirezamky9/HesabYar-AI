@@ -59,7 +59,7 @@ MAX_LEGS = 120
 #: Jalali YYYY-MM-DD, ASCII digits after normalization.
 _JALALI_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
-_PERSIAN_ARABIC_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧۸۹", "01234567890123456789")
+_PERSIAN_ARABIC_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
 
 
 def normalize_digits(value: str) -> str:

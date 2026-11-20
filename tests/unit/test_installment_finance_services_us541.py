@@ -759,7 +759,10 @@ def test_dunning_run_files_one_item_per_leg_per_stage() -> None:
     assert item.subtype == "dunning-stage-3"
     assert item.amount_irr == 10_300_000  # balance 10M + fee 300k
     assert item.source_event_ref is not None
-    assert item.source_event_ref.endswith(":dunning-stage-3")
+    # The ref is colon-segmented (the codebase convention, and the
+    # documented form in docs/installments.md); only the subtype
+    # uses the dash form ("dunning-stage-3").
+    assert item.source_event_ref.endswith(":dunning-stage:3")
     # The fee was assessed and journaled (draft).
     assert result.fees_assessed_irr == 300_000
     assert result.journals_created == (9001,)
@@ -877,8 +880,15 @@ def test_dunning_run_journals_the_unjournaled_portion_once_the_engine_is_wired()
     result = _finance(repo, review_queue=queue, journals=journals).run_dunning(
         tenant_id=TENANT_ID, installation_id=INSTALLATION_ID, today=later
     )
-    assert result.journals_created == (9001,)
+    # TWO journals: leg 1 (37 days overdue, 370,000) and leg 2 —
+    # due on the first run's day, 7 days overdue by now (70,000).
+    # Each overdue leg gets its own fee journal.
+    assert result.journals_created == (9001, 9002)
     _, _, lines, _ = journals.drafts[0]
     # 37 days overdue: 10M × 0.001 × 37 = 370,000.
     assert lines[0].debit.amount == 370_000
     assert lines[1].credit.amount == 370_000
+    _, _, lines2, _ = journals.drafts[1]
+    # 7 days overdue: 10M × 0.001 × 7 = 70,000.
+    assert lines2[0].debit.amount == 70_000
+    assert lines2[1].credit.amount == 70_000

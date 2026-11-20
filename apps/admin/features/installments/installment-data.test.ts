@@ -120,6 +120,7 @@ function receipt(overrides: Partial<InstallmentReceiptResponse>): InstallmentRec
     reference: null,
     notes: null,
     gateway: null,
+    gateway_channel_key: null,
     gateway_reference: null,
     gateway_payment_id: null,
     bnpl_status: null,
@@ -290,7 +291,7 @@ describe("installment aging (report 11)", () => {
       detail(
         {},
         [
-          leg({ id: "l1", due_date: "1405-07-29", status: "overdue", balance_irr: 10_000_000 }), // 31 days overdue
+          leg({ id: "l1", due_date: "1405-07-28", status: "overdue", balance_irr: 10_000_000 }), // 31 days overdue (1405-07-29 is only 30 — Mehr has 30 days)
           leg({ id: "l2", sequence: 2, due_date: "1405-09-29", status: "expected", balance_irr: 10_000_000 }),
           leg({ id: "l3", sequence: 3, due_date: "1405-07-01", status: "paid", balance_irr: 0 }), // paid: skipped
         ],
@@ -498,7 +499,8 @@ describe("SMS reminder log (report 10)", () => {
     const rows = [
       reminder({ created_at: "2026-11-20T06:00:00Z", status: "sent" }),
       reminder({ id: "rem-2", created_at: "2026-11-21T06:00:00Z", status: "delivered" }),
-      reminder({ id: "rem-3", created_at: "2026-11-22T06:00:00Z", status: "failed" }),
+      // Aban ends 1405-08-30 == 2026-11-21; 2026-11-22 is already Azar (1405-09).
+      reminder({ id: "rem-3", created_at: "2026-11-21T08:00:00Z", status: "failed" }),
       reminder({ id: "rem-4", created_at: "2026-10-22T06:00:00Z", status: "sent" }),
       reminder({ id: "rem-5", created_at: null, status: "sent" }),
     ];

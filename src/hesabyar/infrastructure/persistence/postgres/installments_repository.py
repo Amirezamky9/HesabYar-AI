@@ -208,6 +208,11 @@ class SqlAlchemyInstallmentRepository(InstallmentRepositoryPort):
     def create_plan(
         self, plan: InstallmentPlan, legs: Sequence[InstallmentLeg]
     ) -> InstallmentPlan:
+        # Flush the plan BEFORE adding the legs: SQLAlchemy orders
+        # a flush by relationships, not by bare FK columns, and
+        # these models carry no relationship — a single flush of
+        # plan + legs can emit the leg INSERTs first and violate
+        # installment_legs.plan_id_fkey (CI run #6, 26 tests).
         self._session.add(
             InstallmentPlanModel(
                 id=plan.id,
@@ -233,6 +238,7 @@ class SqlAlchemyInstallmentRepository(InstallmentRepositoryPort):
                 updated_at=plan.updated_at,
             )
         )
+        self._session.flush()
         for leg in legs:
             self._session.add(
                 InstallmentLegModel(
@@ -361,6 +367,9 @@ class SqlAlchemyInstallmentRepository(InstallmentRepositoryPort):
                 created_at=receipt.created_at,
             )
         )
+        # Flush the receipt BEFORE its allocations (same bare-FK
+        # flush-ordering rule as create_plan — see above).
+        self._session.flush()
         for allocation in receipt.allocations:
             self._session.add(
                 InstallmentReceiptAllocationModel(

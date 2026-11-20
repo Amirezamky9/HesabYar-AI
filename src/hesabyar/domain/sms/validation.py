@@ -23,7 +23,7 @@ from hesabyar.domain.sms.errors import SmsValidationError
 from hesabyar.domain.sms.models import PROVIDER_KINDS, SmsProviderStatus
 from hesabyar.domain.sms.templates import validate_template
 
-_PERSIAN_ARABIC_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧۸۹", "01234567890123456789")
+_PERSIAN_ARABIC_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
 
 #: Provider keys are URL-safe slugs (the same rule as channel keys).
 _PROVIDER_KEY_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
