@@ -78,7 +78,8 @@ jobs:
           uv run alembic upgrade head
 
       # Contract + live-e2e tests skip when no trytond is reachable
-      # (skip-when-unreachable fixtures). A trytond job lands separately.
+      # (skip-when-unreachable fixtures). The python-tests-tryton job
+      # below runs the same suite with a live trytond.
       - name: Run test suite
         run: uv run pytest -q -p no:cacheprovider
 
@@ -91,6 +92,86 @@ jobs:
       - name: Legacy validator sample check
         run: uv run python scripts/validator.py tests/sample-data.json --format markdown
 
+  python-tests-tryton:
+    name: Python tests + live Tryton (full suite, contract tests run)
+    runs-on: ubuntu-latest
+
+    env:
+      PYTHONIOENCODING: utf-8
+      PYTHONUTF8: 1
+      HESABYAR_DATABASE_URL: "postgresql+psycopg://hesabyar:hesabyar_pass@localhost:5432/hesabyar_test"
+      TRYTON_BASE_URL: "http://localhost:8000"
+      TRYTON_DATABASE: "hesabyar_tryton_test"
+      TRYTON_API_KEY: "hesabyar-dev-rest-key"
+      # Three env families point at Tryton and ALL must agree, or tests
+      # skip silently: TRYTON_* drives most contract files,
+      # HESABYAR_TRYTON__* drives the REST app + the cashbox contract
+      # file (AppSettings), TRYTON_DB/TRYTON_REST_KEY drive the
+      # IRR/Jalali fixture.
+      HESABYAR_TRYTON__BASE_URL: "http://localhost:8000"
+      HESABYAR_TRYTON__DATABASE: "hesabyar_tryton_test"
+      HESABYAR_TRYTON__API_KEY: "hesabyar-dev-rest-key"
+      TRYTON_DB: "hesabyar_tryton_test"
+      TRYTON_REST_KEY: "hesabyar-dev-rest-key"
+      # Superuser password for the postgres service below (dev-only test
+      # values; the databases are ephemeral and local to the runner).
+      PGPASSWORD: "postgres"
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Create HesabYar database
+        run: |
+          psql -h localhost -U postgres -v ON_ERROR_STOP=1 \
+            -c "CREATE ROLE hesabyar LOGIN PASSWORD 'hesabyar_pass';" \
+            -c "CREATE DATABASE hesabyar_test OWNER hesabyar ENCODING 'UTF8';"
+
+      - name: Run Alembic migrations (HesabYar DB)
+        run: uv run alembic upgrade head
+
+      # Installs trytond 8.2.3 + the 41-module set, creates the Tryton
+      # database, provisions the test company/chart/fiscal years/
+      # packaging/cash-box data, starts trytond on :8000, and verifies
+      # the setup. See docs/ci-tryton.md.
+      - name: Set up Tryton
+        run: bash scripts/ci/setup-tryton.sh
+
+      - name: Run full test suite (live Tryton)
+        run: uv run pytest -q -p no:cacheprovider
+
+      - name: Upload trytond log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trytond-log
+          path: .tryton-data/trytond.log
+
   frontend:
     name: Frontend (tsc, eslint, vitest, build)
     runs-on: ubuntu-latest
@@ -98,6 +179,7 @@ jobs:
     defaults:
       run:
         working-directory: apps/admin
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -125,4 +207,4 @@ jobs:
         run: pnpm test
 
       - name: Build (Next.js)
-        run: pnpm run build 
+        run: pnpm run build
