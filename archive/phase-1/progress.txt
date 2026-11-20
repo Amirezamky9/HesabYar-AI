@@ -1,0 +1,17 @@
+# HesabYar — Phase 1 progress
+
+Started: 2026-11-16
+Branch: ralph/phase-1 (from ralph/phase-0 @4b1599f)
+Plan: prd.json (5 stories, US-101..US-105)
+Spec: ~/workspace/user/files/design-eng_0_zaup.md (§17 Phase 1; §6, §7, §9, §14)
+Loop: Ralph, run in PARALLEL per user instruction — Wave A: US-101 + US-102 + US-104 (independent); Wave B: US-103 (after US-102); Wave C: US-105 (after US-101 + US-103 + US-104).
+Environment: no Docker in this VM (native installs only); Python 3.12.3; uv 0.13.8 at ~/.local/bin/uv; trytond 8.2.3 on port 8000 + PostgreSQL 16 left running from Phase 0 (restart per docs/dev-setup.md if down); FastAPI is NOT yet a dependency (US-101 adds it).
+
+## Entries
+- 2026-11-16: Phase 1 planned. Phase 0 prd.json/progress.txt archived to archive/phase-0/. prd.json written (5 stories), branch ralph/phase-1 created. Coordinator spawned to run the loop with parallel fan-out.
+- 2026-11-16: US-104 PASS (commit 2309573). Application query services (CompanyQueryService, AccountQueryService) over AccountingEnginePort only; engine errors translate to stable application errors; missing company = typed CompanyNotFoundError. Coordinator re-verified: 22 tests pass (16 unit + 6 contract, live server), ruff pass, pyright 0 errors, forbidden-import grep clean.
+- 2026-11-16: US-102 PASS (commit 5558320). Three linear Alembic revisions (0002 engine mapping, 0003 API access + audit, 0004 integration + idempotency); 12 new tables + models in sync; §10.4 unique constraints enforced and tested; no FKs into Tryton. Coordinator re-verified: 38 tests pass, alembic 0004 head, all 14 tables present, ruff pass, pyright 0 errors.
+- 2026-11-16: US-101 PASS (commit 832cd77). FastAPI 0.163.1 + uvicorn 0.54.0 pinned; app factory under /api/v1 with OpenAPI; health/readiness/installation endpoints; X-Request-ID + RFC 9457 problem envelope; Tryton release via read-only JSON-RPC common.server.version. Coordinator re-verified: 18 tests pass, ruff pass, pyright 0 errors, live uvicorn smoke test OK. Wave A complete.
+- 2026-11-16: US-103 PASS (commit e97cd70). Scoped API-key auth: hya_live_ keys, HMAC-SHA-256 + pepper, constant-time verify, rotate/revoke, last-used; FastAPI dependencies (Bearer, require_scopes, require_company_access); placeholder admin_token deleted, /installation now settings:manage. Also fixed migrations/env.py logger bug. Coordinator re-verified: 48 auth tests pass, full suite 377 passed, ruff pass, pyright 0 errors.
+- 2026-11-16: US-105 PASS (commit 7253a8a). Four endpoints live (GET /companies, /companies/{id}, /accounting/accounts, /accounting/accounts/{id}) wired to US-104 services behind US-103 auth; cursor pagination + allowlisted filtering/sorting; typed 401/403/404/400. Coordinator re-verified: 33 tests pass (incl. 6 live e2e vs real Tryton), full suite 410 passed, ruff pass, pyright 0 errors.
+- 2026-11-16: Phase 1 COMPLETE — 5/5 stories pass. Final verification by coordinator: ruff pass, pyright 0 errors, full suite 410 passed. Exit criteria MET: an authenticated scoped API client reads Tryton company/account metadata through HesabYar.

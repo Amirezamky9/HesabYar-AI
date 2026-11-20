@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<!-- This file is part of HesabYar.  The COPYRIGHT file at the top level of
+this repository contains the full copyright notices and license terms.
+This module is licensed under the GNU General Public License v3 or later,
+like all Tryton modules.  See LICENSE in this package. -->
+<tryton>
+    <data>
+        <record model="ir.ui.view" id="custody_log_view_form">
+            <field name="model">account.check.custody_log</field>
+            <field name="type">form</field>
+            <field name="name">custody_log_form</field>
+        </record>
+        <record model="ir.ui.view" id="custody_log_view_tree">
+            <field name="model">account.check.custody_log</field>
+            <field name="type">tree</field>
+            <field name="name">custody_log_tree</field>
+        </record>
+    </data>
+</tryton>

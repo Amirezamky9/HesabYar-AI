@@ -1,0 +1,66 @@
+# HesabYar — Phase 5 wave 3 progress log (5پ — payment channels + settlement engine)
+
+Plan: `prd.json` on branch `ralph/phase-5-3`.
+Phase 5-2 (5ب + 5ت B1/B2 + 5چ) archived to `archive/phase-5-2/`. Phase 5-2
+complete: 6/6 stories pass (US-511..US-516; branch head `f387a8b` marks
+Phase 5-2 complete, coordinator-verified AND parent-verified; wave-end suite
+2177 passed / 8 skipped / 0 failed as amended; Alembic head 0019; OpenAPI 146
+paths; scope catalog 38; vitest 245/245; build 37 pages; all 19 feature
+Playwright tests green). Parent-verified 2026-11-18 ~23:30.
+ADR 0003 (store connectivity, dual-entry architecture) ACCEPTED 2026-11-17,
+in `docs/adr/0003-store-connectivity-banking.md`.
+
+## Phase 5-3 scope (phased design §1.3 + §3)
+
+Payment channels + settlement engine (5پ): US-520 test hygiene + §3.8
+settlement spikes (gate for US-522), US-521 P1a settlement engine core
+(models + versioned contracts + tranche derivation), US-522 P1b settlement
+accounting via Tryton, US-523 P2 settlement file import + three-way matching
++ mandatory tie-out, US-524 P3 gateway payment APIs (ZarinPal, Torob Pay,
+Snapp Pay, DigiPay, Sadad, SalamPay — status reconciliation only, settlement
+stays file-based), US-525 settlement center UI. Waves: A = US-520 + US-521
+(parallel); B = US-522 + US-523 + US-524 (parallel); C = US-525.
+Design source: `hesabyar-reference/phased-design-checklist-2026-11-17.md`
+(3,632 lines, Superpowers-reviewed + requirements batch 1 integrated) +
+ADR 0003 + research rounds 1–2 + settlement-models re-verification memo.
+
+Hard rules (user decisions, never to be re-litigated in this phase):
+- Fee % is entered MANUALLY per channel/contract, NEVER hard-coded; a rate
+  change creates a new contract version with an effective date; past
+  settlements keep the old rate.
+- NO browser automation of bank/gateway portals (ADR 0003 round-2 update 4).
+- BNPL receivable is from the GATEWAY, not the customer.
+- Settlement auto-post ONLY after mandatory tie-out with the bank deposit.
+- Test policy: targeted tests per story; full suite once at wave-end
+  (sharded across both lanes, both must be green). Fix-verification re-runs
+  run ONLY the failed tests (user order 2026-11-18 21:36, re-emphasised
+  22:14) — prefer TEST-LEVEL selection over file-level resumption.
+- DB-touching pytest serializes WITHIN a lane only. Lane 1: trytond :8010
+  (env .env.supabase); lane 2: trytond :8011 (env .env.supabase-lane2).
+  Contract tests read TRYTON_BASE_URL (default :8000) — set it per lane.
+- A full pytest run truncates the dev DB and WIPES the minted dev API key —
+  re-mint with apps/admin/scripts/mint-dev-key.py before Playwright work.
+- Playwright runs against `pnpm start` (production server), never `pnpm dev`.
+- Local PostgreSQL 17 exists for fast test runs (port 5433, data under home,
+  env hesabyar-reference/.env.local-db, trytond :8020) — the parent verifies
+  locally; coordinator workers use the Supabase lanes.
+
+## Log
+
+- 2026-11-19 US-523 (P2, settlement import + three-way matching + mandatory
+  tie-out) COMPLETE, branch ralph/phase-5-3-us523, lane 2. Import flow
+  (parse → dry-run preview → review item → approve → canonical
+  payment.settlement.received events), file-hash dedupe, batch FIFO
+  matching, deposit matching in the 4 confidence levels, C7 reverse
+  matching (deposit-before-file confirmed at approve), mandatory tie-out
+  before auto-post (fail-closed stub until US-522 lands the engine
+  posting), all 11 §3.7 exception types into the unified review queue as
+  settlement_variance, overpayment parks unallocated. No migration needed
+  (US-521's Alembic 0020 already has the tables). Verification on lane 2:
+  unit 102 passed, infra DB 13 new + 18 pre-existing passed, REST 20 new +
+  20 pre-existing (US-521) passed; ruff clean, pyright 0 errors (whole
+  repo). Deferred: IMAP fetch (no mailbox infra — operator uploads the
+  file), tick-created late_tranche review filing (no installation→tenant
+  lookup), pipeline consumer for payment.settlement.received (5ح/6).
+  Per-import currency setting covers the UNVERIFIED SnappPay Excel
+  currency (Rial vs Toman).

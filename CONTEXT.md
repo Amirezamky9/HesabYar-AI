@@ -1,6 +1,6 @@
 # HesabYar Accounting & Compliance Engine
 
-Deterministic double-entry accounting ledger, standards validation, and regulatory Iranian tax compliance system.
+Deterministic accounting platform: Tryton owns the double-entry ledger as the accounting engine (see ADR 0002); HesabYar provides engine-neutral accounting contracts, Iranian standards validation, and regulatory tax compliance.
 
 ## Language
 

@@ -1,0 +1,82 @@
+{
+  "branchName": "ralph/phase-2",
+  "description": "HesabYar Phase 2 (per design-eng.md §17): accounting workflows. Extend the port + Tryton adapter with post/reverse/journal-read and fiscal-year/period reads; journal draft services + REST endpoints with validation, posting, reversal, idempotency and audit; fiscal-year/period + company/chart setup-status views; invoice/payment/statement adapter + services + endpoints. Builds on branch ralph/phase-1 (FastAPI platform, auth, migrations). Spec: ~/workspace/user/files/design-eng_0_zaup.md (§8, §9.2, §10, §14). Exit criteria: users can execute the core accounting workflows through the new API, with Tryton as the only posting authority.",
+  "project": "hesabyar",
+  "userStories": [
+    {
+      "acceptanceCriteria": [
+        "AccountingEnginePort extended with post_journal, reverse_journal, get_journal (read a posted move), list_fiscal_years, list_periods — engine-neutral types only, no Tryton imports in domain",
+        "TrytonAccountingAdapter implements all five via the REST API only (no SQL against Tryton's DB; no JSON-RPC for model data)",
+        "Contract tests against live Tryton 8.2.3: post a balanced draft → posted move with Tryton reference; reverse it → reversal move linked to the original; posted move has no edit/delete path through the adapter",
+        "Journal invariants enforced per design-eng §8.2: balanced totals, valid accounts, open period, atomic posting; unbalanced/unknown-account/closed-period post attempts are rejected with stable errors",
+        "Ruff, Pyright and the full test suite pass"
+      ],
+      "description": "As the platform I want the adapter to post, reverse and read journals plus fiscal years and periods, so workflows can run entirely through the engine port.",
+      "id": "US-201",
+      "notes": "Coordinator-verified 2026-11-16: commit 0f1da64; ruff pass, pyright 0 errors, full suite 439 passed (fresh, by coordinator); port has all 5 methods; adapter REST-only (grep clean), domain import-clean. Reversal is NOT atomic (create+post, 2 REST calls; failed post surfaces reversal_draft_id); reversal does NOT reconcile reconcile-account lines; closed-account/closed-period post rejections are unit-tested only (engine makes those states unreachable via REST — verified live). Period.reopen quirk fixed in test cleanup (journal-periods must be reopened too).",
+      "passes": true,
+      "priority": 1,
+      "title": "Adapter: post/reverse/journal-read + fiscal years/periods"
+    },
+    {
+      "acceptanceCriteria": [
+        "Application services for journal drafts (create/update/get/list, validate, post, reverse) call ONLY the engine port; REST routes contain no accounting rules",
+        "Endpoints live per design-eng §9.2: POST/GET/PATCH /api/v1/accounting/journal-drafts, POST .../validate, POST .../post, POST /api/v1/accounting/journals/{journal_id}/reverse — behind scopes ledger:draft:create, ledger:draft:update, ledger:post, ledger:reverse",
+        "Idempotency-Key enforced on post (and draft create): same key + same payload hash → same result, no duplicate posting; same key + different payload → 409 conflict (design-eng §10.4)",
+        "Every post/reverse writes an audit event (actor, operation, company, Tryton reference, idempotency key, UTC timestamp) to audit_events",
+        "End-to-end tests with a real issued key + live Tryton: draft → validate → post → reverse, with the posted move visible in Tryton and the reversal linked",
+        "Ruff, Pyright and the full test suite pass"
+      ],
+      "description": "As an accountant I want to draft, validate, post and reverse journals through the API, so daily bookkeeping runs on HesabYar with Tryton as the only posting authority.",
+      "id": "US-202",
+      "notes": "PASS after follow-up. Core commit 864868f (services + 7 endpoints + idempotency + audit) verified by coordinator in an isolated worktree (63/63 tests). Gap closed by follow-up commit c506aaf: list_journal_drafts + update_journal_draft + get_journal_draft on the port, REST-only adapter (single atomic PUT for update), JournalEngine protocol collapsed into AccountingEnginePort. Coordinator re-verified the follow-up in an isolated worktree at 19f9d1e (scratch DB): ruff pass, pyright 0 errors, full suite 668 passed. Known limit: PATCH requires Idempotency-Key but does not claim it for replay and writes no audit event yet (re-execution is naturally idempotent); recorded as a Deferred item.",
+      "passes": true,
+      "priority": 2,
+      "title": "Journal draft services + endpoints (validate/post/reverse, idempotent, audited)"
+    },
+    {
+      "acceptanceCriteria": [
+        "Application services + REST endpoints for fiscal years and periods (list/get, open/closed state, company-scoped) behind ledger:read",
+        "Company/chart setup-status endpoints: whether the company has a chart installed, which template, fiscal year present — read-only setup state for the future dashboard wizard",
+        "Research spike documented in docs/setup-wizard.md: can company creation + chart installation be driven through Tryton REST (actions/wizards), or does it need a small versioned custom Tryton module? Go/no-go with the concrete approach for the dashboard wizard — no guessing, verified against docs and the live server",
+        "Ruff, Pyright and the full test suite pass"
+      ],
+      "description": "As an accountant I want to see fiscal years, periods and setup state through the API, so I know what is open and what still needs setting up.",
+      "id": "US-203",
+      "notes": "Coordinator-verified 2026-11-16: commit b7c8175; ruff pass, pyright 0 errors, all 57 US-203 tests pass (fresh, by coordinator). 5 endpoints (fiscal years/periods list/get + setup-status) behind ledger:read; spike verdict NO-GO for pure REST chart install, GO for a small versioned custom Tryton module (docs/setup-wizard.md, verified live incl. 135-account install in a scratch DB). Deferred: expose chart_template in setup-status (needs a port method); the custom Tryton module itself is a separate implementation story.",
+      "passes": true,
+      "priority": 3,
+      "title": "Fiscal-year/period + setup-status views (+ setup-wizard research spike)"
+    },
+    {
+      "acceptanceCriteria": [
+        "AccountingEnginePort extended with invoice, payment and bank-statement reads (list/get) plus invoice-draft creation and validation — engine-neutral types only",
+        "TrytonAccountingAdapter implements them via the REST API only; invoice/payment/statement mapping documented in docs/adapter.md",
+        "Contract tests against live Tryton: list/get invoices, payments and statements for the test company; create + validate an invoice draft; unknown references → stable typed errors",
+        "No SQL against Tryton's DB; no duplicate invoice/payment ledger in HesabYar (Tryton owns the documents)",
+        "Ruff, Pyright and the full test suite pass"
+      ],
+      "description": "As the platform I want invoices, payments and statements readable (and invoice drafts creatable) through the port, so Phase 2 workflows cover the full money cycle.",
+      "id": "US-204",
+      "notes": "Coordinator-verified 2026-11-16: commits 7e90f1f + 4add1ea; ruff pass, pyright 0 errors, full suite 630 passed (fresh, by coordinator, canonical DB after env restore); 8 port methods present; adapter REST-only (grep clean). Invoice draft create+validate, invoice/payment/statement list/get. Note: subagent's own full-suite runs used a scratch DB (hesabyar_test_us204, dropped) due to a 3-way concurrent-run deadlock on hesabyar_test; wedge cleared by the later cluster restart.",
+      "passes": true,
+      "priority": 4,
+      "title": "Adapter: invoices, payments, bank statements"
+    },
+    {
+      "acceptanceCriteria": [
+        "Application services + REST endpoints for invoices (list/get/draft/validate), payments (list/get) and bank statements (list/get/import-status, reconcile stub reporting NOT_IMPLEMENTED until matching lands) behind invoice:read, invoice:draft:create, payment:read, banking:read",
+        "Admin-only audit-trail query endpoints (list/filter audit events by actor, operation, company, date range) with cursor pagination",
+        "Phase 2 end-to-end verification: one scripted run (test) walks draft → validate → post → reverse → audit query and invoice draft → validate, all through the REST API with a real key against live Tryton; every step audited and idempotent",
+        "All deferred items from US-201..US-204 are listed in progress.txt with their reason; nothing is silently dropped",
+        "Ruff, Pyright and the full test suite pass"
+      ],
+      "description": "As an accountant I want invoices, payments and statements through the API plus a queryable audit trail, so the whole accounting cycle is operable and traceable.",
+      "id": "US-205",
+      "notes": "Coordinator-verified 2026-11-17: commit b48416d; ruff pass, pyright 0 errors, full suite 730 passed (fresh, by coordinator, canonical DB); live uvicorn smoke: all 28 OpenAPI paths incl. 13 new endpoints, audit/invoices without key -> 401, health 200. 13 endpoints (invoices, payments, bank statements, audit queries); Phase 2 e2e full-cycle test passes (draft->validate->post->reverse->audit + invoice draft->validate, idempotent replays); 24 deferred items consolidated in progress.txt. ports.py/adapter.py untouched by US-205 (verified).",
+      "passes": true,
+      "priority": 5,
+      "title": "Invoice/payment/statement services + endpoints + audit queries + Phase 2 e2e"
+    }
+  ]
+}

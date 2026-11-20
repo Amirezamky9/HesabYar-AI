@@ -31,6 +31,8 @@ htmlcov/
 secrets/
 credentials/
 *token*
+# ...but the admin theme-token stylesheet is source, not a secret:
+!apps/admin/styles/tokens.css
 auth.json
 
 # 3. Claude & Agent Scaffolding
@@ -70,3 +72,14 @@ standards/*/source/media/
 standards/*/source/*.docx
 standards/*/source/s*.doc
 scripts/test_*.py
+
+# 8. Tryton module build artifacts (trytond-hesabyar-setup etc.)
+tryton-modules/*/build/
+tryton-modules/*/dist/
+tryton-modules/*/*.egg-info/
+
+# 9. CI script working dirs (scripts/ci/setup-tryton.sh,
+#    scripts/ci/setup-playwright.sh defaults — local disposable state)
+.tryton-env/
+.tryton-data/
+.playwright-data/

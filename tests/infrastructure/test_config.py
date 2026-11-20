@@ -3,9 +3,11 @@
 import datetime
 
 import pytest
+from pydantic import ValidationError
 
 from hesabyar.domain.common.dates import FiscalDate
 from hesabyar.infrastructure.config import (
+    DEV_API_KEY_PEPPER,
     AppSettings,
     DatabaseSettings,
     Environment,
@@ -19,6 +21,7 @@ class TestConfig:
     def test_default_settings(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("HESABYAR_DATABASE_URL", raising=False)
         monkeypatch.delenv("HESABYAR_DATABASE__URL", raising=False)
+        monkeypatch.delenv("HESABYAR_AUTH__API_KEY_PEPPER", raising=False)
         settings = AppSettings()
         assert settings.env == Environment.DEV
         assert not settings.env.is_production
@@ -26,12 +29,14 @@ class TestConfig:
         assert settings.database.pool_size == 5
         assert isinstance(settings.database, DatabaseSettings)
         assert "postgresql+psycopg://" in settings.database.sqlalchemy_url
+        assert settings.auth.api_key_pepper == DEV_API_KEY_PEPPER
 
     def test_environment_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("HESABYAR_DATABASE_URL", raising=False)
         monkeypatch.setenv("HESABYAR_ENV", "production")
         monkeypatch.setenv("HESABYAR_DATABASE__POOL_SIZE", "20")
         monkeypatch.setenv("HESABYAR_DATABASE__URL", "postgresql://user:pass@db:5432/prod")
+        monkeypatch.setenv("HESABYAR_AUTH__API_KEY_PEPPER", "production-pepper-value")
 
         settings = AppSettings()
         assert settings.env == Environment.PRODUCTION
@@ -39,6 +44,14 @@ class TestConfig:
         assert settings.database.pool_size == 20
         assert settings.database.url == "postgresql://user:pass@db:5432/prod"
         assert settings.database.sqlalchemy_url == "postgresql+psycopg://user:pass@db:5432/prod"
+        assert settings.auth.api_key_pepper == "production-pepper-value"
+
+    def test_production_refuses_dev_pepper(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("HESABYAR_DATABASE_URL", raising=False)
+        monkeypatch.delenv("HESABYAR_AUTH__API_KEY_PEPPER", raising=False)
+        monkeypatch.setenv("HESABYAR_ENV", "production")
+        with pytest.raises(ValidationError, match="API_KEY_PEPPER"):
+            AppSettings()
 
     def test_direct_database_url_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv(

@@ -1,10 +1,11 @@
 # HesabYar-AI — Final Implementation Architecture
 
 **Architecture ID:** HYA-A1-FINAL  
-**Version:** 1.4.0-FROZEN  
-**Date:** 2026-09-20  
+**Version:** 1.5.0  
+**Date:** 2026-11-16  
 **State:** `FROZEN_IMPLEMENTATION`  
-**Scope:** R0/R1 implementation foundation for the accounting ledger, standards validation, versioned Iranian tax policy, electronic commercial books, electronic invoice/Moadian integration, document intake, advisory analytics, and MCP interface.
+**Supersedes:** 1.4.0-FROZEN (2026-09-20), per [ADR 0002](adr/0002-tryton-as-accounting-engine.md)  
+**Scope:** R0/R1 implementation foundation for the Tryton-owned accounting ledger (accessed through an engine-neutral port), standards validation, versioned Iranian tax policy, electronic commercial books, electronic invoice/Moadian integration, document intake, advisory analytics, and MCP interface.
 
 > This is the **single normative architecture document for implementation**.
 >
@@ -18,9 +19,25 @@
 
 ---
 
+# Version history
+
+| Version | Date | Change |
+|---|---|---|
+| 1.4.0-FROZEN | 2026-09-20 | Initial frozen implementation architecture (HYA-A1-FINAL). R0 goal included a production-grade native HesabYar double-entry ledger with HesabYar-owned voucher/journal tables (§3.1, §8, §19) and a native-ledger Stage F1 (§26). |
+| 1.5.0 | 2026-11-16 | Supersedes 1.4.0 per [ADR 0002](adr/0002-tryton-as-accounting-engine.md): Tryton is the default accounting engine and the only active general-ledger authority in the default deployment. HesabYar exposes an engine-neutral `AccountingEnginePort` with a Tryton adapter, creates no duplicate journal-entry tables, and never posts the same financial event into both engines. The 1.4.0 native-ledger R0 goal, ledger bounded context, HesabYar-owned ledger tables, and Stage F1 are superseded as noted in each section; the rest of 1.4.0 stands unchanged. |
+
+The 1.4.0 text is preserved in git history (commit `e0972c0`,
+`docs/ARCHITECTURE.md` as committed before this update). No 1.4.0 requirement
+was silently deleted: every superseded section below carries an explicit
+supersession note pointing at ADR 0002.
+
+---
+
 # 0. Executive decision
 
 HesabYar-AI will be implemented as a **modular monolith with explicit domain boundaries and ports/adapters**.
+
+Tryton is the accounting system of record: it owns accounting transactions and their lifecycle. HesabYar is the Iranian accounting, tax, standards, integration, and AI intelligence layer on top of the engine; it does not maintain a second general ledger (ADR 0002).
 
 The system has four different kinds of truth and they MUST stay separate:
 
@@ -124,7 +141,7 @@ The coding agent MUST NOT implement the following old statements as executable f
 
 R0 MUST provide:
 
-- a production-grade double-entry ledger;
+- a Tryton-owned double-entry ledger, reached only through the engine-neutral `AccountingEnginePort` and its Tryton adapter (ADR 0002); HesabYar provides engine-neutral accounting contracts, deterministic pre-posting checks, workflow orchestration, and audit correlation — not a second ledger;
 - multi-tenant isolation;
 - fiscal years and posting periods;
 - chart of accounts and floating tafsili dimensions;
@@ -150,6 +167,9 @@ R0 MUST provide:
 R0 MUST NOT:
 
 - implement microservices;
+- maintain a second HesabYar general ledger alongside Tryton in the default deployment;
+- post the same financial event into both engines as two authoritative books;
+- write directly to Tryton's database (all engine access goes through the `AccountingEnginePort` adapter);
 - auto-file or auto-submit tax invoices without human approval;
 - make criminal/legal conclusions about a user or transaction;
 - auto-classify all bank inflows as revenue;
@@ -209,6 +229,8 @@ Canonical R0 persistence:
 
 SQLite from the old architecture is **not the production datastore** and its old DDL MUST NOT be copied. A future local SQLite adapter requires a separate ADR after R0.
 
+Each installation has two separate logical databases (design-eng spec §7.1): a **Tryton database**, owned and migrated by Tryton and its installed modules, and a **HesabYar database**, owned and migrated by HesabYar/Alembic. They may run on the same PostgreSQL server for a small installation, but must use separate database names, roles, passwords, and backup/restore procedures. HesabYar tables may store Tryton record identifiers as external references, but MUST NOT create SQL foreign keys into Tryton's database. Cross-database relationships are enforced through adapter contracts and reconciliation.
+
 ## 4.4 Core libraries
 
 - Pydantic v2 for boundary schemas
@@ -217,7 +239,7 @@ SQLite from the old architecture is **not the production datastore** and its old
 - `httpx` for allowed external HTTP adapters
 - `cryptography` only where required by a verified Moadian protocol profile
 
-No pandas/numpy dependency is required for the core ledger.
+No pandas/numpy dependency is required for the core accounting layer.
 
 ---
 
@@ -234,11 +256,13 @@ src/hesabyar/
       ids.py
       errors.py
       result.py
-    ledger/
-      entities.py
+    accounting/
+      refs.py
       value_objects.py
-      services.py
+      commands.py
+      queries.py
       ports.py
+      policies.py
     standards/
       models.py
       rules.py
@@ -273,6 +297,13 @@ src/hesabyar/
         models.py
         repositories.py
         uow.py
+    accounting/
+      tryton/
+        client.py
+        adapter.py
+        mapping.py
+        errors.py
+        contracts.py
     standards/
       registry.py
     tax_policy/
@@ -332,13 +363,15 @@ Forbidden:
 
 - domain importing MCP;
 - domain importing SQLAlchemy;
+- domain importing Tryton clients;
 - domain importing HTTP clients;
 - domain importing OCR/LLM SDKs;
 - domain reading environment variables;
 - repositories calling MCP;
 - an MCP tool directly calling SQLAlchemy models;
 - tax-policy code posting ledger entries;
-- document parser directly posting ledger entries.
+- document parser directly posting ledger entries;
+- any code writing directly to Tryton's database or bypassing the `AccountingEnginePort` to reach engine data.
 
 All infrastructure is reached through ports.
 
@@ -425,6 +458,8 @@ Every business object belongs to a tenant.
 
 Global legal/source registries may have nullable tenant scope only when the record is truly shared.
 
+Ledger objects in the list above (fiscal years, posting periods, accounts, tafsili entities, account-tafsili links, vouchers and lines) are Tryton-owned records, scoped by Tryton company; HesabYar maps each tenant to its engine company through the `engine_companies` table (see §8, §19) and never duplicates these records as HesabYar-owned tables in the default deployment (ADR 0002).
+
 ## 7.2 Tenant identity is not a tool argument
 
 For remote MCP, `tenant_id` and `actor_id` are derived from validated authentication claims.
@@ -450,32 +485,35 @@ The application layer checks authorization. UI/MCP wrappers are not the security
 
 ---
 
-# 8. Ledger bounded context
+# 8. Accounting bounded context (Tryton-owned ledger)
 
-The ledger is deterministic and transactionally authoritative.
+> **Supersedes 1.4.0 §8.** In 1.4.0 this section specified a native HesabYar ledger with HesabYar-owned voucher/journal tables. Per ADR 0002 (2026-11-16), the ledger is owned by Tryton; HesabYar's accounting context is engine-neutral contracts, commands, queries, and value objects plus the `AccountingEnginePort`. The posting invariants in §8.3 are unchanged in substance: HesabYar validates every draft against them before delegating to the engine, and the engine enforces them transactionally.
 
-## 8.1 Required entities
+The ledger is deterministic and transactionally authoritative. Tryton is its system of record; HesabYar is never a second book.
 
-- Tenant
-- FiscalYear
-- PostingPeriod
-- Account
-- Tafsili
-- AccountTafsiliLink
-- Voucher
-- VoucherLine
-- VoucherApproval
-- NumberSequence
+## 8.1 Engine-neutral references (no HesabYar-owned ledger tables)
+
+HesabYar does NOT own ledger tables in the default deployment. It works with engine-neutral references and views returned by the `AccountingEnginePort`:
+
+- `CompanyRef` — the Tryton company holding the tenant's books;
+- `AccountView` — a chart-of-accounts entry (group / kol / moein, tafsili links);
+- `JournalDraftRef` — a draft journal created through the port;
+- `PostedJournalRef` — a posted journal, immutable in the engine;
+- `AccountingReportQuery` / `AccountingReportResult` — trial balance and statements read through the port.
+
+Fiscal years, posting periods, accounts, tafsili links, vouchers, approvals, and number sequences live in the Tryton database. HesabYar stores only external references to them (see §19 engine-mapping tables).
 
 ## 8.2 Account hierarchy
 
-Support group / kol / moein and floating tafsili association.
+The chart of accounts is Tryton-owned. HesabYar provides Iranian chart templates, mapping, and validation. The engine chart MUST support group / kol / moein and floating tafsili association.
 
-The old schema documented “matrix tafsili” but did not create the required link table. R0 MUST include a real many-to-many `account_tafsili_links` table with validity dates/status if needed.
+R0 MUST ensure the engine provides a real many-to-many account–tafsili association (in Tryton, via its account model or a HesabYar Tryton module); HesabYar MUST NOT recreate it as a HesabYar-owned table in the default deployment.
 
 A tafsili may be linked to multiple eligible moein accounts.
 
 ## 8.3 Voucher states
+
+The voucher/journal lifecycle below is the contract HesabYar enforces on drafts and the engine enforces on posting. `POSTED` is authoritative only in the engine; HesabYar never holds a competing posted state.
 
 ```text
 DRAFT -> REVIEW_REQUIRED -> APPROVED -> POSTED
@@ -506,22 +544,11 @@ Rules:
 
 Do not rely only on Pydantic.
 
-PostgreSQL must enforce:
-
-- foreign keys;
-- tenant-aware unique constraints;
-- unique `(tenant_id, fiscal_year_id, voucher_number)`;
-- line one-sided CHECK constraints;
-- no update/delete of posted vouchers/lines through normal application DB role;
-- transaction-time validation that a voucher is balanced before POSTED state is committed.
-
-Use a DB constraint trigger or equivalent transaction-safe enforcement for the cross-row balance invariant.
+Transactional enforcement of the ledger invariants lives in the Tryton database, not in HesabYar tables: foreign keys, company-aware uniqueness, one-sided line checks, immutability of posted moves, and transaction-time balance validation are the engine's responsibility, verified through the adapter contract tests (§24, Gate 3). HesabYar MUST NOT duplicate these tables or constraints in its own database to re-enforce them. HesabYar's own database enforces only its own records (idempotency keys, audit events, engine-mapping references) and validates every draft against §8.3 before submission.
 
 ## 8.5 Sequence allocation
 
-Never use `MAX(voucher_number)+1`.
-
-Use a sequence/allocation row keyed by tenant + fiscal year and lock it transactionally (`SELECT ... FOR UPDATE` or an equivalent safe allocator).
+Voucher/journal numbering is issued by the engine. HesabYar MUST NOT allocate competing voucher numbers with `MAX(voucher_number)+1` or its own sequence table. HesabYar correlates its drafts to engine-issued numbers through the `external_id_map` (see §19) and its own idempotency records (§16).
 
 ---
 
@@ -748,7 +775,7 @@ The anti-speculation/capital-gains family MUST remain inactive until the applica
 
 # 11. Electronic commercial books compliance
 
-Electronic commercial books are a separate regulatory-output boundary over the authoritative ledger.
+Electronic commercial books are a separate regulatory-output boundary over the authoritative (Tryton-owned) ledger.
 
 ## 11.1 Required model
 
@@ -787,7 +814,7 @@ An electronic-books export is immutable and reproducible from:
 
 - tenant;
 - fiscal period/cutoff;
-- ledger revision/hash;
+- engine ledger revision/hash (obtained through the adapter);
 - export profile version;
 - source version;
 - generated timestamp.
@@ -1256,15 +1283,9 @@ Minimum PostgreSQL tables:
 tenants
 actors
 
-fiscal_years
-posting_periods
-accounts
-tafsilis
-account_tafsili_links
-number_sequences
-vouchers
-voucher_lines
-voucher_approvals
+engine_connections
+engine_companies
+external_id_map
 
 standard_sources
 standard_revisions
@@ -1295,19 +1316,21 @@ idempotency_keys
 audit_events
 ```
 
+> **Supersedes 1.4.0 §19 in part.** The 1.4.0 list included `fiscal_years`, `posting_periods`, `accounts`, `tafsilis`, `account_tafsili_links`, `number_sequences`, `vouchers`, `voucher_lines`, and `voucher_approvals` as HesabYar-owned tables. Per ADR 0002 those records live in the Tryton database; HesabYar holds only engine-mapping references to them (`engine_connections`, `engine_companies`, `external_id_map`). A native-ledger adapter would reintroduce HesabYar-owned journal tables only in a mutually exclusive standalone mode, under a separate ADR.
+
 ## 18.1 Important uniqueness
 
 At minimum:
 
 ```text
-accounts: UNIQUE(tenant_id, code)
-tafsilis: UNIQUE(tenant_id, code)
-vouchers: UNIQUE(tenant_id, fiscal_year_id, voucher_number)
-voucher_lines: UNIQUE(voucher_id, line_number)
+engine_companies: UNIQUE(tenant_id, engine_company_ref)
+external_id_map: UNIQUE(tenant_id, entity_type, engine_record_ref)
 invoice_drafts: UNIQUE(tenant_id, internal_id, version)
 idempotency_keys: UNIQUE(tenant_id, command_name, request_id)
 integration_outbox: UNIQUE(tenant_id, idempotency_key)
 ```
+
+Uniqueness of ledger records (accounts, vouchers, voucher lines) is enforced by the Tryton engine in its own database, not by HesabYar (ADR 0002).
 
 Any external tax identifier uniqueness is determined by the verified active protocol profile and enforced as appropriate.
 
@@ -1324,6 +1347,8 @@ Tests MUST attempt cross-tenant ID substitution and prove failure.
 # 20. Error taxonomy
 
 Use stable application error codes.
+
+Ledger codes below are raised by HesabYar's pre-posting validation or mapped from engine errors by the `TrytonAccountingAdapter`; the engine remains the authority for the underlying state (ADR 0002).
 
 ## 19.1 Ledger
 
@@ -1400,7 +1425,7 @@ CI never calls production tax endpoints.
 
 # 22. Deployment architecture
 
-One codebase, two production processes:
+One codebase, three production processes:
 
 ```text
 +-----------------------+
@@ -1410,6 +1435,7 @@ One codebase, two production processes:
             |
             v
        PostgreSQL
+      (HesabYar DB)
             ^
             |
 +-----------+-----------+
@@ -1420,9 +1446,22 @@ One codebase, two production processes:
             v
    Moadian gateway
    (only if enabled)
+
+hesabyar-mcp / hesabyar-worker
+            |
+            |  AccountingEnginePort
+            |  (TrytonAccountingAdapter)
+            v
++-----------------------+
+| tryton-server         |
++-----------+-----------+
+            |
+            v
+       PostgreSQL
+      (Tryton DB)
 ```
 
-This is still a modular monolith, not microservices.
+This is still a modular monolith, not microservices. The Tryton server runs in its own runtime; do not force it to share HesabYar's Python environment (design-eng spec §6.1). HesabYar reaches Tryton only through the adapter; it never writes to the Tryton database directly (ADR 0002).
 
 ## 21.1 Environments
 
@@ -1517,6 +1556,8 @@ No new untyped critical-domain code.
 
 ## Gate 3 — property/invariant
 
+Ledger invariants below are verified through the `AccountingEnginePort` contract tests (test double in unit/property suites; real Tryton instance in integration). Transactional enforcement of these invariants is the engine's responsibility; HesabYar validates drafts before submission and verifies postings after (ADR 0002).
+
 Hypothesis tests at minimum:
 
 - posted vouchers always balance;
@@ -1610,6 +1651,13 @@ The coding agent MUST preserve the useful standards corpus while replacing the p
 3. Do not translate old SQLite DDL line-for-line.
 4. Add tenant scope and constraints before business features.
 
+## Phase 0D — Tryton engine decision (1.5.0)
+
+1. Accept ADR 0002 (this update).
+2. Refactor the ledger package into engine-neutral accounting contracts, commands, queries, and value objects (`domain/accounting/`).
+3. Put Tryton-specific data mapping under `infrastructure/accounting/tryton/`.
+4. Do not create `vouchers`, `voucher_lines`, `accounts`, or other journal-entry tables in HesabYar Alembic migrations in the default deployment.
+
 ---
 
 # 26. Implementation sequence and stop gates
@@ -1632,19 +1680,21 @@ Deliver:
 
 **STOP GATE F0:** no ledger feature work until migrations, tenant isolation, MoneyIRR/Decimal policy, fail-closed rule engine, and CI are green.
 
-## Stage F1 — Ledger
+## Stage F1 — Accounting engine integration
+
+> **Supersedes 1.4.0 Stage F1 — Ledger** per ADR 0002 (2026-11-16).
 
 Deliver:
 
-- COA;
-- tafsili matrix;
-- fiscal years/periods;
-- voucher draft/review/post/reverse;
-- sequence allocator;
-- trial balance;
-- audit events.
+- `AccountingEnginePort` and `TrytonAccountingAdapter`;
+- engine-neutral accounting commands/queries (draft, validate, post, reverse);
+- chart-of-accounts mapping and Iranian chart templates;
+- tafsili association mapping;
+- fiscal year/period reads through the engine;
+- trial balance and core financial-statement validation reading engine reports;
+- audit events correlated to engine postings.
 
-**STOP GATE F1:** property + DB invariant tests green. Posted mutation attempt must fail at application and DB levels.
+**STOP GATE F1:** adapter contract tests green; no HesabYar-owned journal tables in the default deployment; no financial event posted into both engines. A posted record must be immutable in the engine, and any HesabYar mutation attempt against a posted journal must fail.
 
 ## Stage F2 — Versioned standards/tax sources
 
@@ -1761,7 +1811,10 @@ The coding agent MUST NOT:
 20. introduce microservices, Kafka, Redis, Celery, or another infrastructure component without a demonstrated R0 requirement and architecture update;
 21. implement Rust in R0;
 22. copy the v1.1 SQLite DDL as production schema;
-23. add placeholder “official” protocol logic just to make tests green.
+23. add placeholder “official” protocol logic just to make tests green;
+24. create duplicate journal-entry tables in the default deployment (ADR 0002);
+25. post the same financial event into both the Tryton engine and any other ledger (ADR 0002);
+26. write directly to Tryton's database or bypass the `AccountingEnginePort` (ADR 0002).
 
 ---
 
@@ -1839,8 +1892,9 @@ Implementation status:
 
 ```text
 ARCHITECTURE_ID = HYA-A1-FINAL
-ARCHITECTURE_VERSION = 1.4.0-FROZEN
+ARCHITECTURE_VERSION = 1.5.0
 ARCHITECTURE_STATE = FROZEN_IMPLEMENTATION
+SUPERSEDES = 1.4.0-FROZEN (2026-09-20) per ADR 0002 (2026-11-16)
 IMPLEMENTATION_AUTHORIZED = YES
 PRODUCTION_MOADIAN_AUTHORIZED = NO
 ```

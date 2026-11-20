@@ -1,0 +1,58 @@
+<?xml version="1.0"?>
+<!-- This file is part of HesabYar.  The COPYRIGHT file at the top level of
+this repository contains the full copyright notices and license terms.
+This module is licensed under the GNU General Public License v3 or later,
+like all Tryton modules.  See LICENSE in this package. -->
+<form>
+    <label name="sayad_id"/>
+    <field name="sayad_id"/>
+    <label name="number"/>
+    <field name="number"/>
+    <label name="kind"/>
+    <field name="kind"/>
+    <label name="purpose"/>
+    <field name="purpose"/>
+    <label name="state"/>
+    <field name="state"/>
+    <label name="sayad_status"/>
+    <field name="sayad_status"/>
+    <label name="amount"/>
+    <field name="amount"/>
+    <label name="issue_date"/>
+    <field name="issue_date"/>
+    <label name="due_date"/>
+    <field name="due_date"/>
+    <label name="party"/>
+    <field name="party"/>
+    <label name="bank"/>
+    <field name="bank"/>
+    <label name="checkbook"/>
+    <field name="checkbook"/>
+    <label name="source"/>
+    <field name="source"/>
+    <label name="storage_location"/>
+    <field name="storage_location"/>
+    <label name="branch"/>
+    <field name="branch"/>
+    <label name="issuer_account_number"/>
+    <field name="issuer_account_number"/>
+    <label name="invoice"/>
+    <field name="invoice"/>
+    <label name="sale"/>
+    <field name="sale"/>
+    <label name="installment_leg"/>
+    <field name="installment_leg"/>
+    <label name="applied_amount_irr"/>
+    <field name="applied_amount_irr"/>
+    <label name="endorsee"/>
+    <field name="endorsee"/>
+    <label name="endorsee_type"/>
+    <field name="endorsee_type"/>
+    <label name="secured_obligation"/>
+    <field name="secured_obligation"/>
+    <label name="attachment"/>
+    <field name="attachment"/>
+    <newline/>
+    <field name="endorsement_history" colspan="4"/>
+    <field name="moves" colspan="4"/>
+</form>
