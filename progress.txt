@@ -263,3 +263,15 @@
   is on GitHub Actions CI. prd.json passes NOT marked on any
   story. READY FOR CI VERIFICATION — parent pushes to the fork,
   reads CI, sends failures back for a fix pass.
+
+## Parent verification — CI run #8 GREEN (2026-11-20 ~21:48)
+- Fork commit 3ec23c2e, run #8 (44790549118), 6m28s: python-gates green;
+  python-tests 3056 passed / 279 skipped / 0 failed; python-tests-tryton
+  3318 passed / 17 skipped / 0 failed; frontend 299/299 vitest + build green.
+- US-540–544 marked passes: true (verified by the CI suite).
+- US-545 stays passes: false ONLY because its Playwright spec
+  (e2e/installments.spec.ts, 7 tests) has not run yet: the Playwright CI
+  job starts only after the user pastes the 5-job ci.yml on
+  ralph/phase-5-5. Its backend (REST tests) passed in run #8. When the
+  paste lands, read the Playwright job result; fix failures from CI
+  evidence; then mark US-545 passes: true.
