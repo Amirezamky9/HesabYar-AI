@@ -2,12 +2,16 @@
  * Cheque center — registry (US-535, Phase 5-4; report 9 / دفتر چک).
  *
  * The registry lists every cheque in the installation, newest first,
- * with server filters (state, kind, purpose, due-before) and
- * client-side filters (bank, party, due-from, Sayyad status, source)
- * — the list endpoint has no bank/date-range filter, so those run
- * over the fetched page and say so. Amounts are integer IRR; dates
- * are Jalali. Tabs split received / issued / collateral; the intake
- * queue lives on its own page (/cheques/intake).
+ * with server filters (state, kind, purpose, due-before, company)
+ * and client-side filters (bank, party, due-from, Sayyad status,
+ * source) — the list endpoint has no bank/date-range filter, so
+ * those run over the fetched page and say so. Amounts are integer
+ * IRR; dates are Jalali. Tabs split received / issued / collateral;
+ * the intake queue lives on its own page (/cheques/intake).
+ *
+ * US-551: the company filter scopes the registry to one company at
+ * the backend (GET /cheques?company=); «همهٔ شرکت‌ها» keeps the
+ * tenant-wide default.
  */
 
 "use client";
@@ -38,6 +42,7 @@ import {
 import { MoneyDisplay } from "@/components/ui";
 import { faNumber } from "@/lib/utils";
 import { formatMoney } from "@/lib/format-money";
+import { useCompany } from "@/features/dashboard/company-context";
 import { ErrorState, PermissionDeniedState } from "@/features/shared/states";
 import { isPermissionDenied, persianApiErrorMessage } from "@/features/shared/api-error";
 import { buildCsv, downloadCsv } from "@/features/shared/csv";
@@ -67,8 +72,12 @@ function csvFilename(): string {
 
 export function ChequeCenterPage() {
   const router = useRouter();
+  const { companies } = useCompany();
   const [tab, setTab] = React.useState<TabId>("all");
   const [stateFilter, setStateFilter] = React.useState<string>("all");
+  // Company filter (US-551): "all" is the tenant-wide default; a
+  // company id scopes the list at the backend, never client-side.
+  const [companyFilter, setCompanyFilter] = React.useState<string>("all");
   const [bankFilter, setBankFilter] = React.useState("");
   const [partyFilter, setPartyFilter] = React.useState("");
   const [dueFromIso, setDueFromIso] = React.useState<string | null>(null);
@@ -92,6 +101,7 @@ export function ChequeCenterPage() {
       .listCheques({
         ...TAB_PARAMS[tab],
         state: stateFilter === "all" ? undefined : stateFilter,
+        company: companyFilter === "all" ? undefined : companyFilter,
         due_before: dueBeforeJalali,
         limit: PAGE_SIZE,
         offset,
@@ -115,7 +125,7 @@ export function ChequeCenterPage() {
     return () => {
       cancelled = true;
     };
-  }, [tab, stateFilter, dueBeforeJalali, offset, router]);
+  }, [tab, stateFilter, companyFilter, dueBeforeJalali, offset, router]);
 
   // Loading state is set by load() from a timer callback, never
   // synchronously in the effect body (react-hooks/set-state-in-effect).
@@ -216,6 +226,29 @@ export function ChequeCenterPage() {
       <Card>
         <CardContent className="space-y-4 pt-6">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="space-y-2">
+              <Label htmlFor="cheque-company-filter">شرکت</Label>
+              <Select
+                value={companyFilter}
+                onValueChange={(value) => { setCompanyFilter(value ?? "all"); resetPage(); }}
+              >
+                <SelectTrigger id="cheque-company-filter">
+                  <SelectValue>
+                    {companyFilter === "all"
+                      ? "همهٔ شرکت‌ها"
+                      : (companies.find((c) => c.id === companyFilter)?.name ?? "همهٔ شرکت‌ها")}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">همهٔ شرکت‌ها</SelectItem>
+                  {companies.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <div className="space-y-2">
               <Label htmlFor="cheque-state-filter">وضعیت</Label>
               <Select

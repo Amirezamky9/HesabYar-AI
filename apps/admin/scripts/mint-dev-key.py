@@ -111,6 +111,12 @@ OPERATOR_SCOPES = [
     "cheques:read",
     "cheques:write",
     "cheques:transition",
+    # Phase 5-5 (US-545 installments center) + Phase 5-6 (US-551
+    # unified dashboard): the installments pages and the dashboard's
+    # money-on-the-way / alerts sections read plans + the overdue
+    # report through the BFF, which requires installments:*.
+    "installments:read",
+    "installments:write",
 ]
 
 

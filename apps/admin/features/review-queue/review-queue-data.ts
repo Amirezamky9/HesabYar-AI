@@ -138,6 +138,90 @@ export function reviewActionLabel(action: string | null | undefined): string {
 }
 
 /**
+ * Persian reason behind the system's derived suggestion (US-552).
+ * The backend returns a stable reason key; the sentence lives here,
+ * like every other user-facing label. Unknown keys fall back to the
+ * raw key so a new backend reason never silently disappears.
+ */
+export const SUGGESTED_REASON_LABELS: Record<string, string> = {
+  mapping_blocks_event: "رویداد تا تکمیل نگاشت قابل پردازش نیست.",
+  variance_is_fee_mismatch: "مغایرت از نگاشت کارمزد است؛ با اصلاح نگاشت رفع می‌شود.",
+  large_variance_needs_gateway: "مغایرت بزرگ است و نیازمند پیگیری از درگاه است.",
+  small_variance_accept: "مغایرت کوچک است و قابل پذیرش است.",
+  cheque_bounced: "چک برگشت خورده است؛ برگشت باید ثبت شود.",
+  cheque_needs_customer: "پیش از هر اقدام، وضعیت را با مشتری بررسی کنید.",
+  line_needs_match: "این سطر فقط با تطبیق دستی قابل حل است.",
+  stock_below_reorder: "موجودی به نقطهٔ سفارش رسیده است؛ درخواست خرید در انتظار تأیید است.",
+  installment_overdue_remind: "ابتدا یادآوری ارسال کنید؛ فعال‌سازی چک پشتوانه آخرین راه است.",
+  batch_preview_ready: "بچ اعتبارسنجی شده است و پیش‌نمایش آن آمادهٔ تأیید است.",
+  large_variance_needs_manager: "مغایرت بزرگ است و نیازمند تصمیم مدیر است.",
+  variance_needs_approval: "شمارش صحیح فرض می‌شود؛ سند کسری یا اضافی را تأیید کنید.",
+  event_dead_lettered: "رویداد پس از چند تلاش ناموفق متوقف شده است؛ بازپخش آن را دوباره به صف برمی‌گرداند.",
+  sms_send_failed: "ارسال ناموفق بوده است؛ معمولاً با ارسال مجدد رفع می‌شود.",
+};
+
+export function suggestedReasonLabel(reasonKey: string | null | undefined): string {
+  if (!reasonKey) return "";
+  return SUGGESTED_REASON_LABELS[reasonKey] ?? reasonKey;
+}
+
+/** The nine mapping kinds (§10.5) a reviewer can learn from a mapping item (US-552). */
+export const MAPPING_KINDS = [
+  "gateway_journal",
+  "revenue_category",
+  "shipping_charge",
+  "discount",
+  "refund_reason",
+  "tax_category",
+  "store_company",
+  "external_party",
+  "product_dimension",
+] as const;
+
+export type MappingKindCode = (typeof MAPPING_KINDS)[number];
+
+export const MAPPING_KIND_LABELS: Record<string, string> = {
+  gateway_journal: "ژورنال درگاه پرداخت",
+  revenue_category: "دستهٔ درآمد",
+  shipping_charge: "هزینهٔ ارسال",
+  discount: "تخفیف",
+  refund_reason: "دلیل استرداد",
+  tax_category: "دستهٔ مالیاتی",
+  store_company: "فروشگاه به شرکت",
+  external_party: "طرف خارجی",
+  product_dimension: "بعد تحلیلی کالا",
+};
+
+export function mappingKindLabel(kind: string | null | undefined): string {
+  if (!kind) return "نامشخص";
+  return MAPPING_KIND_LABELS[kind] ?? kind;
+}
+
+/** Target types a learned mapping can point at. */
+export const MAPPING_TARGET_TYPES = [
+  "account",
+  "journal",
+  "party",
+  "tax_policy",
+  "dimension",
+  "company",
+] as const;
+
+export const MAPPING_TARGET_TYPE_LABELS: Record<string, string> = {
+  account: "حساب",
+  journal: "ژورنال",
+  party: "طرف",
+  tax_policy: "سیاست مالیاتی",
+  dimension: "بعد تحلیلی",
+  company: "شرکت",
+};
+
+export function mappingTargetTypeLabel(targetType: string | null | undefined): string {
+  if (!targetType) return "نامشخص";
+  return MAPPING_TARGET_TYPE_LABELS[targetType] ?? targetType;
+}
+
+/**
  * Age in hours → Persian duration («۴۵ دقیقه»، «۳ ساعت»، «۲ روز»، «۲ ماه»).
  * Under one hour shows minutes (at least ۱ دقیقه); months are 30-day
  * approximations, rounded down.

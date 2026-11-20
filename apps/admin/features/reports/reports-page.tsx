@@ -10,11 +10,10 @@
  * filtered list by party name, recent rows to their detail page.
  *
  * The posted-move ledger, trial balance, balance sheet, P&L and cash
- * flow are honest coming-soon: the drafts endpoint returns draft
- * moves only and there is no journals-list or report endpoint
- * (get_report was deferred in Phase 2), so the UI never computes
- * them client-side from partial data and never shows fabricated
- * figures.
+ * flow are live (US-550): each is read from its /reports/* backend,
+ * which reads Tryton's reference reports through the engine port.
+ * The UI never computes them client-side from partial data.
+ * Trial-balance rows drill down into the ledger for that account.
  *
  * Each summary table exports CSV with normalized values (§5.5 rule
  * 10); the print button prints the active tab (chrome and controls
@@ -79,13 +78,23 @@ import {
   paymentStateSummaryToCsv,
 } from "./report-csv";
 import { CashBoxReportSection } from "@/features/cash-box/cash-box-report";
-import { ReportComingSoon } from "./coming-soon";
+import { CashForecastSection } from "@/features/cash-forecast/cash-forecast-section";
+import {
+  BalanceSheetSection,
+  CashFlowSection,
+  IncomeStatementSection,
+  TrialBalanceSection,
+  type DrillDownTarget,
+} from "./financial-sections";
+import { currentJalaliYearStartIso } from "./financial-report-data";
+import { GeneralLedgerSection } from "./general-ledger-section";
 import { ReconciliationStatusReport } from "./reconciliation-status";
 
 const PAGE_SIZE = 100;
 const RECENT_LIMIT = 5;
 
-type TabId = "invoices" | "payments" | "ledger" | "statements" | "bank" | "cash-box";
+type TabId = "invoices" | "payments" | "ledger" | "statements" | "bank" | "cash-box" | "cash-forecast";
+type StatementTabId = "trial-balance" | "balance-sheet" | "income-statement" | "cash-flow";
 
 /** Jalali period label for a report scope line. */
 function periodLabel(period: ReportPeriod): string {
@@ -283,6 +292,17 @@ export function ReportsPage() {
   const router = useRouter();
   const { companies, companyId, setCompanyId, loading: companiesLoading, error: companiesError } = useCompany();
   const [tab, setTab] = React.useState<TabId>("invoices");
+  const [statementTab, setStatementTab] = React.useState<StatementTabId>("trial-balance");
+  // Ledger filters live here so the trial-balance drill-down sets them in an event handler.
+  const [glAccountId, setGlAccountId] = React.useState<number | null>(null);
+  const [glDateFrom, setGlDateFrom] = React.useState<string | null>(() => currentJalaliYearStartIso());
+  const [glDateTo, setGlDateTo] = React.useState<string | null>(() => todayIso());
+  const handleDrillDown = React.useCallback((target: DrillDownTarget) => {
+    setGlAccountId(target.accountId);
+    setGlDateFrom(target.dateFrom);
+    setGlDateTo(target.dateTo);
+    setTab("ledger");
+  }, []);
   const [invoices, setInvoices] = React.useState<InvoiceResponse[] | null>(null);
   const [payments, setPayments] = React.useState<PaymentResponse[] | null>(null);
   const [truncated, setTruncated] = React.useState(false);
@@ -384,8 +404,8 @@ export function ReportsPage() {
         <div>
           <h1 className="text-2xl font-bold">گزارش‌ها</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            خلاصه‌های زنده از فاکتورها و پرداخت‌ها؛ صورت‌های مالی پس از اضافه‌شدن نقطهٔ پایانی گزارش در
-            بک‌اند فعال می‌شوند.
+            خلاصه‌های زنده از فاکتورها و پرداخت‌ها؛ دفتر کل و صورت‌های مالی مستقیم از ترایتون خوانده
+            می‌شوند.
           </p>
         </div>
         <Button variant="outline" onClick={() => window.print()} className="print:hidden">
@@ -422,6 +442,7 @@ export function ReportsPage() {
           <TabsTrigger value="statements">صورت‌های مالی</TabsTrigger>
           <TabsTrigger value="bank">تطبیق بانکی</TabsTrigger>
           <TabsTrigger value="cash-box">صندوق</TabsTrigger>
+          <TabsTrigger value="cash-forecast">پیش‌بینی جریان نقد</TabsTrigger>
         </TabsList>
 
         <TabsContent value="invoices" className="space-y-6">
@@ -561,42 +582,43 @@ export function ReportsPage() {
         </TabsContent>
 
         <TabsContent value="ledger" className="space-y-6">
-          <ReportComingSoon
-            title="دفتر روزنامهٔ ثبت‌شده‌ها"
-            reason="فهرست سندهای ثبت‌شده هنوز در API نیست؛ نقطهٔ پایانی دفتر روزنامه فقط پیش‌نویس‌ها را برمی‌گرداند و سند ثبت‌شده را نمی‌توان فهرست کرد. تا وقتی نقطهٔ پایانی فهرست سندهای ثبت‌شده در بک‌اند اضافه نشود، این دفتر خالی می‌ماند تا عدد ناقص نشان داده نشود."
-            testId="report-coming-soon-ledger"
-          >
-            <p className="text-sm">
-              <Link href="/accounting/journals" className="font-medium text-primary hover:underline">
-                مشاهدهٔ پیش‌نویس‌های سند در دفتر روزنامه
-              </Link>
-            </p>
-          </ReportComingSoon>
+          <GeneralLedgerSection
+            companyId={companyId}
+            companyName={companyName}
+            accountId={glAccountId}
+            dateFrom={glDateFrom}
+            dateTo={glDateTo}
+            onAccountIdChange={setGlAccountId}
+            onDateFromChange={setGlDateFrom}
+            onDateToChange={setGlDateTo}
+          />
         </TabsContent>
 
         <TabsContent value="statements" className="space-y-6">
-          <div className="grid gap-4 md:grid-cols-2">
-            <ReportComingSoon
-              title="تراز آزمایشی"
-              reason="تراز آزمایشی نیازمند نقطهٔ پایانی گزارش در بک‌اند است؛ ماندهٔ همهٔ حساب‌ها از فهرست‌های صفحه‌بندی‌شده محاسبه نمی‌شود تا عدد ناقص نشان داده نشود."
-              testId="report-coming-soon-trial-balance"
-            />
-            <ReportComingSoon
-              title="ترازنامه"
-              reason="ترازنامه نیازمند نقطهٔ پایانی گزارش در بک‌اند است و بدون دادهٔ کامل ماندهٔ حساب‌ها نمی‌توان آن را درست محاسبه کرد."
-              testId="report-coming-soon-balance-sheet"
-            />
-            <ReportComingSoon
-              title="صورت سود و زیان"
-              reason="صورت سود و زیان نیازمند نقطهٔ پایانی گزارش در بک‌اند است؛ درآمد و هزینهٔ دوره از فهرست‌های صفحه‌بندی‌شده محاسبه نمی‌شود."
-              testId="report-coming-soon-pl"
-            />
-            <ReportComingSoon
-              title="صورت جریان وجوه نقد"
-              reason="صورت جریان وجوه نقد نیازمند نقطهٔ پایانی گزارش و دادهٔ کامل حرکت‌های نقدی است و هنوز در API نیست."
-              testId="report-coming-soon-cash-flow"
-            />
-          </div>
+          <Tabs value={statementTab} onValueChange={(value) => setStatementTab(value as StatementTabId)}>
+            <TabsList aria-label="صورت‌های مالی" className="print:hidden">
+              <TabsTrigger value="trial-balance">تراز آزمایشی</TabsTrigger>
+              <TabsTrigger value="balance-sheet">ترازنامه</TabsTrigger>
+              <TabsTrigger value="income-statement">صورت سود و زیان</TabsTrigger>
+              <TabsTrigger value="cash-flow">صورت جریان وجوه نقد</TabsTrigger>
+            </TabsList>
+            <TabsContent value="trial-balance" className="space-y-6">
+              <TrialBalanceSection
+                companyId={companyId}
+                companyName={companyName}
+                onDrillDown={handleDrillDown}
+              />
+            </TabsContent>
+            <TabsContent value="balance-sheet" className="space-y-6">
+              <BalanceSheetSection companyId={companyId} companyName={companyName} />
+            </TabsContent>
+            <TabsContent value="income-statement" className="space-y-6">
+              <IncomeStatementSection companyId={companyId} companyName={companyName} />
+            </TabsContent>
+            <TabsContent value="cash-flow" className="space-y-6">
+              <CashFlowSection companyId={companyId} companyName={companyName} />
+            </TabsContent>
+          </Tabs>
         </TabsContent>
 
         <TabsContent value="bank" className="space-y-6">
@@ -604,6 +626,10 @@ export function ReportsPage() {
         </TabsContent>
         <TabsContent value="cash-box" className="space-y-6">
           <CashBoxReportSection companyId={companyId} companyName={companyName} />
+        </TabsContent>
+
+        <TabsContent value="cash-forecast" className="space-y-6">
+          <CashForecastSection companyId={companyId} companyName={companyName} />
         </TabsContent>
       </Tabs>
     </div>

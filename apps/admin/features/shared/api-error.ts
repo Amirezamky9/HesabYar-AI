@@ -48,6 +48,18 @@ export function persianApiErrorMessage(err: unknown, fallback: string): string {
         return "این آیتم بسته شده است و دیگر اقدامی روی آن ممکن نیست.";
       case "REVIEW_INVALID_SLA_POLICY":
         return "مهلت نامعتبر است؛ مهلت هشدار باید کوچک‌تر از مهلت اصلی و هر دو بزرگ‌تر از صفر باشند.";
+      case "REVIEW_REPLAY_NOT_POSSIBLE":
+        return "این آیتم رویداد مبدأیی ندارد که بازپخش شود؛ بازپخش فقط برای آیتم‌های دارای رویداد ممکن است.";
+      case "EVENT_NOT_DEAD_LETTERED":
+        return "این رویداد در وضعیت مرده نیست؛ فقط رویداد مرده قابل بازپخش است.";
+      case "EVENT_NOT_REPROCESSABLE":
+        return "این رویداد قابل پردازش مجدد نیست؛ یا قبلاً پردازش شده یا در حال پردازش است.";
+      case "INBOX_EVENT_NOT_FOUND":
+        return "رویداد مبدأ این آیتم پیدا نشد؛ ممکن است حذف شده باشد.";
+      case "INTEGRATION_MAPPING_INVALID":
+        return "نگاشت معتبر نیست؛ نوع نگاشت، کلید مبدأ و مرجع مقصد را بررسی کنید.";
+      case "INTEGRATION_MAPPING_NOT_PROMOTABLE":
+        return "این نگاشت هنوز قابل ارتقا به خودکار نیست؛ نگاشت باید فعال و از نوع پیشنهادی باشد و دست‌کم ۳ بار تأیید شده باشد.";
       case "MANUAL_ENTRY_INVALID":
         return "ورودی معتبر نیست؛ مقادیر را بررسی کنید — مثلاً جمع ردیف‌ها، مبلغ کل یا اینکه مبلغ هر ردیف عدد صحیح تومان باشد.";
       case "MANUAL_ENTRY_NOT_FOUND":

@@ -3,15 +3,23 @@ import { login, DEV_KEY } from "./auth";
 import { firstCompanyId } from "./journal-helpers";
 
 /**
- * Review queue (US-504, Phase 5 F4), against the real backend
- * (Supabase). Full flow: login → seed one item per type via the BFF
- * → queue lists all ten → filters → detail dialog + action → SLA
- * settings → dashboard widget. Every figure comes from the live API.
+ * Review queue (US-504, Phase 5 F4; completed US-552), against the
+ * real backend (Supabase). Full flow: login → seed one item per type
+ * via the BFF → queue lists all ten → filters → detail dialog +
+ * action → SLA settings → dashboard widget. Every figure comes from
+ * the live API. The US-552 flow adds: the derived suggestion on the
+ * card and in the dialog, the mapping-learning form (a suggestion
+ * really lands in the mapping center), the replay error for an item
+ * without a source event, and one action per remaining type-group.
  *
- * Seeded items carry a unique stamp per run (`US-504 e2e <stamp>`)
- * so the test finds its own rows even when earlier runs left items
- * in the shared dev DB. The SLA change is restored to the default
- * (48/12) at the end of the flow.
+ * Seeded items carry a unique stamp per run (`US-504 e2e <stamp>` /
+ * `US-552 e2e <stamp>`) so the test finds its own rows even when
+ * earlier runs left items in the shared dev DB. The SLA change is
+ * restored to the default (48/12) at the end of the flow.
+ *
+ * A POSITIVE replay through the UI is not covered here: it needs a
+ * genuinely dead-lettered event (five transient failures), which the
+ * e2e cannot manufacture — the REST tests cover it instead.
  */
 
 // Cold dev-server compiles on this VM exceed Playwright's 30s default,
@@ -66,13 +74,14 @@ async function seedItem(
   companyId: string,
   stamp: string,
   seed: { type: string; severity: string; channel: string | null; amountIrr: number | null },
+  prefix = "US-504 e2e",
 ): Promise<string> {
   const created = await page.request.post("/api/bff/review-queue/items", {
     headers: { "Idempotency-Key": crypto.randomUUID() },
     data: {
       item_type: seed.type,
       severity: seed.severity,
-      reason: `US-504 e2e ${stamp} ${seed.type}`,
+      reason: `${prefix} ${stamp} ${seed.type}`,
       suggested_action: "اقدام آزمایشی",
       company_id: companyId,
       channel: seed.channel,
@@ -221,6 +230,132 @@ test("review queue: all ten types, filters, action, SLA settings, dashboard widg
   await expect(widget.getByText("آیتم در انتظار بررسی")).toBeVisible({ timeout: 30_000 });
   await widget.getByRole("link", { name: "مشاهدهٔ صف بازبینی" }).click();
   await expect(page).toHaveURL(/\/review-queue$/, { timeout: 30_000 });
+
+  expect(consoleErrors, consoleErrors.join("\n")).toEqual([]);
+});
+
+test("review queue (US-552): derived suggestion, mapping learning, replay error, one action per type", async ({
+  page,
+}) => {
+  test.skip(!DEV_KEY, "HESABYAR_DEV_API_KEY not set — mint one per apps/admin/README.md");
+  const consoleErrors = collectConsoleErrors(page);
+  const stamp = String(Date.now());
+  const reasonFor = (type: string) => `US-552 e2e ${stamp} ${type}`;
+
+  await login(page);
+  const companyId = await firstCompanyId(page);
+  const ids: Record<string, string> = {};
+  for (const seed of SEED_TYPES) {
+    ids[seed.type] = await seedItem(page, companyId, stamp, seed, "US-552 e2e");
+  }
+
+  // -- BFF detail responses carry the derived suggestion -----------------
+  const expectedSuggestions: Record<string, [string, string]> = {
+    mapping: ["complete_mapping_retry", "mapping_blocks_event"],
+    settlement_variance: ["accept_variance", "small_variance_accept"],
+    cheque_exception: ["contact_customer", "cheque_needs_customer"],
+    bank_unmatched: ["manual_match", "line_needs_match"],
+    packaging_reorder: ["approve_purchase", "stock_below_reorder"],
+    installment_overdue: ["send_reminder", "installment_overdue_remind"],
+    manual_import_review: ["approve_preview", "batch_preview_ready"],
+    // The cashbox seed is critical: the suggestion escalates to a manager.
+    cashbox_variance: ["escalate_to_manager", "large_variance_needs_manager"],
+    inbox_dead_letter: ["replay", "event_dead_lettered"],
+    sms_delivery_failed: ["retry_reminder", "sms_send_failed"],
+  };
+  for (const [type, [action, reasonKey]] of Object.entries(expectedSuggestions)) {
+    const detail = await page.request.get(`/api/bff/review-queue/items/${ids[type]}`);
+    expect(detail.ok(), await detail.text()).toBe(true);
+    const body = (await detail.json()) as {
+      suggested_action_code: string;
+      suggested_reason_key: string;
+    };
+    expect(body.suggested_action_code, type).toBe(action);
+    expect(body.suggested_reason_key, type).toBe(reasonKey);
+  }
+
+  // -- The card shows the derived suggestion (action + Persian reason) ---
+  await page.goto("/review-queue");
+  await expect(page.getByRole("heading", { name: "صف بازبینی" })).toBeVisible({ timeout: 30_000 });
+  await loadAllQueuedItems(page, SEED_TYPES.map((seed) => reasonFor(seed.type)));
+  const mappingCard = page.locator('[data-testid="review-item-card"]', {
+    hasText: reasonFor("mapping"),
+  });
+  await expect(mappingCard.getByText("تکمیل نگاشت و پردازش مجدد")).toBeVisible({ timeout: 30_000 });
+  await expect(
+    mappingCard.getByText("رویداد تا تکمیل نگاشت قابل پردازش نیست."),
+  ).toBeVisible({ timeout: 30_000 });
+
+  // -- Dialog: the suggestion is pre-selected; the learning form learns --
+  await mappingCard.getByRole("button", { name: "جزئیات و اقدام" }).click();
+  const dialog = page.getByTestId("review-item-dialog");
+  await expect(dialog).toBeVisible({ timeout: 30_000 });
+  await expect(dialog.locator("#review-action")).toContainText("تکمیل نگاشت و پردازش مجدد", {
+    timeout: 30_000,
+  });
+  const learningForm = dialog.getByTestId("mapping-learning-form");
+  await expect(learningForm).toBeVisible({ timeout: 30_000 });
+  await learningForm.locator("#mapping-kind").click();
+  await page.getByRole("option", { name: "ژورنال درگاه پرداخت", exact: true }).click();
+  await learningForm.locator("#mapping-source-key").fill(`us552-e2e-${stamp}`);
+  await learningForm.locator("#mapping-target-type").click();
+  await page.getByRole("option", { name: "ژورنال", exact: true }).click();
+  await learningForm.locator("#mapping-target-ref").fill(`journal-e2e-${stamp}`);
+  await dialog.getByTestId("perform-action").click();
+  await expect(dialog.getByText("در حال بررسی", { exact: true }).first()).toBeVisible({
+    timeout: 30_000,
+  });
+  // The audit trail shows the learned suggestion id.
+  await expect(dialog.getByText("پیشنهاد نگاشت:")).toBeVisible({ timeout: 30_000 });
+  await dialog.getByRole("button", { name: "بستن" }).click();
+
+  // The suggestion really landed in the mapping center (via the BFF).
+  const suggestions = await page.request.get(
+    "/api/bff/integrations/mapping-suggestions?status=pending&limit=100",
+  );
+  expect(suggestions.ok(), await suggestions.text()).toBe(true);
+  const suggestionItems = (
+    (await suggestions.json()) as {
+      items: { basis: string; source_key: string; suggested_target_ref: string }[];
+    }
+  ).items;
+  const learned = suggestionItems.find((s) => s.basis === `review_queue:${ids["mapping"]}`);
+  expect(learned, "no learned suggestion for the mapping item").toBeDefined();
+  expect(learned?.source_key).toBe(`us552-e2e-${stamp}`);
+  expect(learned?.suggested_target_ref).toBe(`journal-e2e-${stamp}`);
+
+  // -- Replay without a source event fails loudly in the UI --------------
+  const deadLetterCard = page.locator('[data-testid="review-item-card"]', {
+    hasText: reasonFor("inbox_dead_letter"),
+  });
+  await loadAllQueuedItems(page, [reasonFor("inbox_dead_letter")]);
+  await deadLetterCard.getByRole("button", { name: "جزئیات و اقدام" }).click();
+  await expect(dialog).toBeVisible({ timeout: 30_000 });
+  await expect(dialog.locator("#review-action")).toContainText("بازپخش دستی", { timeout: 30_000 });
+  await dialog.getByTestId("perform-action").click();
+  await expect(dialog.getByRole("alert")).toContainText("رویداد مبدأیی ندارد", { timeout: 30_000 });
+  await expect(dialog.getByText("باز", { exact: true }).first()).toBeVisible({ timeout: 30_000 });
+  await dialog.getByRole("button", { name: "بستن" }).click();
+
+  // -- One action per remaining type-group, via the BFF ------------------
+  const actions: Record<string, [string, string]> = {
+    settlement_variance: ["accept_variance", "resolved"],
+    cheque_exception: ["contact_customer", "in_review"],
+    bank_unmatched: ["manual_match", "resolved"],
+    packaging_reorder: ["approve_purchase", "resolved"],
+    installment_overdue: ["send_reminder", "in_review"],
+    manual_import_review: ["approve_preview", "resolved"],
+    cashbox_variance: ["approve_variance_entry", "resolved"],
+    sms_delivery_failed: ["retry_reminder", "in_review"],
+  };
+  for (const [type, [action, status]] of Object.entries(actions)) {
+    const performed = await page.request.post(
+      `/api/bff/review-queue/items/${ids[type]}/actions`,
+      { data: { action } },
+    );
+    expect(performed.ok(), `${type}/${action}: ${await performed.text()}`).toBe(true);
+    expect(((await performed.json()) as { status: string }).status, type).toBe(status);
+  }
 
   expect(consoleErrors, consoleErrors.join("\n")).toEqual([]);
 });

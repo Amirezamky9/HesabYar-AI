@@ -1,11 +1,11 @@
 /**
  * Tiny charts for the cheque reports (US-535, §7.5).
  *
- * No chart library: horizontal bars, a conic-gradient donut and a
- * two-series SVG area chart, all from the same data the tables
- * show. Every value is also in the table next to the chart, so the
- * chart is never the only source of a figure. All labels are
- * Persian; values render with Persian digits.
+ * No chart library: horizontal bars, a conic-gradient donut, a
+ * two-series SVG area chart and a single-series line chart, all from
+ * the same data the tables show. Every value is also in the table
+ * next to the chart, so the chart is never the only source of a
+ * figure. All labels are Persian; values render with Persian digits.
  */
 
 import { faNumber } from "@/lib/utils";
@@ -45,6 +45,59 @@ export function BarChart({ items, unit }: { items: ChartItem[]; unit?: string })
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+/**
+ * Single-series line chart (report 12, US-553: monthly match rate).
+ * Pure SVG: a polyline with a dot per point on a fixed 0–100 scale
+ * (rates are always percentages, so the scale never lies). The
+ * table next to the chart carries the same numbers.
+ */
+export function LineChart({
+  points,
+  valueLabel,
+}: {
+  points: { label: string; value: number }[];
+  valueLabel: string;
+}) {
+  const width = 640;
+  const height = 220;
+  const pad = 8;
+  if (points.length === 0) {
+    return <p className="text-sm text-muted-foreground">داده‌ای برای نمودار نیست.</p>;
+  }
+  const x = (i: number) => pad + (i / Math.max(1, points.length - 1)) * (width - pad * 2);
+  const y = (v: number) => height - pad - (Math.min(100, Math.max(0, v)) / 100) * (height - pad * 2);
+  const line = points.map((p, i) => `${i === 0 ? "M" : "L"}${x(i)},${y(p.value)}`).join(" ");
+  return (
+    <div className="space-y-2">
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className="w-full"
+        role="img"
+        aria-label={`نمودار خطی ${valueLabel}: ${points.map((p) => `${p.label} ${faNumber(p.value)}٪`).join("، ")}`}
+      >
+        <line x1={pad} y1={y(0)} x2={width - pad} y2={y(0)} stroke="var(--border)" strokeWidth={1} />
+        <line x1={pad} y1={y(50)} x2={width - pad} y2={y(50)} stroke="var(--border)" strokeWidth={1} strokeDasharray="4 4" />
+        <line x1={pad} y1={y(100)} x2={width - pad} y2={y(100)} stroke="var(--border)" strokeWidth={1} />
+        <path d={line} fill="none" stroke="var(--primary)" strokeWidth={2} />
+        {points.map((p, i) => (
+          <g key={p.label}>
+            <circle cx={x(i)} cy={y(p.value)} r={4} fill="var(--primary)" />
+            <text x={x(i)} y={Math.max(12, y(p.value) - 10)} fontSize={10} textAnchor="middle" fill="var(--foreground)">
+              {faNumber(p.value)}٪
+            </text>
+            <text x={x(i)} y={height - 1} fontSize={9} textAnchor="middle" fill="var(--muted-foreground)">
+              {p.label}
+            </text>
+          </g>
+        ))}
+      </svg>
+      <p className="text-sm text-muted-foreground">
+        {valueLabel} · مقیاس ۰ تا ۱۰۰٪
+      </p>
     </div>
   );
 }

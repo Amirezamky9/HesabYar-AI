@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  MAPPING_KINDS,
+  MAPPING_TARGET_TYPES,
   REVIEW_ACTION_LABELS,
   REVIEW_ITEM_TYPES,
+  SUGGESTED_REASON_LABELS,
   formatAgeHours,
   isWaiting,
+  mappingKindLabel,
+  mappingTargetTypeLabel,
   reviewActionLabel,
   reviewResolutionLabel,
   reviewSeverityLabel,
@@ -11,6 +16,7 @@ import {
   reviewStatusLabel,
   reviewTypeLabel,
   slaState,
+  suggestedReasonLabel,
 } from "./review-queue-data";
 
 describe("review queue labels", () => {
@@ -92,6 +98,68 @@ describe("review queue labels", () => {
     expect(reviewResolutionLabel("adjusted")).toBe("اصلاح شد");
     expect(reviewResolutionLabel("rescheduled")).toBe("زمان‌بندی مجدد شد");
     expect(reviewResolutionLabel(null)).toBeNull();
+  });
+});
+
+describe("derived suggestions (US-552)", () => {
+  it("has a Persian reason for every reason key the backend derives", () => {
+    const reasonKeys = [
+      "mapping_blocks_event",
+      "variance_is_fee_mismatch",
+      "large_variance_needs_gateway",
+      "small_variance_accept",
+      "cheque_bounced",
+      "cheque_needs_customer",
+      "line_needs_match",
+      "stock_below_reorder",
+      "installment_overdue_remind",
+      "batch_preview_ready",
+      "large_variance_needs_manager",
+      "variance_needs_approval",
+      "event_dead_lettered",
+      "sms_send_failed",
+    ];
+    expect(Object.keys(SUGGESTED_REASON_LABELS)).toEqual(expect.arrayContaining(reasonKeys));
+    for (const key of reasonKeys) {
+      const label = suggestedReasonLabel(key);
+      expect(label).not.toBe(key);
+      expect(label.length).toBeGreaterThan(0);
+      expect(label.endsWith(".")).toBe(true);
+    }
+  });
+
+  it("falls back to the raw key for an unknown reason", () => {
+    expect(suggestedReasonLabel("future_reason")).toBe("future_reason");
+    expect(suggestedReasonLabel(null)).toBe("");
+    expect(suggestedReasonLabel(undefined)).toBe("");
+  });
+
+  it("labels all nine §10.5 mapping kinds", () => {
+    expect(MAPPING_KINDS).toHaveLength(9);
+    expect(MAPPING_KINDS).toEqual([
+      "gateway_journal",
+      "revenue_category",
+      "shipping_charge",
+      "discount",
+      "refund_reason",
+      "tax_category",
+      "store_company",
+      "external_party",
+      "product_dimension",
+    ]);
+    for (const kind of MAPPING_KINDS) {
+      expect(mappingKindLabel(kind)).not.toBe(kind);
+    }
+    expect(mappingKindLabel("unknown_kind")).toBe("unknown_kind");
+  });
+
+  it("labels all six mapping target types", () => {
+    expect(MAPPING_TARGET_TYPES).toHaveLength(6);
+    for (const targetType of MAPPING_TARGET_TYPES) {
+      expect(mappingTargetTypeLabel(targetType)).not.toBe(targetType);
+    }
+    expect(mappingTargetTypeLabel("account")).toBe("حساب");
+    expect(mappingTargetTypeLabel(null)).toBe("نامشخص");
   });
 });
 

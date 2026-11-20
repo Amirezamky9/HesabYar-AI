@@ -1,9 +1,11 @@
 /**
- * Bank statement import wizard (US-514, B1 — Melli-first).
+ * Bank statement import wizard (US-514, B1 — Melli-first; migrated to
+ * the unified batch cycle in US-554).
  *
  * Steps: pick a file + settings → detect columns and confirm the column
- * mapping → import and review the accounting-effect preview → confirm
- * (writes a draft statement to the engine) or cancel.
+ * mapping (savable per bank) → import and review the accounting-effect
+ * preview → confirm (writes a draft statement to the engine) or cancel
+ * (the batch is archived with its reason and stays re-runnable).
  *
  * No internet-banking password is ever asked for or stored: the operator
  * uploads a bank-export file (Excel/CSV/PDF). From Baam: صورت‌حساب ←
@@ -19,10 +21,12 @@ import { ArrowRight, FileUp, TriangleAlert } from "lucide-react";
 import {
   ApiError,
   api,
+  type ApproveImportBatchResponse,
   type BankImportBatchDetailResponse,
   type ColumnMappingResponse,
   type FileDetectionResponse,
   type StatementJournalResponse,
+  type UploadImportBatchResponse,
 } from "@/lib/api-client";
 import { formatIsoDate } from "@/lib/format-date";
 import { formatMoney } from "@/lib/format-money";
@@ -35,6 +39,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  Checkbox,
   DataTable,
   Input,
   Label,
@@ -45,6 +50,7 @@ import {
   SelectValue,
   Skeleton,
   StatusBadge,
+  Textarea,
   type DataTableColumn,
 } from "@/components/ui";
 import {
@@ -140,6 +146,8 @@ export function StatementImport() {
   const [journalId, setJournalId] = React.useState<string>("");
   const [mappings, setMappings] = React.useState<ColumnMappingResponse[]>([]);
   const [mappingId, setMappingId] = React.useState<string>(NONE_VALUE);
+  const [saveMapping, setSaveMapping] = React.useState(false);
+  const [mappingName, setMappingName] = React.useState("");
   const [accounts, setAccounts] = React.useState<
     { id: number; code: string; name: string }[]
   >([]);
@@ -147,6 +155,9 @@ export function StatementImport() {
   const [currencyUnit, setCurrencyUnit] = React.useState<"rial" | "toman">("rial");
   const [dateKind, setDateKind] = React.useState<"jalali" | "gregorian">("jalali");
   const [batch, setBatch] = React.useState<BankImportBatchDetailResponse | null>(null);
+  const [upload, setUpload] = React.useState<UploadImportBatchResponse | null>(null);
+  const [approved, setApproved] = React.useState<ApproveImportBatchResponse | null>(null);
+  const [cancelReason, setCancelReason] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<unknown>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
@@ -242,9 +253,10 @@ export function StatementImport() {
     setBusy(true);
     setError(null);
     try {
-      const created = await api.createStatementImport({
+      const created = await api.uploadImportBatch({
+        kind: "statement",
+        source_key: "melli",
         company: companyId,
-        bank_key: "melli",
         statement_journal_id: Number(journalId),
         filename: file.name,
         content_base64: fileBase64,
@@ -252,9 +264,20 @@ export function StatementImport() {
         default_account_id: Number(defaultAccountId),
         ...(mappingId !== NONE_VALUE
           ? { mapping_id: mappingId }
-          : { columns, date_kind: dateKind, header_row: 0 }),
+          : {
+              columns,
+              date_kind: dateKind,
+              header_row: 0,
+              save_mapping: saveMapping,
+              mapping_name: mappingName.trim() === "" ? null : mappingName.trim(),
+            }),
       });
-      setBatch(created);
+      setUpload(created);
+      // The row table comes from the underlying import detail.
+      if (created.batch.source_import_id) {
+        const detail = await api.getStatementImport(created.batch.source_import_id);
+        setBatch(detail);
+      }
       setStep("preview");
     } catch (err: unknown) {
       if (err instanceof ApiError && err.isUnauthorized) {
@@ -268,12 +291,12 @@ export function StatementImport() {
   };
 
   const handleConfirm = async () => {
-    if (!batch) return;
+    if (!upload) return;
     setBusy(true);
     setError(null);
     try {
-      const confirmed = await api.confirmStatementImport(batch.id);
-      setBatch({ ...batch, ...confirmed });
+      const response = await api.approveImportBatch(upload.batch.id, {});
+      setApproved(response);
       setStep("done");
     } catch (err: unknown) {
       setError(err);
@@ -283,11 +306,14 @@ export function StatementImport() {
   };
 
   const handleCancel = async () => {
-    if (!batch) return;
+    if (!upload) return;
     setBusy(true);
     setError(null);
     try {
-      await api.cancelStatementImport(batch.id);
+      await api.rejectImportBatch(upload.batch.id, {
+        reason:
+          cancelReason.trim() === "" ? "لغو ایمپورت توسط کاربر" : cancelReason.trim(),
+      });
       router.push("/banking/statements");
     } catch (err: unknown) {
       setError(err);
@@ -345,12 +371,12 @@ export function StatementImport() {
         />
       ) : null}
 
-      {step === "done" && batch ? (
+      {step === "done" && approved && upload ? (
         <Card>
           <CardHeader>
             <CardTitle>صورت‌حساب ثبت شد</CardTitle>
             <CardDescription>
-              {fa(batch.new_rows)} ردیف جدید به‌صورت پیش‌نویس در دفتر ثبت شد.
+              {fa(upload.preview.new_rows)} ردیف جدید به‌صورت پیش‌نویس در دفتر ثبت شد.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -359,9 +385,9 @@ export function StatementImport() {
               موتور حسابداری تأیید کنید.
             </p>
             <div className="flex flex-wrap gap-4">
-              {batch.engine_statement_id !== null ? (
+              {approved.tryton_journal_id !== null ? (
                 <Link
-                  href={`/banking/statements/${batch.engine_statement_id}`}
+                  href={`/banking/statements/${approved.tryton_journal_id}`}
                   className={buttonVariants({ variant: "default" })}
                 >
                   مشاهدهٔ صورت‌حساب
@@ -577,6 +603,33 @@ export function StatementImport() {
                   تاریخ و شرح الزامی‌اند؛ مبلغ یا جفت برداشت/واریز لازم است.
                 </p>
 
+                {mappingId === NONE_VALUE ? (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id="import-save-mapping"
+                        checked={saveMapping}
+                        onCheckedChange={(v) => setSaveMapping(v === true)}
+                      />
+                      <Label htmlFor="import-save-mapping">
+                        ذخیرهٔ این نگاشت برای بانک ملی (ایمپورت بعدی همین نگاشت را
+                        پیشنهاد می‌دهد)
+                      </Label>
+                    </div>
+                    {saveMapping ? (
+                      <div className="space-y-1.5">
+                        <Label htmlFor="import-mapping-name">نام نگاشت (اختیاری)</Label>
+                        <Input
+                          id="import-mapping-name"
+                          value={mappingName}
+                          onChange={(e) => setMappingName(e.target.value)}
+                          placeholder="مثلاً: خروجی بام"
+                        />
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
                 <Button onClick={handleImport} disabled={!canImport || busy}>
                   <FileUp className="size-4" aria-hidden />
                   ایمپورت و پیش‌نمایش
@@ -630,6 +683,15 @@ export function StatementImport() {
                 آپلود کنید.
               </p>
             ) : null}
+            <div className="space-y-1.5">
+              <Label htmlFor="import-cancel-reason">دلیل لغو (اختیاری — فقط برای لغو)</Label>
+              <Textarea
+                id="import-cancel-reason"
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                placeholder="چرا این ایمپورت لغو می‌شود؟"
+              />
+            </div>
             <div className="flex flex-wrap gap-4">
               <Button onClick={handleConfirm} disabled={busy || batch.new_rows === 0}>
                 تأیید و ثبت صورت‌حساب

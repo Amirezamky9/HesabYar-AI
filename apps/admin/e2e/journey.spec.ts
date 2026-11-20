@@ -117,10 +117,15 @@ test("full journey: login → dashboard → accounts → journal cycle → invoi
   await expect(page.getByText(CUSTOMER_NAME).first()).toBeVisible({ timeout: 30_000 });
   await page.getByRole("tab", { name: "پرداخت‌ها" }).click();
   await expect(page.getByText("دریافتی").first()).toBeVisible({ timeout: 30_000 });
+  // US-550 wired the financial statements live (no more coming-soon cards).
   await page.getByRole("tab", { name: "صورت‌های مالی" }).click();
-  await expect(page.getByTestId("report-coming-soon-trial-balance")).toBeVisible();
+  const trialBalance = page.getByTestId("report-trial-balance");
+  await expect(trialBalance).toBeVisible({ timeout: 30_000 });
+  await expect(trialBalance.getByText(/تراز متوازن است/)).toBeVisible({ timeout: 30_000 });
   await page.getByRole("tab", { name: "دفتر روزنامه" }).click();
-  await expect(page.getByTestId("report-coming-soon-ledger")).toBeVisible();
+  const ledger = page.getByTestId("report-general-ledger");
+  await expect(ledger).toBeVisible({ timeout: 30_000 });
+  await expect(ledger.getByText(/جمع بدهکار/)).toBeVisible({ timeout: 30_000 });
 
   // --- logout ---
   await page.getByRole("button", { name: "خروج" }).click();

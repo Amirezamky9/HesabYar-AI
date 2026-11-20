@@ -741,6 +741,20 @@ export interface TrialBalanceLineResponse {
   balance: number;
 }
 
+/** §11.1 freshness metadata, carried on every financial report (US-550). */
+export interface ReportFreshnessResponse {
+  source: string;
+  source_timestamp: string;
+  generated_at: string;
+  company_id: string;
+  period_start: string | null;
+  period_end: string | null;
+  report_version: string;
+  calculation_version: string;
+  freshness_indicator: string;
+  reproducibility: Record<string, unknown>;
+}
+
 export interface TrialBalanceResponse {
   company_id: string;
   date_from: string;
@@ -753,6 +767,223 @@ export interface TrialBalanceResponse {
   move_count: number;
   line_count: number;
   source_endpoint: string;
+  freshness: ReportFreshnessResponse;
+}
+
+export interface GeneralLedgerLineResponse {
+  move_id: number;
+  move_number: string;
+  date: string;
+  description: string;
+  debit: number;
+  credit: number;
+  balance: number;
+}
+
+export interface GeneralLedgerAccountResponse {
+  account_id: number;
+  code: string;
+  name: string;
+  opening_balance: number;
+  total_debit: number;
+  total_credit: number;
+  closing_balance: number;
+  lines: GeneralLedgerLineResponse[];
+}
+
+export interface GeneralLedgerResponse {
+  company_id: string;
+  date_from: string;
+  date_to: string;
+  accounts: GeneralLedgerAccountResponse[];
+  total_debit: number;
+  total_credit: number;
+  move_count: number;
+  line_count: number;
+  source_endpoint: string;
+  freshness: ReportFreshnessResponse;
+}
+
+export interface StatementLineResponse {
+  kind: "type" | "account";
+  ref_id: number;
+  label: string;
+  code: string | null;
+  depth: number;
+  amount: number;
+  amount_cmp: number | null;
+}
+
+export interface StatementSectionResponse {
+  key: string;
+  title: string;
+  lines: StatementLineResponse[];
+  total: number;
+  total_cmp: number | null;
+}
+
+export interface BalanceSheetResponse {
+  company_id: string;
+  as_of: string;
+  comparison_as_of: string | null;
+  sections: StatementSectionResponse[];
+  total_assets: number;
+  total_liabilities: number;
+  total_equity: number;
+  total_assets_cmp: number | null;
+  total_liabilities_cmp: number | null;
+  total_equity_cmp: number | null;
+  balanced: boolean;
+  balanced_cmp: boolean | null;
+  source_endpoint: string;
+  freshness: ReportFreshnessResponse;
+}
+
+export interface MonthlyRevenueExpenseResponse {
+  jalali_month: string;
+  month_start: string;
+  month_end: string;
+  revenue: number;
+  expense: number;
+}
+
+export interface IncomeStatementResponse {
+  company_id: string;
+  date_from: string;
+  date_to: string;
+  comparison_from: string | null;
+  comparison_to: string | null;
+  sections: StatementSectionResponse[];
+  total_revenue: number;
+  total_expense: number;
+  net_income: number;
+  total_revenue_cmp: number | null;
+  total_expense_cmp: number | null;
+  net_income_cmp: number | null;
+  monthly: MonthlyRevenueExpenseResponse[];
+  monthly_ties_out: boolean;
+  source_endpoint: string;
+  freshness: ReportFreshnessResponse;
+}
+
+export interface CashFlowSectionResponse {
+  key: string;
+  title: string;
+  inflow: number;
+  outflow: number;
+  net: number;
+  line_count: number;
+}
+
+export interface CashFlowResponse {
+  company_id: string;
+  date_from: string;
+  date_to: string;
+  opening_cash: number;
+  closing_cash: number;
+  sections: CashFlowSectionResponse[];
+  net_change: number;
+  ties_out: boolean;
+  cash_accounts: string[];
+  transfer_count: number;
+  unclassified_count: number;
+  unclassified_total: number;
+  source_endpoint: string;
+  freshness: ReportFreshnessResponse;
+}
+
+export interface NotesBalanceRowResponse {
+  party_id: number | null;
+  party_name: string;
+  instrument: string;
+  account_code: string;
+  account_name: string;
+  bucket_not_yet_due: number;
+  bucket_0_30: number;
+  bucket_30_60: number;
+  bucket_60_90: number;
+  bucket_90_120: number;
+  bucket_120_plus: number;
+  total: number;
+  line_count: number;
+}
+
+export interface NotesBalanceResponse {
+  company_id: string;
+  as_of: string;
+  instrument: string;
+  rows: NotesBalanceRowResponse[];
+  totals: NotesBalanceRowResponse;
+  accounts_read: string[];
+  source_endpoint: string;
+  freshness: ReportFreshnessResponse;
+}
+
+/** One expected cash movement on one date (US-553, cash forecast). */
+export interface ForecastItemResponse {
+  date: string;
+  direction: "inflow" | "outflow";
+  bucket: "confirmed" | "forecast";
+  source:
+    | "settlement_tranche"
+    | "installment_leg"
+    | "cheque_received"
+    | "cheque_issued"
+    | "invoice_receivable"
+    | "invoice_payable"
+    | "packaging_purchase"
+    | "expected_sale";
+  amount_irr: number;
+  ref: string;
+  label: string;
+}
+
+export interface ForecastCalendarDayResponse {
+  date: string;
+  inflow_confirmed_irr: number;
+  outflow_confirmed_irr: number;
+  inflow_forecast_irr: number;
+  outflow_forecast_irr: number;
+  item_count: number;
+}
+
+export interface ForecastCalendarMonthResponse {
+  month_jalali: string;
+  days: ForecastCalendarDayResponse[];
+}
+
+export interface ForecastHorizonBucketResponse {
+  key: "overdue" | "0_30" | "31_60" | "61_90" | "91_120" | "beyond_120";
+  from_days: number | null;
+  to_days: number | null;
+  inflow_confirmed_irr: number;
+  outflow_confirmed_irr: number;
+  inflow_forecast_irr: number;
+  outflow_forecast_irr: number;
+  item_count: number;
+}
+
+export interface CashForecastTotalsResponse {
+  inflow_confirmed_irr: number;
+  outflow_confirmed_irr: number;
+  inflow_forecast_irr: number;
+  outflow_forecast_irr: number;
+  item_count: number;
+}
+
+/** Cash forecast: monthly calendar + 30/60/90/120-day horizon (US-553). */
+export interface CashForecastResponse {
+  company_id: string;
+  date_from: string;
+  date_to: string;
+  as_of: string;
+  items: ForecastItemResponse[];
+  months: ForecastCalendarMonthResponse[];
+  horizon: ForecastHorizonBucketResponse[];
+  totals: CashForecastTotalsResponse;
+  source_counts: Record<string, number>;
+  skipped_undated: number;
+  freshness: ReportFreshnessResponse;
 }
 
 export interface ReportProvenanceResponse {
@@ -961,6 +1192,8 @@ export interface ReviewItemResponse {
   source_event_ref: string | null;
   reason: string;
   suggested_action: string;
+  suggested_action_code: string;
+  suggested_reason_key: string;
   amount_irr: number | null;
   assignee: string | null;
   resolution: string | null;
@@ -974,6 +1207,36 @@ export interface ReviewItemResponse {
   sla_warn: boolean;
   actions: ReviewActionResponse[];
   audit: ReviewAuditEntryResponse[];
+}
+
+/** The completed mapping a reviewer supplies with complete_mapping_retry (US-552). */
+export interface MappingLearningRequest {
+  mapping_kind: string;
+  source_key: string;
+  target_type: string;
+  target_ref: string;
+  channel_key?: string;
+}
+
+/** One mapping-center mapping version (US-503; confirmations + auto_eligible added US-552). */
+export interface IntegrationMappingResponse {
+  id: string;
+  mapping_kind: string;
+  channel_key: string;
+  source_key: string;
+  target_type: string;
+  target_ref: string;
+  version: number;
+  status: string;
+  suggestion_mode: string;
+  source: string;
+  confidence: number | null;
+  notes: string | null;
+  created_by: string | null;
+  confirmations: number;
+  auto_eligible: boolean;
+  created_at: string | null;
+  updated_at: string | null;
 }
 
 export interface ReviewItemTypeResponse {
@@ -1833,6 +2096,157 @@ export interface TieOutResultResponse {
   tolerance_irr: number;
 }
 
+// -- unified manual-import batches (US-554) -----------------------------------
+
+export interface ImportBatchStageResponse {
+  stage: string;
+  at: string;
+  note: string | null;
+}
+
+export interface ImportBatchPreviewResponse {
+  gross_irr: number;
+  fee_irr: number;
+  tax_irr: number;
+  refunds_irr: number;
+  net_irr: number;
+  deductions_irr: number;
+  receivable_before_irr: number | null;
+  receivable_after_irr: number | null;
+  expected_deposit_irr: number;
+  matched_rows: number;
+  new_rows: number;
+  duplicate_rows: number;
+  invalid_rows: number;
+  dropped_rows: number;
+}
+
+export interface ManualImportBatchResponse {
+  id: string;
+  kind: "statement" | "settlement";
+  source_key: string;
+  company_id: string;
+  filename: string;
+  file_format: string;
+  currency_unit: string;
+  status: string;
+  attempt: number;
+  source_import_id: string | null;
+  source_import_batch_id: string | null;
+  column_mapping_id: string | null;
+  mapping_columns: Record<string, string>;
+  file_type: string | null;
+  period_jalali: string | null;
+  preview: ImportBatchPreviewResponse | null;
+  review_item_id: string | null;
+  rejection_reason: string | null;
+  auto_post_opt_in: boolean;
+  posting_status: string | null;
+  posting_detail: string | null;
+  engine_ref_id: number | null;
+  stages: ImportBatchStageResponse[];
+  created_at: string | null;
+  updated_at: string | null;
+  approved_at: string | null;
+  posted_at: string | null;
+  rejected_at: string | null;
+  archived_at: string | null;
+}
+
+export interface UploadImportBatchResponse {
+  batch: ManualImportBatchResponse;
+  preview: ImportBatchPreviewResponse;
+  duplicate: boolean;
+}
+
+export interface ImportBatchUploadRequest {
+  kind: "statement" | "settlement";
+  source_key: string;
+  company: string;
+  filename: string;
+  content_base64: string;
+  currency_unit?: string;
+  date_kind?: string;
+  header_row?: number;
+  mapping_id?: string | null;
+  columns?: Record<string, string> | null;
+  save_mapping?: boolean;
+  mapping_name?: string | null;
+  statement_journal_id?: number | null;
+  default_account_id?: number | null;
+  file_type?: string;
+  period_jalali?: string | null;
+}
+
+export interface DetectImportFileRequest {
+  kind: "statement" | "settlement";
+  filename: string;
+  content_base64: string;
+  file_type?: string;
+}
+
+export interface ApproveImportBatchResponse {
+  batch: ManualImportBatchResponse;
+  posted: boolean;
+  tryton_journal_id: number | null;
+  settlement_event_id: string | null;
+  tieout: TieOutResultResponse | null;
+  gate_reason: string | null;
+  confirmed_tranche_ids: string[];
+  created_payment_ids: string[];
+}
+
+export interface RetryBatchPostingResponse {
+  batch: ManualImportBatchResponse;
+  posted: boolean;
+  tryton_journal_id: number | null;
+  tieout: TieOutResultResponse | null;
+  gate_reason: string | null;
+  already_settled: boolean;
+}
+
+export interface BatchVarianceReportResponse {
+  expected_net_irr: number;
+  imported_net_irr: number;
+  posted_net_irr: number;
+  difference_irr: number;
+  tieout_holds: boolean | null;
+  tieout_difference_irr: number | null;
+  tieout_tolerance_irr: number | null;
+  gate_allowed: boolean | null;
+  gate_reason: string | null;
+  posting_status: string | null;
+  generated_at: string;
+}
+
+export interface SettlementColumnMappingResponse {
+  id: string;
+  channel_key: string;
+  name: string;
+  file_format: string;
+  file_type: string;
+  columns: Record<string, string>;
+  date_kind: string;
+  currency_unit: string;
+  header_row: number;
+  company_id: string | null;
+  status: string;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface SettlementColumnMappingCreateRequest {
+  channel_key: string;
+  name: string;
+  file_format: string;
+  file_type: string;
+  columns: Record<string, string>;
+  date_kind?: string;
+  currency_unit?: string;
+  header_row?: number;
+  company?: string | null;
+}
+
 export interface RecordDepositRequest {
   amount_irr: number;
   deposit_date: string;
@@ -2046,6 +2460,29 @@ export interface InquiryLedgerResponse {
   by_channel: Record<string, number>;
   color_distribution: Record<string, number>;
   total_cost_irr: number;
+}
+
+/** One stored month of clearing-match history (US-553, report 12). */
+export interface MonthlyMatchTrendMonthResponse {
+  month_jalali: string;
+  exact_count: number;
+  probable_count: number;
+  ambiguous_count: number;
+  unmatched_count: number;
+  total_lines: number;
+  match_rate: string;
+}
+
+/** Cheque report 12: monthly match-trend from stored history (US-553). */
+export interface MonthlyMatchTrendResponse {
+  months: MonthlyMatchTrendMonthResponse[];
+  total_exact: number;
+  total_probable: number;
+  total_ambiguous: number;
+  total_unmatched: number;
+  total_lines: number;
+  overall_match_rate: string;
+  freshness: ReportFreshnessResponse;
 }
 
 export interface ReceiptRuleAuditResponse {
@@ -2497,6 +2934,28 @@ export interface TriggerReminderRequestBody {
 }
 
 // ---------------------------------------------------------------------------
+// Inbox staleness (US-551 dashboard alerts) — mirrors the backend's
+// StaleInboxResponse / InboxEventResponse
+// (src/hesabyar/interfaces/rest/schemas/integrations.py). Only the
+// fields the dashboard alert renders are declared; the backend sends
+// the full event and extra JSON fields are ignored.
+// ---------------------------------------------------------------------------
+
+export interface StaleInboxEventResponse {
+  inbox_event_id: string;
+  source_system: string;
+  event_type: string;
+  received_at: string;
+  status: string;
+}
+
+export interface StaleInboxResponse {
+  stale_after_hours: number;
+  stale_count: number;
+  events: StaleInboxEventResponse[];
+}
+
+// ---------------------------------------------------------------------------
 // Transport over the BFF
 // ---------------------------------------------------------------------------
 
@@ -2856,6 +3315,38 @@ export const api = {
     bffRequest<TrialBalanceResponse>(
       `reports/trial-balance${buildQuery(params as Record<string, string | number | undefined>)}`,
     ),
+  // -- reports: financial statements (US-550) --------------------------------
+  getGeneralLedger: (params: { company?: string; date_from: string; date_to: string; account_id?: number }) =>
+    bffRequest<GeneralLedgerResponse>(
+      `reports/general-ledger${buildQuery(params as Record<string, string | number | undefined>)}`,
+    ),
+  getBalanceSheet: (params: { company?: string; as_of: string; comparison_as_of?: string }) =>
+    bffRequest<BalanceSheetResponse>(
+      `reports/balance-sheet${buildQuery(params as Record<string, string | number | undefined>)}`,
+    ),
+  getIncomeStatement: (params: {
+    company?: string;
+    date_from: string;
+    date_to: string;
+    comparison_from?: string;
+    comparison_to?: string;
+  }) =>
+    bffRequest<IncomeStatementResponse>(
+      `reports/income-statement${buildQuery(params as Record<string, string | number | undefined>)}`,
+    ),
+  getCashFlow: (params: { company?: string; date_from: string; date_to: string }) =>
+    bffRequest<CashFlowResponse>(
+      `reports/cash-flow${buildQuery(params as Record<string, string | number | undefined>)}`,
+    ),
+  getNotesBalance: (params: { company?: string; as_of: string; instrument?: string; party_id?: number }) =>
+    bffRequest<NotesBalanceResponse>(
+      `reports/notes-balance${buildQuery(params as Record<string, string | number | undefined>)}`,
+    ),
+  // -- reports: cash forecast (US-553) ---------------------------------------
+  getCashForecast: (params: { company?: string; date_from: string; date_to: string }) =>
+    bffRequest<CashForecastResponse>(
+      `reports/cash-forecast${buildQuery(params as Record<string, string | number | undefined>)}`,
+    ),
   createReportValidationRun: (body: CreateReportValidationRunRequest, idempotencyKey = newIdempotencyKey()) =>
     bffRequest<ReportValidationRunResponse>("report-validation-runs", {
       method: "POST",
@@ -2951,7 +3442,10 @@ export const api = {
     }),
   getReviewItem: (itemId: string) =>
     bffRequest<ReviewItemResponse>(`review-queue/items/${encodeURIComponent(itemId)}`),
-  performReviewAction: (itemId: string, body: { action: string; note?: string | null }) =>
+  performReviewAction: (
+    itemId: string,
+    body: { action: string; note?: string | null; mapping?: MappingLearningRequest | null },
+  ) =>
     bffRequest<ReviewItemResponse>(`review-queue/items/${encodeURIComponent(itemId)}/actions`, {
       method: "POST",
       body,
@@ -2971,6 +3465,13 @@ export const api = {
       method: "PATCH",
       body,
     }),
+
+  // -- integrations: mappings (US-552, Suggest → Auto promotion) --------------
+  promoteIntegrationMapping: (mappingId: string) =>
+    bffRequest<IntegrationMappingResponse>(
+      `integrations/mappings/${encodeURIComponent(mappingId)}/promote`,
+      { method: "POST" },
+    ),
 
   // -- manual entries (US-513, dual entry) ------------------------------------
   createManualOrder: (body: CreateManualOrderRequest, idempotencyKey = newIdempotencyKey()) =>
@@ -3245,6 +3746,11 @@ export const api = {
 
   // -- settlement center (US-525, Phase 5-3 Wave C) --------------------------
   // Payment channels + gateway contracts (US-503 registry, /integrations).
+  /** Stuck inbox events (US-501 staleness alert): received/processing longer than N hours, oldest first. */
+  listStaleInboxEvents: (params: { hours?: number; limit?: number } = {}) =>
+    bffRequest<StaleInboxResponse>(
+      `integrations/inbox/stale${buildQuery(params as Record<string, string | number | undefined>)}`,
+    ),
   listPaymentChannels: (params: PaginationParams & { enabled?: boolean; channel_type?: string; is_builtin?: boolean } = {}) =>
     bffRequest<Paginated<PaymentChannelResponse>>(
       `integrations/channels${buildQuery({
@@ -3414,6 +3920,89 @@ export const api = {
       body,
     }),
 
+  // Unified manual-import batches (US-554): one cycle for statement
+  // (B1) + settlement (P2) imports. Scopes are per kind — banking:import
+  // for statements, settlement:manage for settlements.
+  detectImportFile: (body: DetectImportFileRequest) =>
+    bffRequest<FileDetectionResponse>("imports/batches/detect", {
+      method: "POST",
+      body,
+    }),
+  uploadImportBatch: (body: ImportBatchUploadRequest, idempotencyKey = newIdempotencyKey()) =>
+    bffRequest<UploadImportBatchResponse>("imports/batches", {
+      method: "POST",
+      body,
+      idempotencyKey,
+    }),
+  listImportBatches: (
+    params: { kind?: string; status?: string; company?: string; source_import_id?: string } = {},
+  ) =>
+    bffRequest<ManualImportBatchResponse[]>(
+      `imports/batches${buildQuery(params as Record<string, string | undefined>)}`,
+    ),
+  getImportBatch: (batchId: string) =>
+    bffRequest<ManualImportBatchResponse>(`imports/batches/${encodeURIComponent(batchId)}`),
+  getImportBatchPreview: (batchId: string) =>
+    bffRequest<ImportBatchPreviewResponse>(
+      `imports/batches/${encodeURIComponent(batchId)}/preview`,
+    ),
+  getImportBatchVariance: (batchId: string) =>
+    bffRequest<BatchVarianceReportResponse>(
+      `imports/batches/${encodeURIComponent(batchId)}/variance`,
+    ),
+  approveImportBatch: (
+    batchId: string,
+    body: { auto_post?: boolean } = {},
+    idempotencyKey = newIdempotencyKey(),
+  ) =>
+    bffRequest<ApproveImportBatchResponse>(
+      `imports/batches/${encodeURIComponent(batchId)}/approve`,
+      { method: "POST", body, idempotencyKey },
+    ),
+  rejectImportBatch: (
+    batchId: string,
+    body: { reason: string },
+    idempotencyKey = newIdempotencyKey(),
+  ) =>
+    bffRequest<ManualImportBatchResponse>(
+      `imports/batches/${encodeURIComponent(batchId)}/reject`,
+      { method: "POST", body, idempotencyKey },
+    ),
+  rerunImportBatch: (batchId: string, idempotencyKey = newIdempotencyKey()) =>
+    bffRequest<ManualImportBatchResponse>(
+      `imports/batches/${encodeURIComponent(batchId)}/re-run`,
+      { method: "POST", idempotencyKey },
+    ),
+  retryBatchPosting: (batchId: string, idempotencyKey = newIdempotencyKey()) =>
+    bffRequest<RetryBatchPostingResponse>(
+      `imports/batches/${encodeURIComponent(batchId)}/retry-posting`,
+      { method: "POST", idempotencyKey },
+    ),
+  listSettlementColumnMappings: (
+    params: { channel_key?: string; company?: string } = {},
+  ) =>
+    bffRequest<SettlementColumnMappingResponse[]>(
+      `imports/settlement-column-mappings${buildQuery(params as Record<string, string | undefined>)}`,
+    ),
+  getSettlementColumnMapping: (mappingId: string) =>
+    bffRequest<SettlementColumnMappingResponse>(
+      `imports/settlement-column-mappings/${encodeURIComponent(mappingId)}`,
+    ),
+  createSettlementColumnMapping: (
+    body: SettlementColumnMappingCreateRequest,
+    idempotencyKey = newIdempotencyKey(),
+  ) =>
+    bffRequest<SettlementColumnMappingResponse>("imports/settlement-column-mappings", {
+      method: "POST",
+      body,
+      idempotencyKey,
+    }),
+  supersedeSettlementColumnMapping: (mappingId: string, idempotencyKey = newIdempotencyKey()) =>
+    bffRequest<SettlementColumnMappingResponse>(
+      `imports/settlement-column-mappings/${encodeURIComponent(mappingId)}/supersede`,
+      { method: "POST", idempotencyKey },
+    ),
+
   // Settlement events + bank deposits (US-523).
   listSettlementEvents: (
     params: PaginationParams & { channel_key?: string; import_batch_id?: string; sort?: string } = {},
@@ -3457,6 +4046,8 @@ export const api = {
   // reads through cheques:read; manual registration through
   // cheques:write. Amounts in the create body are Toman (x10 to Rial
   // at the backend boundary); dates are Jalali YYYY-MM-DD.
+  // The list + widget reads accept an optional `company` filter
+  // (US-551, API company id); absent, the backend answers tenant-wide.
   listCheques: (
     params: {
       state?: string;
@@ -3466,6 +4057,7 @@ export const api = {
       purpose?: string;
       endorsee_type?: string;
       storage_location?: string;
+      company?: string;
       limit?: number;
       offset?: number;
     } = {},
@@ -3486,8 +4078,10 @@ export const api = {
     bffRequest<CheckbookResponse>(
       `cheques/checkbooks/${checkbookId}${buildQuery({ company_id: companyEngineId })}`,
     ),
-  getCollateralSummary: () =>
-    bffRequest<CollateralSummaryResponse>("cheques/collateral-summary"),
+  getCollateralSummary: (params: { company?: string } = {}) =>
+    bffRequest<CollateralSummaryResponse>(
+      `cheques/collateral-summary${buildQuery(params as Record<string, string | undefined>)}`,
+    ),
   getEndorsementSummary: () =>
     bffRequest<EndorsementSummaryResponse>("cheques/endorsement-summary"),
   listChequeIntake: (params: { limit?: number; offset?: number } = {}) =>
@@ -3655,9 +4249,15 @@ export const api = {
       `cheques/${encodeURIComponent(chequeId)}/clearing/confirm`,
       { method: "POST", body, idempotencyKey },
     ),
-  listInClearingAging: () =>
-    bffRequest<ClearingAgingResponse[]>("cheques/reports/in-clearing-aging"),
+  listInClearingAging: (params: { company?: string } = {}) =>
+    bffRequest<ClearingAgingResponse[]>(
+      `cheques/reports/in-clearing-aging${buildQuery(params as Record<string, string | undefined>)}`,
+    ),
   getInquiryLedger: () => bffRequest<InquiryLedgerResponse>("cheques/reports/inquiry-ledger"),
+  getMonthlyMatchTrend: (params: { months?: number } = {}) =>
+    bffRequest<MonthlyMatchTrendResponse>(
+      `cheques/reports/monthly-match-trend${buildQuery(params as Record<string, string | number | undefined>)}`,
+    ),
   runReceiptRuleAudit: (idempotencyKey = newIdempotencyKey()) =>
     bffRequest<ReceiptRuleAuditResponse>("cheques/reports/receipt-rule-audit", {
       method: "POST",
@@ -3695,6 +4295,13 @@ export const api = {
     ),
   getInstallmentPlan: (planId: string) =>
     bffRequest<InstallmentPlanDetailResponse>(`installments/plans/${encodeURIComponent(planId)}`),
+  /** Overdue legs report (US-541): most overdue first, with dunning stages + accrued late fees. */
+  listOverdueInstallments: (
+    params: { plan_id?: string; limit?: number; offset?: number } = {},
+  ) =>
+    bffRequest<OverdueReportResponse>(
+      `installments/overdue${buildQuery(params as Record<string, string | number | undefined>)}`,
+    ),
   createInstallmentPlan: (body: CreateInstallmentPlanRequest, idempotencyKey = newIdempotencyKey()) =>
     bffRequest<InstallmentPlanResponse>("installments/plans", {
       method: "POST",

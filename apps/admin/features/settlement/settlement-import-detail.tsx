@@ -17,8 +17,8 @@ import { ArrowRight } from "lucide-react";
 import {
   ApiError,
   api,
-  type ApproveImportResponse,
   type BankDepositResponse,
+  type ManualImportBatchResponse,
   type RecordDepositResponse,
   type SettlementEventResponse,
   type SettlementFileImportDetailResponse,
@@ -54,6 +54,11 @@ import { CompanyPicker } from "@/features/shared/company-picker";
 import { ErrorState, NotFoundState, PermissionDeniedState } from "@/features/shared/states";
 import { useCompany } from "@/features/shared/use-company";
 import {
+  batchStageLabel,
+  batchStatusLabel,
+  batchStatusTone,
+} from "@/features/imports/import-batch-data";
+import {
   channelNameOf,
   channelsById,
   type ChannelsById,
@@ -72,6 +77,7 @@ export function SettlementImportDetail({ importId }: { importId: string }) {
   const router = useRouter();
   const { companies, companyId, setCompanyId, loading: companiesLoading } = useCompany();
   const [detail, setDetail] = React.useState<SettlementFileImportDetailResponse | null>(null);
+  const [batch, setBatch] = React.useState<ManualImportBatchResponse | null>(null);
   const [channelsMap, setChannelsMap] = React.useState<ChannelsById>(new Map());
   const [events, setEvents] = React.useState<SettlementEventResponse[]>([]);
   const [deposits, setDeposits] = React.useState<BankDepositResponse[]>([]);
@@ -80,7 +86,10 @@ export function SettlementImportDetail({ importId }: { importId: string }) {
   const [busy, setBusy] = React.useState(false);
   const [actionError, setActionError] = React.useState<string | null>(null);
   const [rejectReason, setRejectReason] = React.useState("");
-  const [approved, setApproved] = React.useState<ApproveImportResponse | null>(null);
+  const [approved, setApproved] = React.useState<{
+    confirmed_tranche_ids: string[];
+    net_irr: number;
+  } | null>(null);
   const [tieOut, setTieOut] = React.useState<TieOutRunResponse | null>(null);
   const [reloadKey, setReloadKey] = React.useState(0);
 
@@ -104,6 +113,15 @@ export function SettlementImportDetail({ importId }: { importId: string }) {
       ]);
       setDetail(importDetail);
       setChannelsMap(channelsById(channelPage.items));
+      // The unified batch wrapping this import (US-554) — imports
+      // created before US-554 have none. A lookup failure must not
+      // break the page.
+      try {
+        const batches = await api.listImportBatches({ source_import_id: importId });
+        setBatch(batches[0] ?? null);
+      } catch {
+        setBatch(null);
+      }
       const eventPage = await api.listSettlementEvents({
         import_batch_id: importDetail.file_import.import_batch_id,
         limit: 100,
@@ -147,8 +165,21 @@ export function SettlementImportDetail({ importId }: { importId: string }) {
     setBusy(true);
     setActionError(null);
     try {
-      const response = await api.approveSettlementImport(detail.file_import.id, {});
-      setApproved(response);
+      // A batch-wrapped import is approved through the batch (the
+      // batch drives the import); a pre-US-554 import has no batch.
+      if (batch) {
+        const response = await api.approveImportBatch(batch.id, {});
+        setApproved({
+          confirmed_tranche_ids: response.confirmed_tranche_ids,
+          net_irr: batch.preview?.net_irr ?? 0,
+        });
+      } else {
+        const response = await api.approveSettlementImport(detail.file_import.id, {});
+        setApproved({
+          confirmed_tranche_ids: response.confirmed_tranche_ids,
+          net_irr: response.net_irr,
+        });
+      }
       setReloadKey((k) => k + 1);
     } catch (err: unknown) {
       setActionError(persianApiErrorMessage(err, "تأیید ایمپورت ناموفق بود."));
@@ -162,9 +193,16 @@ export function SettlementImportDetail({ importId }: { importId: string }) {
     setBusy(true);
     setActionError(null);
     try {
-      await api.rejectSettlementImport(detail.file_import.id, {
-        reason: rejectReason.trim() === "" ? null : rejectReason.trim(),
-      });
+      if (batch) {
+        await api.rejectImportBatch(batch.id, {
+          reason:
+            rejectReason.trim() === "" ? "رد ایمپورت توسط کاربر" : rejectReason.trim(),
+        });
+      } else {
+        await api.rejectSettlementImport(detail.file_import.id, {
+          reason: rejectReason.trim() === "" ? null : rejectReason.trim(),
+        });
+      }
       router.push("/settlements");
     } catch (err: unknown) {
       setActionError(persianApiErrorMessage(err, "رد ایمپورت ناموفق بود."));
@@ -350,6 +388,64 @@ export function SettlementImportDetail({ importId }: { importId: string }) {
           </dl>
         </CardContent>
       </Card>
+
+      {batch ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>چرخهٔ بچ ایمپورت</CardTitle>
+            <CardDescription>
+              این ایمپورت در چرخهٔ یکپارچهٔ بچ‌ها ثبت شده است؛ تأیید و رد از همین
+              چرخه می‌گذرد و مغایرت بچ جداگانه گزارش می‌شود.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <StatusBadge
+                status={batch.status}
+                label={batchStatusLabel(batch.status)}
+                tone={batchStatusTone(batch.status)}
+              />
+              <p className="text-sm text-muted-foreground">
+                تلاش {faNumber(batch.attempt)} ·{" "}
+                {batch.stages.map((stage) => batchStageLabel(stage.stage)).join(" ← ")}
+              </p>
+            </div>
+            {batch.preview ? (
+              <dl className="grid gap-4 sm:grid-cols-3">
+                <div>
+                  <dt className="text-sm text-muted-foreground">خالص بچ</dt>
+                  <dd className="mt-1 font-medium tabular-nums">
+                    {formatMoney(batch.preview.net_irr)}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-sm text-muted-foreground">واریز موردانتظار</dt>
+                  <dd className="mt-1 font-medium tabular-nums">
+                    {formatMoney(batch.preview.expected_deposit_irr)}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-sm text-muted-foreground">وضعیت ثبت</dt>
+                  <dd className="mt-1 font-medium">
+                    {batch.posting_status ?? "—"}
+                  </dd>
+                </div>
+              </dl>
+            ) : null}
+            {batch.rejection_reason ? (
+              <p className="text-sm text-muted-foreground">
+                دلیل رد: {batch.rejection_reason}
+              </p>
+            ) : null}
+            <Link
+              href={`/settlements/imports/batch/${batch.id}`}
+              className={buttonVariants({ variant: "outline" })}
+            >
+              مشاهدهٔ کامل بچ
+            </Link>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {awaitingReview ? (
         <Card>

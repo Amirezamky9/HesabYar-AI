@@ -3,21 +3,20 @@
  *
  * Every report wires to its real backend endpoint or derives from
  * the registry rows the list endpoint returns; nothing is invented.
- * Exactly one report is an honest coming-soon: report 7 (notes
- * balance) reads the Tryton reference report, which has no UI wiring
- * yet — the rule (§11.1) forbids recomputing it client-side from
- * partial data, so the page says so instead of showing a figure.
+ * Report 7 (notes balance) reads the Tryton reference report
+ * through GET /reports/notes-balance (US-550) — never recomputed
+ * client-side from partial data (§11.1).
  *
  * Sources per report:
  *  1, 2, 3, 9 — GET /cheques (server filters + client filters)
  *  4 — GET /cheques/reports/in-clearing-aging
  *  5 — GET /cheques/endorsement-summary
  *  6 — GET /cheques/collateral-summary
- *  7 — coming-soon (Tryton reference, ۵ح)
+ *  7 — GET /reports/notes-balance (Tryton reference, US-550)
  *  8 — GET /cheques/checkbooks (+ /cheques/checkbooks/{id})
  * 10 — review queue (cheque_exception) + mismatch flags on the rows
  * 11 — GET /cheques/intake + GET /cheques/settings (deadline)
- * 12 — clearing_confidence on the rows + POST /bank/statements/{id}/cheque-clearing
+ * 12 — GET /cheques/reports/monthly-match-trend (stored history, US-553) + POST /bank/statements/{id}/cheque-clearing
  * 13 — GET /cheques/reports/inquiry-ledger + receipt-rule audit
  * 14 — derived 12-week forecast over the registry (collateral excluded)
  * 15 — derived per-issuer statement over the registry
@@ -41,6 +40,7 @@ import {
   type CollateralSummaryResponse,
   type EndorsementSummaryResponse,
   type InquiryLedgerResponse,
+  type MonthlyMatchTrendResponse,
   type ReviewItemResponse,
 } from "@/lib/api-client";
 import {
@@ -51,6 +51,7 @@ import {
   CardTitle,
   DataTable,
   Input,
+  JalaliDatePicker,
   Label,
   MoneyDisplay,
   Select,
@@ -61,15 +62,18 @@ import {
   Skeleton,
   type DataTableColumn,
 } from "@/components/ui";
-import { faNumber } from "@/lib/utils";
+import { fa, faNumber } from "@/lib/utils";
 import { formatMoney } from "@/lib/format-money";
 import { formatIsoDate, formatIsoDateTime } from "@/lib/format-date";
-import { JALALI_MONTHS } from "@/lib/jalali";
+import { JALALI_MONTHS, formatIsoJalali, todayIso } from "@/lib/jalali";
 import { ErrorState, PermissionDeniedState } from "@/features/shared/states";
 import { isPermissionDenied, persianApiErrorMessage } from "@/features/shared/api-error";
-import { buildCsv, downloadCsv } from "@/features/shared/csv";
+import { buildCsv, csvFilename, downloadCsv } from "@/features/shared/csv";
+import { agingChartItems, filterNotesRows, notesInstrumentLabel } from "@/features/reports/financial-report-data";
+import { ReportFreshnessLine } from "@/features/reports/financial-sections";
+import { notesBalanceToCsv } from "@/features/reports/report-csv";
 import { useCompany } from "@/features/shared/use-company";
-import { AreaChart, BarChart, DonutChart, type ChartItem } from "./cheque-report-charts";
+import { AreaChart, BarChart, DonutChart, LineChart, type ChartItem } from "./cheque-report-charts";
 import {
   CHEQUE_REPORTS,
   CHEQUE_STATES,
@@ -153,6 +157,7 @@ interface ReportsData {
   ledger: InquiryLedgerResponse;
   collateral: CollateralSummaryResponse;
   endorsement: EndorsementSummaryResponse;
+  trend: MonthlyMatchTrendResponse;
   deadlineDays: number;
   reviewItems: ReviewItemResponse[];
 }
@@ -187,8 +192,9 @@ export function ChequeReportsPage() {
       api.getEndorsementSummary(),
       api.getChequeSettings(),
       api.listReviewItems({ type: "cheque_exception", limit: 100 }),
+      api.getMonthlyMatchTrend({ months: 12 }),
     ])
-      .then(([cheques, intake, aging, ledger, collateral, endorsement, settings, reviewPage]) => {
+      .then(([cheques, intake, aging, ledger, collateral, endorsement, settings, reviewPage, trend]) => {
         if (cancelled) return;
         setData({
           cheques,
@@ -197,6 +203,7 @@ export function ChequeReportsPage() {
           ledger,
           collateral,
           endorsement,
+          trend,
           deadlineDays: settings.leaf_arrival_deadline_days,
           reviewItems: reviewPage.items,
         });
@@ -305,6 +312,7 @@ export function ChequeReportsPage() {
               data={data}
               checkbooks={checkbooks}
               checkbooksFailed={checkbooksFailed}
+              companyId={companyId}
               companyName={company?.name ?? null}
               todayJalali={todayJalali}
               generatedAt={generatedAt}
@@ -322,6 +330,7 @@ function ReportView({
   data,
   checkbooks,
   checkbooksFailed,
+  companyId,
   companyName,
   todayJalali,
   generatedAt,
@@ -331,6 +340,7 @@ function ReportView({
   data: ReportsData;
   checkbooks: CheckbookResponse[] | null;
   checkbooksFailed: boolean;
+  companyId: string | null;
   companyName: string | null;
   todayJalali: string;
   generatedAt: string;
@@ -349,7 +359,7 @@ function ReportView({
     case "collateral":
       return <CollateralReport meta={meta} summary={data.collateral} generatedAt={generatedAt} />;
     case "notes-balance":
-      return <NotesBalanceReport meta={meta} generatedAt={generatedAt} />;
+      return <NotesBalanceReport meta={meta} companyId={companyId} companyName={companyName} />;
     case "checkbooks":
       return <CheckbooksReport meta={meta} checkbooks={checkbooks} failed={checkbooksFailed} companyName={companyName} generatedAt={generatedAt} />;
     case "registry":
@@ -359,7 +369,7 @@ function ReportView({
     case "unreceived":
       return <UnreceivedReport meta={meta} intake={data.intake} deadlineDays={data.deadlineDays} generatedAt={generatedAt} />;
     case "clearing-match":
-      return <ClearingMatchReport meta={meta} cheques={data.cheques} generatedAt={generatedAt} />;
+      return <ClearingMatchReport meta={meta} cheques={data.cheques} trend={data.trend} generatedAt={generatedAt} />;
     case "inquiry-ledger":
       return <InquiryLedgerReport meta={meta} ledger={data.ledger} generatedAt={generatedAt} />;
     case "cash-forecast":
@@ -617,20 +627,211 @@ function CollateralReport({ meta, summary, generatedAt }: { meta: (typeof CHEQUE
   );
 }
 
-function NotesBalanceReport({ meta, generatedAt }: { meta: (typeof CHEQUE_REPORTS)[number]; generatedAt: string }) {
+function NotesBalanceReport({ meta, companyId, companyName }: { meta: (typeof CHEQUE_REPORTS)[number]; companyId: string | null; companyName: string | null }) {
+  const router = useRouter();
+  const [asOf, setAsOf] = React.useState<string | null>(() => todayIso());
+  const [instrument, setInstrument] = React.useState("both");
+  const [partyText, setPartyText] = React.useState("");
+  const [report, setReport] = React.useState<Awaited<ReturnType<typeof api.getNotesBalance>> | null>(null);
+  const [error, setError] = React.useState<unknown>(null);
+  const [reloadKey, setReloadKey] = React.useState(0);
+
+  React.useEffect(() => {
+    if (!companyId || !asOf) return;
+    let cancelled = false;
+    api
+      .getNotesBalance({ company: companyId, as_of: asOf, instrument })
+      .then((data) => {
+        if (!cancelled) setReport(data);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.isUnauthorized) {
+          router.replace("/login");
+          return;
+        }
+        setError(err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [companyId, asOf, instrument, reloadKey, router]);
+
+  if (error && isPermissionDenied(error)) {
+    return <PermissionDeniedState message={persianApiErrorMessage(error, "دریافت ماندهٔ اسناد ناموفق بود.")} />;
+  }
+
+  if (error) {
+    return (
+      <ErrorState
+        message={persianApiErrorMessage(error, "دریافت ماندهٔ اسناد ناموفق بود.")}
+        onRetry={() => {
+          setError(null);
+          setReport(null);
+          setReloadKey((k) => k + 1);
+        }}
+      />
+    );
+  }
+
+  const rows = report ? filterNotesRows(report.rows, { partyText }) : [];
+  const receivableTotal = rows.filter((r) => r.instrument === "receivable").reduce((sum, r) => sum + r.total, 0);
+  const payableTotal = rows.filter((r) => r.instrument === "payable").reduce((sum, r) => sum + r.total, 0);
+  const filters: [string, string][] = [
+    ["شرکت", companyName ?? ""],
+    ["تاریخ", asOf ?? ""],
+    ["نوع سند", notesInstrumentLabel(instrument)],
+    ...(partyText.trim() ? ([["طرف حساب", partyText.trim()]] as [string, string][]) : []),
+  ];
+  const columns: DataTableColumn<Awaited<ReturnType<typeof api.getNotesBalance>>["rows"][number]>[] = [
+    { key: "party", header: "طرف حساب", render: (row) => row.party_name || "بدون طرف حساب" },
+    { key: "instrument", header: "نوع سند", render: (row) => notesInstrumentLabel(row.instrument) },
+    {
+      key: "account",
+      header: "حساب",
+      render: (row) => (
+        <span>
+          <span className="text-muted-foreground tabular-nums">{fa(row.account_code)} </span>
+          {row.account_name}
+        </span>
+      ),
+    },
+    {
+      key: "not_yet_due",
+      header: "سررسید نشده",
+      render: (row) => <span className="tabular-nums">{formatMoney(row.bucket_not_yet_due)}</span>,
+      className: "text-end",
+    },
+    {
+      key: "b0",
+      header: "۰ تا ۳۰ روز",
+      render: (row) => <span className="tabular-nums">{formatMoney(row.bucket_0_30)}</span>,
+      className: "text-end",
+    },
+    {
+      key: "b30",
+      header: "۳۰ تا ۶۰ روز",
+      render: (row) => <span className="tabular-nums">{formatMoney(row.bucket_30_60)}</span>,
+      className: "text-end",
+    },
+    {
+      key: "b60",
+      header: "۶۰ تا ۹۰ روز",
+      render: (row) => <span className="tabular-nums">{formatMoney(row.bucket_60_90)}</span>,
+      className: "text-end",
+    },
+    {
+      key: "b90",
+      header: "۹۰ تا ۱۲۰ روز",
+      render: (row) => <span className="tabular-nums">{formatMoney(row.bucket_90_120)}</span>,
+      className: "text-end",
+    },
+    {
+      key: "b120",
+      header: "بیش از ۱۲۰ روز",
+      render: (row) => <span className="tabular-nums">{formatMoney(row.bucket_120_plus)}</span>,
+      className: "text-end",
+    },
+    {
+      key: "total",
+      header: "جمع",
+      render: (row) => <span className="font-medium tabular-nums">{formatMoney(row.total)}</span>,
+      className: "text-end",
+    },
+    { key: "count", header: "تعداد سند", render: (row) => faNumber(row.line_count), className: "text-end" },
+  ];
+
   return (
-    <div className="space-y-6">
-      <ReportHeader number={meta.number} title={meta.title} meta={`منبع: ${meta.source} · نمودار: ${meta.chart} · فیلترها: ${meta.filters}`} />
-      <Card>
-        <CardContent className="space-y-3 pt-6">
-          <p className="font-medium">به‌زودی</p>
+    <div className="space-y-6" data-testid="cheque-report-notes-balance">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <ReportHeader number={meta.number} title={meta.title} meta={`منبع: ${meta.source} · نمودار: ${meta.chart} · فیلترها: ${meta.filters}`} />
+        <ExportButton
+          disabled={!report || rows.length === 0}
+          onExport={() => {
+            if (!report) return;
+            downloadCsv(
+              csvFilename("cheques-notes-balance", todayIso()),
+              notesBalanceToCsv({ ...report, rows }, filters),
+            );
+          }}
+        />
+      </div>
+      <div className="flex flex-wrap items-end gap-4 print:hidden">
+        <div className="space-y-2">
+          <Label htmlFor="notes-as-of">تا تاریخ</Label>
+          <JalaliDatePicker
+            id="notes-as-of"
+            value={asOf}
+            onChange={(iso) => {
+              setAsOf(iso);
+              setReport(null);
+            }}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="notes-instrument">نوع سند</Label>
+          <Select
+            value={instrument}
+            onValueChange={(v) => {
+              setInstrument(v ?? "both");
+              setReport(null);
+            }}
+          >
+            <SelectTrigger id="notes-instrument">
+              <SelectValue>{notesInstrumentLabel(instrument)}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="both">دریافتنی و پرداختنی</SelectItem>
+              <SelectItem value="receivable">دریافتنی</SelectItem>
+              <SelectItem value="payable">پرداختنی</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <FilterText id="notes-party" label="طرف حساب" value={partyText} onChange={setPartyText} placeholder="نام طرف حساب" />
+      </div>
+      {report === null ? (
+        <div className="space-y-2" aria-label="در حال بارگذاری">
+          <Skeleton className="h-8 w-56" />
+          <Skeleton className="h-64 w-full" />
+        </div>
+      ) : report.accounts_read.length === 0 ? (
+        <Card>
+          <CardContent className="space-y-3 pt-6">
+            <p className="font-medium">حساب اسناد در چارت نیست</p>
+            <p className="text-sm text-muted-foreground">
+              در چارت این شرکت حساب اسناد دریافتنی/پرداختنی (۱٫۲٫۴، ۱٫۲٫۵، ۲٫۱٫۵) نیست؛ گزارش خالی است و
+              عددی نشان داده نمی‌شود.
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <>
           <p className="text-sm text-muted-foreground">
-            ماندهٔ اسناد دریافتنی/پرداختنی گزارش مرجع ترایتون است و از گزارش ترایتون خوانده می‌شود، نه از کش حساب‌یار بازمحاسبه.
-            نقطهٔ پایانی آن در فاز ۵ح وصل می‌شود؛ تا آن زمان این گزارش عددی نشان نمی‌دهد تا ماندهٔ ناقص نمایش داده نشود.
+            در تاریخ {formatIsoJalali(report.as_of)} · جمع دریافتنی: {formatMoney(receivableTotal)} · جمع
+            پرداختنی: {formatMoney(payableTotal)} · {faNumber(rows.length)} ردیف · حساب‌های خوانده‌شده:{" "}
+            {report.accounts_read.join("، ")}
           </p>
-        </CardContent>
-      </Card>
-      <FreshnessLine generatedAt={generatedAt} />
+          <Card>
+            <CardContent className="pt-6">
+              <BarChart
+                items={agingChartItems(report.totals).map((item) => ({
+                  label: item.label,
+                  value: item.value,
+                  display: formatMoney(item.value),
+                }))}
+              />
+            </CardContent>
+          </Card>
+          <DataTable
+            columns={columns}
+            rows={rows}
+            rowKey={(row) => `${row.party_id ?? "none"}-${row.account_code}`}
+            emptyText="سند بازی برای این فیلترها نیست."
+            caption="قدمت هر سند از سررسید آن (یا تاریخ سند، اگر سررسید ندارد) تا تاریخ گزارش محاسبه می‌شود؛ سندهای تسویه‌شده تا آن تاریخ در گزارش نیستند."
+          />
+          <ReportFreshnessLine freshness={report.freshness} sourceLabel="ترایتون (مرجع)" />
+        </>
+      )}
     </div>
   );
 }
@@ -826,17 +1027,24 @@ function UnreceivedReport({ meta, intake, deadlineDays, generatedAt }: { meta: (
   );
 }
 
-function ClearingMatchReport({ meta, cheques, generatedAt }: { meta: (typeof CHEQUE_REPORTS)[number]; cheques: ChequeResponse[]; generatedAt: string }) {
+function ClearingMatchReport({ meta, cheques, trend, generatedAt }: { meta: (typeof CHEQUE_REPORTS)[number]; cheques: ChequeResponse[]; trend: MonthlyMatchTrendResponse; generatedAt: string }) {
   const [statementId, setStatementId] = React.useState("");
   const [bankKey, setBankKey] = React.useState("none");
   const [runResult, setRunResult] = React.useState<string | null>(null);
   const [runError, setRunError] = React.useState<string | null>(null);
   const [running, setRunning] = React.useState(false);
-  const relevant = cheques.filter((c) => ["in_clearing", "cleared"].includes(c.state));
-  const confidences = ["exact", "probable", "ambiguous", "unmatched"] as const;
-  const donut: ChartItem[] = confidences.map((confidence) => ({
-    label: clearingConfidenceLabel(confidence),
-    value: relevant.filter((c) => c.clearing_confidence === confidence).length,
+  // Donut + trend line render FROM the stored monthly history
+  // (GET /cheques/reports/monthly-match-trend, US-553) — never
+  // recomputed from the registry rows at read time.
+  const donut: ChartItem[] = [
+    { label: clearingConfidenceLabel("exact"), value: trend.total_exact },
+    { label: clearingConfidenceLabel("probable"), value: trend.total_probable },
+    { label: clearingConfidenceLabel("ambiguous"), value: trend.total_ambiguous },
+    { label: clearingConfidenceLabel("unmatched"), value: trend.total_unmatched },
+  ];
+  const trendPoints = trend.months.map((month) => ({
+    label: monthLabel(month.month_jalali),
+    value: Number(month.match_rate),
   }));
   const unmatched = cheques.filter((c) => c.state === "in_clearing" && (c.clearing_confidence === null || c.clearing_confidence === "unmatched"));
   const runClearing = async (event: React.FormEvent) => {
@@ -865,10 +1073,51 @@ function ClearingMatchReport({ meta, cheques, generatedAt }: { meta: (typeof CHE
       <ReportHeader number={meta.number} title={meta.title} meta={`منبع: ${meta.source} · نمودار: ${meta.chart} · فیلترها: ${meta.filters}`} />
       <Card>
         <CardContent className="space-y-4 pt-6">
-          <DonutChart items={donut} />
-          <p className="text-sm text-muted-foreground">
-            نرخ تطبیق روی {faNumber(relevant.length)} چک در وصول/وصول‌شده محاسبه شده است. خط روند ماهانه نیازمند تاریخچهٔ تطبیق‌هاست و هنوز ذخیره نمی‌شود؛ پس از ذخیرهٔ تاریخچه در ۵ح اضافه می‌شود.
-          </p>
+          {trend.total_lines === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              هنوز هیچ تطبیق وصلی اجرا نشده است؛ پس از نخستین اجرای تطبیق، دونات نرخ و روند
+              ماهانه اینجا از تاریخچهٔ ذخیره‌شده نمایش داده می‌شود.
+            </p>
+          ) : (
+            <>
+              <DonutChart items={donut} />
+              <p className="text-sm text-muted-foreground">
+                نرخ تطبیق کلی {faNumber(Number(trend.overall_match_rate))}٪ روی {faNumber(trend.total_lines)} سطر
+                تطبیق‌یافته در {faNumber(trend.months.length)} ماه است؛ هر اجرای تطبیق وصول،
+                نتیجه‌اش را در تاریخچهٔ ماهانه ثبت می‌کند.
+              </p>
+              <LineChart points={trendPoints} valueLabel="نرخ تطبیق ماهانه" />
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border text-start text-muted-foreground">
+                      <th scope="col" className="py-2 pe-2 text-start font-medium">ماه</th>
+                      <th scope="col" className="py-2 pe-2 text-start font-medium">دقیق</th>
+                      <th scope="col" className="py-2 pe-2 text-start font-medium">محتمل</th>
+                      <th scope="col" className="py-2 pe-2 text-start font-medium">مبهم</th>
+                      <th scope="col" className="py-2 pe-2 text-start font-medium">بی‌تطبیق</th>
+                      <th scope="col" className="py-2 pe-2 text-start font-medium">همهٔ سطرها</th>
+                      <th scope="col" className="py-2 text-start font-medium">نرخ تطبیق</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {trend.months.map((month) => (
+                      <tr key={month.month_jalali} className="border-b border-border last:border-0">
+                        <th scope="row" className="py-2 pe-2 text-start font-medium">{monthLabel(month.month_jalali)}</th>
+                        <td className="py-2 pe-2">{faNumber(month.exact_count)}</td>
+                        <td className="py-2 pe-2">{faNumber(month.probable_count)}</td>
+                        <td className="py-2 pe-2">{faNumber(month.ambiguous_count)}</td>
+                        <td className="py-2 pe-2">{faNumber(month.unmatched_count)}</td>
+                        <td className="py-2 pe-2">{faNumber(month.total_lines)}</td>
+                        <td className="py-2 font-medium">{faNumber(Number(month.match_rate))}٪</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <ReportFreshnessLine freshness={trend.freshness} sourceLabel="تاریخچهٔ ذخیره‌شدهٔ تطبیق" />
+            </>
+          )}
         </CardContent>
       </Card>
       <Card>

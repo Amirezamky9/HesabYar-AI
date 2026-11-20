@@ -1,13 +1,15 @@
 /**
- * Settlement file import wizard (US-525).
+ * Settlement file import wizard (US-525, migrated to the unified
+ * batch cycle in US-554).
  *
- * Steps: pick a channel + file + settings → upload (parse + dry-run
- * preview) → review the validation/dedupe summary and the
- * accounting-effect preview → approve (confirms tranches, files a
- * settlement event) or reject. The upload files a
- * `manual_import_review` item in the unified review queue; nothing is
- * confirmed until a human approves. Re-importing the same file is a
- * no-op (file-hash dedupe).
+ * Steps: pick a channel + company + file + settings → detect columns
+ * (auto-detect on file pick; the mapping is editable and savable per
+ * channel) → upload (parse + dry-run preview) → review the
+ * validation/dedupe summary and the accounting-effect preview →
+ * approve (confirms tranches, files a settlement event) or reject.
+ * The upload files a `manual_import_review` item in the unified
+ * review queue; nothing is confirmed until a human approves.
+ * Re-importing the same file is a no-op (file-hash dedupe).
  *
  * No gateway panel password is ever asked for or stored: the operator
  * uploads the gateway's exported file (Excel/CSV/PDF).
@@ -18,14 +20,17 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowRight, FileUp } from "lucide-react";
+import { ArrowRight, FileUp, TriangleAlert } from "lucide-react";
 import {
   ApiError,
   api,
-  type ApproveImportResponse,
-  type ImportSettlementFileResponse,
+  type ApproveImportBatchResponse,
+  type FileDetectionResponse,
   type PaymentChannelResponse,
+  type SettlementColumnMappingResponse,
+  type SettlementFileImportDetailResponse,
   type SettlementFileRowResponse,
+  type UploadImportBatchResponse,
 } from "@/lib/api-client";
 import { formatIsoDate } from "@/lib/format-date";
 import { formatMoney } from "@/lib/format-money";
@@ -38,6 +43,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  Checkbox,
   DataTable,
   Input,
   Label,
@@ -55,7 +61,13 @@ import {
   isPermissionDenied,
   persianApiErrorMessage,
 } from "@/features/shared/api-error";
+import { CompanyPicker } from "@/features/shared/company-picker";
 import { ErrorState, PermissionDeniedState } from "@/features/shared/states";
+import { useCompany } from "@/features/shared/use-company";
+import {
+  SETTLEMENT_MAPPING_FIELDS,
+  settlementMappingIsComplete,
+} from "@/features/imports/import-batch-data";
 import {
   fileTypeLabel,
   isValidJalaliPeriod,
@@ -67,6 +79,8 @@ import {
 import { MAX_SETTLEMENT_FILE_BYTES, fileToBase64 } from "./settlement-file";
 
 type Step = "setup" | "preview" | "done";
+
+const NONE_VALUE = "__none__";
 
 /** Row columns shared with the import detail page. */
 export const SETTLEMENT_IMPORT_ROW_COLUMNS: DataTableColumn<SettlementFileRowResponse>[] = [
@@ -117,6 +131,8 @@ export const SETTLEMENT_IMPORT_ROW_COLUMNS: DataTableColumn<SettlementFileRowRes
 
 export function SettlementImport() {
   const router = useRouter();
+  const { companies, companyId, setCompanyId, loading: companiesLoading } =
+    useCompany();
   const [channels, setChannels] = React.useState<PaymentChannelResponse[]>([]);
   const [channelsLoading, setChannelsLoading] = React.useState(true);
   const [step, setStep] = React.useState<Step>("setup");
@@ -128,8 +144,18 @@ export function SettlementImport() {
   const [dateKind, setDateKind] = React.useState<"jalali" | "gregorian">("jalali");
   const [file, setFile] = React.useState<File | null>(null);
   const [fileBase64, setFileBase64] = React.useState<string | null>(null);
-  const [result, setResult] = React.useState<ImportSettlementFileResponse | null>(null);
-  const [approved, setApproved] = React.useState<ApproveImportResponse | null>(null);
+  const [detection, setDetection] = React.useState<FileDetectionResponse | null>(null);
+  const [columns, setColumns] = React.useState<Record<string, string>>({});
+  const [mappings, setMappings] = React.useState<SettlementColumnMappingResponse[]>([]);
+  const [mappingId, setMappingId] = React.useState<string>(NONE_VALUE);
+  const [saveMapping, setSaveMapping] = React.useState(false);
+  const [mappingName, setMappingName] = React.useState("");
+  const [notice, setNotice] = React.useState<string | null>(null);
+  const [result, setResult] = React.useState<UploadImportBatchResponse | null>(null);
+  const [importDetail, setImportDetail] =
+    React.useState<SettlementFileImportDetailResponse | null>(null);
+  const [approved, setApproved] = React.useState<ApproveImportBatchResponse | null>(null);
+  const [autoPost, setAutoPost] = React.useState(false);
   const [rejectReason, setRejectReason] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<unknown>(null);
@@ -158,11 +184,55 @@ export function SettlementImport() {
     };
   }, [router]);
 
+  // Saved settlement mappings follow the selected channel.
+  React.useEffect(() => {
+    if (!channelKey) return;
+    let cancelled = false;
+    api
+      .listSettlementColumnMappings({ channel_key: channelKey })
+      .then((list) => {
+        if (cancelled) return;
+        setMappings(list.filter((m) => m.status === "active"));
+        setMappingId(NONE_VALUE);
+      })
+      .catch(() => {
+        // Mappings are optional: a failure just means no saved mapping.
+        if (!cancelled) setMappings([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [channelKey]);
+
+  const runDetection = React.useCallback(
+    async (base64: string, filename: string, kind: string) => {
+      const detected = await api.detectImportFile({
+        kind: "settlement",
+        filename,
+        content_base64: base64,
+        file_type: kind,
+      });
+      setDetection(detected);
+      setColumns(detected.suggested_mapping);
+      if (detected.missing_fields.length > 0) {
+        setNotice(
+          `برخی ستون‌ها شناسایی نشدند (${detected.missing_fields.join("، ")}). نگاشت را دستی کامل کنید.`,
+        );
+      } else {
+        setNotice(null);
+      }
+    },
+    [],
+  );
+
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const picked = event.target.files?.[0] ?? null;
     setFile(picked);
     setFileBase64(null);
+    setDetection(null);
+    setColumns({});
     setError(null);
+    setNotice(null);
     if (!picked) return;
     if (picked.size > MAX_SETTLEMENT_FILE_BYTES) {
       setError(new Error("حجم فایل بیشتر از ۱۰ مگابایت است."));
@@ -170,16 +240,37 @@ export function SettlementImport() {
     }
     setBusy(true);
     try {
-      setFileBase64(await fileToBase64(picked));
+      const base64 = await fileToBase64(picked);
+      setFileBase64(base64);
+      await runDetection(base64, picked.name, fileType);
     } catch (err: unknown) {
+      if (err instanceof ApiError && err.isUnauthorized) {
+        router.replace("/login");
+        return;
+      }
       setError(err);
     } finally {
       setBusy(false);
     }
   };
 
+  const handleFileTypeChange = async (value: string | null) => {
+    const next = value ?? "detail";
+    setFileType(next);
+    if (file && fileBase64) {
+      setBusy(true);
+      try {
+        await runDetection(fileBase64, file.name, next);
+      } catch (err: unknown) {
+        setError(err);
+      } finally {
+        setBusy(false);
+      }
+    }
+  };
+
   const handleUpload = async () => {
-    if (!file || !fileBase64 || channelKey === "") return;
+    if (!file || !fileBase64 || channelKey === "" || !companyId) return;
     if (!isValidJalaliPeriod(periodInput.trim())) {
       setPeriodError("دوره را به قالب «۱۴۰۵/۰۸» وارد کنید.");
       return;
@@ -188,17 +279,33 @@ export function SettlementImport() {
     setBusy(true);
     setError(null);
     try {
-      const uploaded = await api.importSettlementFile({
+      const uploaded = await api.uploadImportBatch({
+        kind: "settlement",
+        source_key: channelKey,
+        company: companyId,
         filename: file.name,
         content_base64: fileBase64,
-        channel_key: channelKey,
-        file_type: fileType,
-        period_jalali: normalizeJalaliPeriod(periodInput.trim()),
         currency_unit: currencyUnit,
         date_kind: dateKind,
         header_row: 0,
+        ...(mappingId !== NONE_VALUE
+          ? { mapping_id: mappingId }
+          : detection !== null
+            ? {
+                columns,
+                save_mapping: saveMapping,
+                mapping_name: mappingName.trim() === "" ? null : mappingName.trim(),
+              }
+            : {}),
+        file_type: fileType,
+        period_jalali: normalizeJalaliPeriod(periodInput.trim()),
       });
       setResult(uploaded);
+      // The row table comes from the underlying import detail.
+      if (uploaded.batch.source_import_id) {
+        const detail = await api.getSettlementImport(uploaded.batch.source_import_id);
+        setImportDetail(detail);
+      }
       setStep("preview");
     } catch (err: unknown) {
       if (err instanceof ApiError && err.isUnauthorized) {
@@ -216,7 +323,9 @@ export function SettlementImport() {
     setBusy(true);
     setError(null);
     try {
-      const response = await api.approveSettlementImport(result.file_import.id, {});
+      const response = await api.approveImportBatch(result.batch.id, {
+        auto_post: autoPost,
+      });
       setApproved(response);
       setStep("done");
     } catch (err: unknown) {
@@ -231,8 +340,9 @@ export function SettlementImport() {
     setBusy(true);
     setError(null);
     try {
-      await api.rejectSettlementImport(result.file_import.id, {
-        reason: rejectReason.trim() === "" ? null : rejectReason.trim(),
+      await api.rejectImportBatch(result.batch.id, {
+        reason:
+          rejectReason.trim() === "" ? "رد ایمپورت توسط کاربر" : rejectReason.trim(),
       });
       router.push("/settlements");
     } catch (err: unknown) {
@@ -242,7 +352,7 @@ export function SettlementImport() {
     }
   };
 
-  if (channelsLoading) {
+  if (channelsLoading || companiesLoading) {
     return (
       <div className="space-y-6" aria-label="در حال بارگذاری">
         <Skeleton className="h-8 w-56" />
@@ -259,8 +369,21 @@ export function SettlementImport() {
     );
   }
 
+  const mappingComplete =
+    mappingId !== NONE_VALUE ||
+    detection === null ||
+    settlementMappingIsComplete(columns, fileType);
   const canUpload =
-    file !== null && fileBase64 !== null && channelKey !== "" && periodInput.trim() !== "";
+    file !== null &&
+    fileBase64 !== null &&
+    channelKey !== "" &&
+    periodInput.trim() !== "" &&
+    companyId !== null &&
+    mappingComplete;
+
+  const unknownRows = importDetail
+    ? importDetail.rows.filter((row) => row.match_status === "unknown").length
+    : 0;
 
   return (
     <div className="space-y-6">
@@ -301,10 +424,19 @@ export function SettlementImport() {
             <p className="text-sm text-muted-foreground">
               فایل از پنل درگاه دانلود می‌شود؛ رمز پنل درگاه هرگز پرسیده یا ذخیره
               نمی‌شود. ستون‌ها به‌صورت خودکار شناسایی می‌شوند (شماره تراکنش،
-              تاریخ، مبلغ، کارمزد، خالص).
+              تاریخ، مبلغ، کارمزد، خالص) و می‌توانید نگاشت را ویرایش و برای این
+              کانال ذخیره کنید.
             </p>
 
             <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>شرکت</Label>
+                <CompanyPicker
+                  companies={companies}
+                  companyId={companyId}
+                  onChange={setCompanyId}
+                />
+              </div>
               <div className="space-y-1.5">
                 <Label htmlFor="settlement-channel">کانال پرداخت</Label>
                 <Select value={channelKey} onValueChange={(v) => setChannelKey(v ?? "")}>
@@ -330,7 +462,7 @@ export function SettlementImport() {
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="settlement-file-type">نوع فایل</Label>
-                <Select value={fileType} onValueChange={(v) => setFileType(v ?? "detail")}>
+                <Select value={fileType} onValueChange={handleFileTypeChange}>
                   <SelectTrigger id="settlement-file-type">
                     <SelectValue>{fileTypeLabel(fileType)}</SelectValue>
                   </SelectTrigger>
@@ -405,6 +537,119 @@ export function SettlementImport() {
               ) : null}
             </div>
 
+            {busy && !detection ? (
+              <div className="space-y-2" aria-label="در حال بررسی فایل">
+                <Skeleton className="h-6 w-48" />
+                <Skeleton className="h-32 w-full" />
+              </div>
+            ) : null}
+
+            {notice ? (
+              <p className="flex items-start gap-2 text-sm text-muted-foreground">
+                <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+                {notice}
+              </p>
+            ) : null}
+
+            {detection ? (
+              <div className="space-y-4">
+                <div>
+                  <h2 className="text-base font-semibold">ستون‌های شناسایی‌شده</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    قالب: {detection.file_format === "xlsx" ? "اکسل" : detection.file_format === "csv" ? "CSV" : "PDF"}
+                    {detection.encoding ? ` · رمزگذاری: ${detection.encoding}` : ""}
+                    {detection.detection_notes.length > 0
+                      ? ` · ${detection.detection_notes.join("، ")}`
+                      : ""}
+                  </p>
+                </div>
+
+                {mappings.length > 0 ? (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="settlement-mapping">نگاشت ستون ذخیره‌شده</Label>
+                    <Select value={mappingId} onValueChange={(v) => setMappingId(v ?? NONE_VALUE)}>
+                      <SelectTrigger id="settlement-mapping">
+                        <SelectValue placeholder="نگاشت دستی" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NONE_VALUE}>نگاشت دستی</SelectItem>
+                        {mappings.map((m) => (
+                          <SelectItem key={m.id} value={m.id}>
+                            {m.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : null}
+
+                {mappingId === NONE_VALUE ? (
+                  <>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      {SETTLEMENT_MAPPING_FIELDS.map((field) => (
+                        <div key={field.key} className="space-y-1.5">
+                          <Label htmlFor={`settlement-mapping-${field.key}`}>
+                            {field.label}
+                          </Label>
+                          <Select
+                            value={columns[field.key] ?? NONE_VALUE}
+                            onValueChange={(v) =>
+                              setColumns((prev) => {
+                                const next = { ...prev };
+                                if (v === NONE_VALUE || v === null) delete next[field.key];
+                                else next[field.key] = v;
+                                return next;
+                              })
+                            }
+                          >
+                            <SelectTrigger id={`settlement-mapping-${field.key}`}>
+                              <SelectValue placeholder="—" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value={NONE_VALUE}>—</SelectItem>
+                              {detection.columns.map((col) => (
+                                <SelectItem key={col} value={col}>
+                                  {col}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      برای فایل جزء: شماره تراکنش و تاریخ و خالص یا ناخالص الزامی‌اند؛
+                      برای فایل پرداخت‌ها: تاریخ و خالص.
+                    </p>
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-2">
+                        <Checkbox
+                          id="settlement-save-mapping"
+                          checked={saveMapping}
+                          onCheckedChange={(v) => setSaveMapping(v === true)}
+                        />
+                        <Label htmlFor="settlement-save-mapping">
+                          ذخیرهٔ این نگاشت برای این کانال (ایمپورت بعدی همین نگاشت را
+                          پیشنهاد می‌دهد)
+                        </Label>
+                      </div>
+                      {saveMapping ? (
+                        <div className="space-y-1.5">
+                          <Label htmlFor="settlement-mapping-name">نام نگاشت (اختیاری)</Label>
+                          <Input
+                            id="settlement-mapping-name"
+                            value={mappingName}
+                            onChange={(e) => setMappingName(e.target.value)}
+                            placeholder="مثلاً: خروجی اسنپ‌پی"
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
+
             <Button onClick={handleUpload} disabled={!canUpload || busy}>
               <FileUp className="size-4" aria-hidden />
               آپلود و پیش‌نمایش
@@ -415,7 +660,7 @@ export function SettlementImport() {
 
       {step === "preview" && result ? (
         <div className="space-y-6">
-          {result.is_duplicate ? (
+          {result.duplicate ? (
             <Card>
               <CardHeader>
                 <CardTitle>این فایل قبلاً ایمپورت شده است</CardTitle>
@@ -425,12 +670,14 @@ export function SettlementImport() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <Link
-                  href={`/settlements/imports/${result.file_import.id}`}
-                  className={buttonVariants({ variant: "default" })}
-                >
-                  مشاهدهٔ ایمپورت قبلی
-                </Link>
+                {result.batch.source_import_id ? (
+                  <Link
+                    href={`/settlements/imports/${result.batch.source_import_id}`}
+                    className={buttonVariants({ variant: "default" })}
+                  >
+                    مشاهدهٔ ایمپورت قبلی
+                  </Link>
+                ) : null}
               </CardContent>
             </Card>
           ) : (
@@ -440,8 +687,8 @@ export function SettlementImport() {
                   <CardTitle>پیش‌نمایش ایمپورت</CardTitle>
                   <CardDescription>
                     {faNumber(result.preview.matched_rows)} ردیف منطبق ·{" "}
-                    {faNumber(result.preview.new_payment_rows)} پرداخت جدید ·{" "}
-                    {faNumber(result.preview.unknown_rows)} مرجع ناشناخته ·{" "}
+                    {faNumber(result.preview.new_rows)} پرداخت جدید ·{" "}
+                    {faNumber(unknownRows)} مرجع ناشناخته ·{" "}
                     {faNumber(result.preview.duplicate_rows)} تکراری ·{" "}
                     {faNumber(result.preview.invalid_rows)} نامعتبر ·{" "}
                     {faNumber(result.preview.dropped_rows)} ردیف جمع حذف‌شده
@@ -459,7 +706,7 @@ export function SettlementImport() {
                     </div>
                     <div>
                       <dt className="text-sm text-muted-foreground">مالیات کارمزد</dt>
-                      <dd className="mt-1 font-medium tabular-nums">{formatMoney(result.preview.vat_irr)}</dd>
+                      <dd className="mt-1 font-medium tabular-nums">{formatMoney(result.preview.tax_irr)}</dd>
                     </div>
                     <div>
                       <dt className="text-sm text-muted-foreground">خالص</dt>
@@ -479,11 +726,19 @@ export function SettlementImport() {
                     </div>
                     <div>
                       <dt className="text-sm text-muted-foreground">طلب باز کانال — پیش از ایمپورت</dt>
-                      <dd className="mt-1 font-medium tabular-nums">{formatMoney(result.preview.receivable_before_irr)}</dd>
+                      <dd className="mt-1 font-medium tabular-nums">
+                        {result.preview.receivable_before_irr === null
+                          ? "—"
+                          : formatMoney(result.preview.receivable_before_irr)}
+                      </dd>
                     </div>
                     <div>
                       <dt className="text-sm text-muted-foreground">طلب باز کانال — پس از ایمپورت</dt>
-                      <dd className="mt-1 font-medium tabular-nums">{formatMoney(result.preview.receivable_after_irr)}</dd>
+                      <dd className="mt-1 font-medium tabular-nums">
+                        {result.preview.receivable_after_irr === null
+                          ? "—"
+                          : formatMoney(result.preview.receivable_after_irr)}
+                      </dd>
                     </div>
                   </dl>
 
@@ -497,17 +752,29 @@ export function SettlementImport() {
 
                   <DataTable
                     columns={SETTLEMENT_IMPORT_ROW_COLUMNS}
-                    rows={result.rows}
+                    rows={importDetail?.rows ?? []}
                     rowKey={(row) => row.id}
                     emptyText="این فایل ردیفی ندارد."
                   />
 
-                  {result.dropped_rows.length > 0 ? (
+                  {result.preview.dropped_rows > 0 ? (
                     <p className="text-sm text-muted-foreground">
-                      ردیف‌های جمع/سرجمع حذف شدند و تطبیق داده نشدند:{" "}
-                      {result.dropped_rows.map((d) => `ردیف ${faNumber(d.row_number)}`).join("، ")}.
+                      {faNumber(result.preview.dropped_rows)} ردیف جمع/سرجمع حذف شدند
+                      و تطبیق داده نشدند.
                     </p>
                   ) : null}
+
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="settlement-auto-post"
+                      checked={autoPost}
+                      onCheckedChange={(v) => setAutoPost(v === true)}
+                    />
+                    <Label htmlFor="settlement-auto-post">
+                      پس از تأیید، تطبیق سه‌طرفه اجرا و سند بانکی به‌صورت خودکار ثبت
+                      شود (پیش‌فرض: پیش‌نویس)
+                    </Label>
+                  </div>
 
                   <div className="space-y-1.5">
                     <Label htmlFor="settlement-reject-reason">دلیل رد (اختیاری — فقط برای رد)</Label>
@@ -540,7 +807,7 @@ export function SettlementImport() {
             <CardTitle>تسویه ثبت شد</CardTitle>
             <CardDescription>
               {faNumber(approved.confirmed_tranche_ids.length)} قسط تأیید شد؛ خالص
-              رویداد تسویه {formatMoney(approved.net_irr)} است.
+              رویداد تسویه {formatMoney(result.preview.net_irr)} است.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -550,26 +817,25 @@ export function SettlementImport() {
                 ناشناخته ساخته شد.
               </p>
             ) : null}
-            {approved.exception_ids.length > 0 ? (
+            {approved.posted ? (
               <p className="text-sm text-muted-foreground">
-                {faNumber(approved.exception_ids.length)} استثنا باز شد؛ در{" "}
-                <Link href="/review-queue?type=settlement_variance" className="text-primary underline-offset-4 hover:underline">
-                  صف بازبینی
-                </Link>{" "}
-                رسیدگی کنید.
+                تطبیق سه‌طرفه برقرار شد و سند بانکی ثبت شد.
               </p>
-            ) : null}
-            <p className="text-sm text-muted-foreground">
-              گام بعد: واریز بانکی را ثبت کنید و tie-out را اجرا کنید تا قسط‌ها
-              بسته شوند.
-            </p>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                گام بعد: واریز بانکی را ثبت کنید و tie-out را اجرا کنید تا قسط‌ها
+                بسته شوند.
+              </p>
+            )}
             <div className="flex flex-wrap gap-4">
-              <Link
-                href={`/settlements/imports/${result.file_import.id}`}
-                className={buttonVariants({ variant: "default" })}
-              >
-                مشاهدهٔ ایمپورت و tie-out
-              </Link>
+              {result.batch.source_import_id ? (
+                <Link
+                  href={`/settlements/imports/${result.batch.source_import_id}`}
+                  className={buttonVariants({ variant: "default" })}
+                >
+                  مشاهدهٔ ایمپورت و tie-out
+                </Link>
+              ) : null}
               <Link href="/settlements/schedule" className={buttonVariants({ variant: "outline" })}>
                 برنامهٔ قسط‌ها
               </Link>

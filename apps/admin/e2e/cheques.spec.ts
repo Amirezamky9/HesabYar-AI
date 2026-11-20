@@ -139,16 +139,18 @@ test("reports page shows all 17 reports", async ({ page }) => {
       .click();
     await expect(page.getByRole("heading", { name: new RegExp(title) })).toBeVisible({ timeout: 30_000 });
   }
-  // Report 7 is the only honest coming-soon: no figures, a reason.
-  // (Scoped to the card's explanation text — "به‌زودی" alone also
-  // matches the nav badges.)
-  await page
+  // Report 7 is live (US-550): the Tryton notes balance with aging
+  // buckets — no "به‌زودی" badge in the nav, a live table + chart.
+  const notesButton = page
     .locator("nav[aria-label='فهرست گزارش‌های چک']")
-    .getByRole("button", { name: /ماندهٔ اسناد دریافتنی\/پرداختنی/ })
-    .click();
-  await expect(
-    page.getByText(/ماندهٔ اسناد دریافتنی\/پرداختنی گزارش مرجع ترایتون است/),
-  ).toBeVisible({ timeout: 30_000 });
+    .getByRole("button", { name: /ماندهٔ اسناد دریافتنی\/پرداختنی/ });
+  await expect(notesButton.getByText("به‌زودی")).toHaveCount(0);
+  await notesButton.click();
+  const notes = page.getByTestId("cheque-report-notes-balance");
+  await expect(notes).toBeVisible({ timeout: 30_000 });
+  await expect(notes.getByText(/در تاریخ/)).toBeVisible({ timeout: 90_000 });
+  await expect(notes.getByRole("img", { name: /نمودار میله‌ای/ })).toBeVisible({ timeout: 30_000 });
+  await expect(notes.getByText(/دادهٔ زنده/)).toBeVisible();
   // Report 6 shows the seeded collateral cheque.
   await page
     .locator("nav[aria-label='فهرست گزارش‌های چک']")

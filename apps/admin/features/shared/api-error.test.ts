@@ -43,6 +43,31 @@ describe("persianApiErrorMessage", () => {
     expect(persianApiErrorMessage(new TypeError("fetch failed"), "پشتیبان")).toContain("ارتباط با سرور برقرار نشد");
   });
 
+  it("maps the US-552 replay and mapping codes to Persian messages", () => {
+    expect(
+      persianApiErrorMessage(new ApiError(422, "REVIEW_REPLAY_NOT_POSSIBLE", "no source event"), "پشتیبان"),
+    ).toContain("رویداد مبدأیی ندارد");
+    expect(
+      persianApiErrorMessage(new ApiError(409, "EVENT_NOT_DEAD_LETTERED", "received"), "پشتیبان"),
+    ).toContain("در وضعیت مرده نیست");
+    expect(
+      persianApiErrorMessage(new ApiError(409, "EVENT_NOT_REPROCESSABLE", "processed"), "پشتیبان"),
+    ).toContain("قابل پردازش مجدد نیست");
+    expect(
+      persianApiErrorMessage(new ApiError(422, "INTEGRATION_MAPPING_INVALID", "bad kind"), "پشتیبان"),
+    ).toContain("نگاشت معتبر نیست");
+    expect(
+      persianApiErrorMessage(
+        new ApiError(409, "INTEGRATION_MAPPING_NOT_PROMOTABLE", "under-confirmed"),
+        "پشتیبان",
+      ),
+    ).toContain("قابل ارتقا به خودکار نیست");
+    // A missing source event is a 404, so the generic not-found message wins.
+    expect(
+      persianApiErrorMessage(new ApiError(404, "INBOX_EVENT_NOT_FOUND", "gone"), "پشتیبان"),
+    ).toContain("پیدا نشد");
+  });
+
   it("never leaks raw JSON or English detail into the message", () => {
     const msg = persianApiErrorMessage(new ApiError(403, "FORBIDDEN", "Missing scope invoice:read."), "پشتیبان");
     expect(msg).not.toContain("invoice:read");

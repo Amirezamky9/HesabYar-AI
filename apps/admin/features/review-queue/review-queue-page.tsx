@@ -1,15 +1,19 @@
 /**
- * Review queue page (US-504, Phase 5 F4) — the single queue for all
- * ten exception types (phased design §7.2 + US-544), under module 1
- * (dashboard ← صف بازبینی).
+ * Review queue page (US-504, Phase 5 F4; completed US-552) — the
+ * single queue for all ten exception types (phased design §7.2 +
+ * US-544), under module 1 (dashboard ← صف بازبینی).
  *
  * Data is live from the backend via the BFF: the list (filters +
  * default sort critical-first-then-oldest), the summary (per-type
  * counters + admin notifications for critical items past SLA) and
- * the SLA policies. Selecting an item opens a detail dialog with
- * the audit trail, the permitted actions for its type, and
- * assignment. Nothing here is fake: an empty queue renders an
- * honest empty state.
+ * the SLA policies. Every item shows the system's derived
+ * suggestion (action + Persian reason); selecting an item opens a
+ * detail dialog with the audit trail, the permitted actions for its
+ * type (the suggestion pre-selected), and assignment. A mapping
+ * item's «تکمیل نگاشت» action can learn the completed mapping as a
+ * mapping-center suggestion; a dead-letter item's «بازپخش» really
+ * replays its source event. Nothing here is fake: an empty queue
+ * renders an honest empty state.
  */
 
 "use client";
@@ -50,10 +54,14 @@ import {
 import { ErrorState, PermissionDeniedState } from "@/features/shared/states";
 import { isPermissionDenied, persianApiErrorMessage } from "@/features/shared/api-error";
 import {
+  MAPPING_KINDS,
+  MAPPING_TARGET_TYPES,
   REVIEW_ITEM_TYPES,
   SLA_STATE_LABELS,
   formatAgeHours,
   isWaiting,
+  mappingKindLabel,
+  mappingTargetTypeLabel,
   reviewActionLabel,
   reviewResolutionLabel,
   reviewSeverityLabel,
@@ -62,6 +70,7 @@ import {
   reviewStatusTone,
   reviewTypeLabel,
   slaState,
+  suggestedReasonLabel,
 } from "./review-queue-data";
 import { SlaPolicySettings } from "./sla-policy-settings";
 
@@ -528,7 +537,10 @@ function ReviewItemCard({ item, onOpen }: { item: ReviewItemResponse; onOpen: ()
           {item.channel ? <Badge variant="outline">{item.channel}</Badge> : null}
         </div>
         <p className="text-sm">{item.reason}</p>
-        <p className="text-sm text-muted-foreground">پیشنهاد: {item.suggested_action}</p>
+        <p className="text-sm">
+          پیشنهاد: {reviewActionLabel(item.suggested_action_code)}
+          <span className="text-muted-foreground"> — {suggestedReasonLabel(item.suggested_reason_key)}</span>
+        </p>
         <dl className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
           <div className="flex gap-2">
             <dt className="text-muted-foreground">قدمت:</dt>
@@ -587,6 +599,29 @@ function ReviewItemDialog({
   const [actionError, setActionError] = React.useState<string | null>(null);
   const [assignee, setAssignee] = React.useState("");
   const [assigning, setAssigning] = React.useState(false);
+  // Mapping-learning form (US-552): only for a mapping item's
+  // complete_mapping_retry action; empty = the mapping was already
+  // completed elsewhere, so only the source event is reprocessed.
+  const [mappingKind, setMappingKind] = React.useState("");
+  const [mappingSourceKey, setMappingSourceKey] = React.useState("");
+  const [mappingTargetType, setMappingTargetType] = React.useState("");
+  const [mappingTargetRef, setMappingTargetRef] = React.useState("");
+  const [mappingChannelKey, setMappingChannelKey] = React.useState("");
+
+  const resetMappingForm = () => {
+    setMappingKind("");
+    setMappingSourceKey("");
+    setMappingTargetType("");
+    setMappingTargetRef("");
+    setMappingChannelKey("");
+  };
+
+  // Switching away from complete_mapping_retry discards the learning
+  // form: the mapping only ever travels with that one action.
+  const selectAction = (code: string) => {
+    setActionCode(code);
+    if (code !== "complete_mapping_retry") resetMappingForm();
+  };
 
   // Loading and error are derived during render (no setState inside the
   // effect): open with an id whose detail has not arrived (or failed) yet.
@@ -602,6 +637,7 @@ function ReviewItemDialog({
     setActionCode("");
     setNote("");
     setActionError(null);
+    resetMappingForm();
     onClose();
   };
 
@@ -616,6 +652,15 @@ function ReviewItemDialog({
         if (cancelled) return;
         setItem(data);
         setAssignee(data.assignee ?? "");
+        // Pre-select the derived suggestion for a waiting item, so
+        // the common path is one click; the operator can still pick
+        // any other permitted action.
+        if (
+          isWaiting(data) &&
+          data.actions.some((action) => action.code === data.suggested_action_code)
+        ) {
+          setActionCode(data.suggested_action_code);
+        }
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -632,16 +677,36 @@ function ReviewItemDialog({
 
   const performAction = async () => {
     if (!item || !actionCode) return;
+    // The mapping travels only when every required field is filled;
+    // a half-filled form is treated as "already completed elsewhere"
+    // (the backend reprocesses the source event either way).
+    const learningComplete =
+      item.item_type === "mapping" &&
+      actionCode === "complete_mapping_retry" &&
+      mappingKind !== "" &&
+      mappingSourceKey.trim() !== "" &&
+      mappingTargetType !== "" &&
+      mappingTargetRef.trim() !== "";
     setActing(true);
     setActionError(null);
     try {
       const updated = await api.performReviewAction(item.id, {
         action: actionCode,
         note: note.trim() || null,
+        mapping: learningComplete
+          ? {
+              mapping_kind: mappingKind,
+              source_key: mappingSourceKey.trim(),
+              target_type: mappingTargetType,
+              target_ref: mappingTargetRef.trim(),
+              channel_key: mappingChannelKey.trim(),
+            }
+          : null,
       });
       setItem(updated);
       setActionCode("");
       setNote("");
+      resetMappingForm();
       onMutated();
     } catch (err: unknown) {
       if (err instanceof ApiError && err.isUnauthorized) {
@@ -722,6 +787,13 @@ function ReviewItemDialog({
             <dl className="grid gap-2 text-sm sm:grid-cols-2">
               <div className="flex gap-2">
                 <dt className="text-muted-foreground">پیشنهاد اقدام:</dt>
+                <dd>
+                  {reviewActionLabel(item.suggested_action_code)} —{" "}
+                  {suggestedReasonLabel(item.suggested_reason_key)}
+                </dd>
+              </div>
+              <div className="flex gap-2">
+                <dt className="text-muted-foreground">یادداشت مبدأ:</dt>
                 <dd>{item.suggested_action}</dd>
               </div>
               <div className="flex gap-2">
@@ -769,7 +841,7 @@ function ReviewItemDialog({
                 <h3 className="font-medium">انجام اقدام</h3>
                 <div className="space-y-2">
                   <Label htmlFor="review-action">اقدام</Label>
-                  <Select value={actionCode} onValueChange={(v) => v && setActionCode(v)}>
+                  <Select value={actionCode} onValueChange={(v) => v && selectAction(v)}>
                     <SelectTrigger id="review-action">
                       <SelectValue placeholder="یک اقدام انتخاب کنید" />
                     </SelectTrigger>
@@ -783,6 +855,83 @@ function ReviewItemDialog({
                     </SelectContent>
                   </Select>
                 </div>
+                {item.item_type === "mapping" && actionCode === "complete_mapping_retry" ? (
+                  <div className="space-y-4 rounded-lg border p-4" data-testid="mapping-learning-form">
+                    <div>
+                      <h4 className="font-medium">تکمیل نگاشت و یادگیری آن</h4>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        نگاشت تکمیل‌شده به‌عنوان پیشنهاد ذخیره می‌شود تا پس از تأیید، برای رویدادهای
+                        بعدی به‌کار رود. اگر نگاشت را قبلاً ساخته‌اید، این بخش را خالی بگذارید؛ رویداد
+                        مبدأ دوباره پردازش می‌شود.
+                      </p>
+                    </div>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="mapping-kind">نوع نگاشت</Label>
+                        <Select value={mappingKind} onValueChange={(v) => v && setMappingKind(v)}>
+                          <SelectTrigger id="mapping-kind">
+                            <SelectValue placeholder="نوع نگاشت را انتخاب کنید" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {MAPPING_KINDS.map((kind) => (
+                              <SelectItem key={kind} value={kind}>
+                                {mappingKindLabel(kind)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="mapping-target-type">نوع مقصد</Label>
+                        <Select value={mappingTargetType} onValueChange={(v) => v && setMappingTargetType(v)}>
+                          <SelectTrigger id="mapping-target-type">
+                            <SelectValue placeholder="نوع مقصد را انتخاب کنید" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {MAPPING_TARGET_TYPES.map((targetType) => (
+                              <SelectItem key={targetType} value={targetType}>
+                                {mappingTargetTypeLabel(targetType)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="mapping-source-key">کلید مبدأ</Label>
+                        <Input
+                          id="mapping-source-key"
+                          value={mappingSourceKey}
+                          onChange={(e) => setMappingSourceKey(e.target.value)}
+                          placeholder="مثلاً zarinpal"
+                          dir="ltr"
+                          className="text-start"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="mapping-target-ref">مرجع مقصد</Label>
+                        <Input
+                          id="mapping-target-ref"
+                          value={mappingTargetRef}
+                          onChange={(e) => setMappingTargetRef(e.target.value)}
+                          placeholder="مثلاً شناسهٔ حساب"
+                          dir="ltr"
+                          className="text-start"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="mapping-channel-key">کلید کانال (اختیاری)</Label>
+                        <Input
+                          id="mapping-channel-key"
+                          value={mappingChannelKey}
+                          onChange={(e) => setMappingChannelKey(e.target.value)}
+                          placeholder="خالی یعنی همهٔ کانال‌ها"
+                          dir="ltr"
+                          className="text-start"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
                 <div className="space-y-2">
                   <Label htmlFor="review-note">یادداشت (اختیاری)</Label>
                   <Textarea
@@ -844,6 +993,11 @@ function ReviewItemDialog({
                       </div>
                       {entry.decision ? (
                         <p className="mt-1 text-muted-foreground">تصمیم: {entry.decision}</p>
+                      ) : null}
+                      {entry.mapping_version ? (
+                        <p className="mt-1 text-muted-foreground">
+                          پیشنهاد نگاشت: <span dir="ltr">{entry.mapping_version}</span>
+                        </p>
                       ) : null}
                       {entry.note ? <p className="mt-1">{entry.note}</p> : null}
                     </li>

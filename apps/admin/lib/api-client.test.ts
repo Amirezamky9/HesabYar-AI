@@ -182,6 +182,8 @@ describe("api methods", () => {
       "getReviewQueueSummary",
       "listSlaPolicies",
       "updateSlaPolicy",
+      // Phase 5-6 mapping promotion (US-552)
+      "promoteIntegrationMapping",
       // Phase 5 wave 2 manual entries (US-513)
       "createManualOrder",
       "createManualRefund",
