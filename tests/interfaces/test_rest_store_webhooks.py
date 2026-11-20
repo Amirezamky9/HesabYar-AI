@@ -403,11 +403,17 @@ def test_ingest_refund_created_twice_replays_both_legs_as_duplicates(
 
 @pytest.mark.parametrize(
     "topic",
-    ["cheque.registered", "bank_transfer.recorded", "shipment.dispatched"],
-    ids=["cheque", "bank-transfer", "shipment"],
+    ["bank_transfer.recorded", "shipment.dispatched"],
+    ids=["bank-transfer", "shipment"],
 )
 def test_ingest_pending_adr_topic_is_422(api: TestClient, world: World, topic: str) -> None:
-    """Topics whose canonical names need ADR approval are never ingested."""
+    """Topics whose canonical names need ADR approval are never ingested.
+
+    ``cheque.registered`` was pending until ADR 0004 (US-530) approved
+    ``cheque.received.registered`` and US-533 wired it in — it now
+    ingests (see test_ingest_cheque_registered_is_accepted), so it no
+    longer belongs in this list.
+    """
     response = _post_event(api, world, topic, _ingest_body(world))
     assert response.status_code == 422, response.text
     assert response.json()["code"] == "EVENT_TYPE_PENDING_ADR_APPROVAL"

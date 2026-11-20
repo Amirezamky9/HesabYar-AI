@@ -295,7 +295,14 @@ def test_e2e_scoped_client_reads_fiscal_years_periods_and_setup_status(
     assert body["account_count"] >= 100
     assert body["chart_template"] is None
     assert body["fiscal_year_present"] is True
-    assert body["open_fiscal_year"]["name"] == "FY 2026"
+    # setup-status reports the NEWEST open year (SetupStatusService:
+    # "years come newest first, so the first open year is the newest").
+    # The CI Tryton DB has both FY 2026 and FY 2027 open, so pin the
+    # expectation to the newest open year in the list above instead
+    # of assuming FY 2026 is the only open year.
+    open_years = [item for item in items if item["is_open"]]
+    newest_open = max(open_years, key=lambda item: item["start_date"])
+    assert body["open_fiscal_year"]["name"] == newest_open["name"]
     assert body["open_period_present"] is True
     assert body["open_period_count"] >= 12
     assert body["ready"] is True

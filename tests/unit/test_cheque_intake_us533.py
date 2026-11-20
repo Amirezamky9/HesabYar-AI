@@ -62,6 +62,7 @@ from tests.unit.test_cheque_services import (
     COMPANY_ENGINE_ID,
     INSTALLATION_ID,
     TENANT_ID,
+    TODAY,
     FakeChequeRepository,
     FakeEngine,
     RecordingReview,
@@ -607,9 +608,15 @@ def test_daily_job_files_never_arrived_on_expiry() -> None:
     repo = world[0]
     service = _service(world)
     cheque = _register_site(service)
-    cheque.created_at = datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=7)
+    # Anchor the age to the fixed job date (TODAY), never to the wall
+    # clock — the daily job computes age against the date it is run
+    # with, so a wall-clock anchor drifts one day per day and the
+    # 7-day expiry stops lining up (CI run #1, 2026-11-20).
+    cheque.created_at = datetime.datetime(
+        TODAY.year, TODAY.month, TODAY.day, tzinfo=datetime.UTC
+    ) - datetime.timedelta(days=7)
     repo.cheques[cheque.id] = cheque
-    report = service.run_daily_cheque_job(datetime.date(2026, 11, 19))
+    report = service.run_daily_cheque_job(TODAY)
     assert report.expired == 1
     assert any(
         item["subtype"] == "never_arrived_cheque" for item in world[2].items

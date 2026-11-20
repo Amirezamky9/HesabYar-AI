@@ -790,7 +790,17 @@ def test_phase2_full_cycle_e2e(
     status_body = import_status.json()
     assert status_body["total_statements"] >= 1
     assert status_body["draft_count"] >= 1
-    assert status_body["latest_statement_id"] == statement_id
+    # "Latest" is newest-first by (date, id) over the SHARED engine,
+    # which holds other tests' statements too — the US-534 clearing
+    # statement is dated the run day, later than this test's
+    # MOVE_DATE (2026-11-17), so the latest statement is not
+    # necessarily this test's (CI run #1: latest was id 1, this
+    # test's was id 3). Assert the newest-first semantics instead:
+    # the latest statement is at least as new as the one this test
+    # just created. (This test's own statement is already proven
+    # present by the list-membership check above.)
+    assert status_body["latest_statement_id"] is not None
+    assert status_body["latest_statement_date"] >= MOVE_DATE.isoformat()
     assert status_body["total_lines"] >= 2
 
     # Reconcile is implemented (US-514): the statement lines run

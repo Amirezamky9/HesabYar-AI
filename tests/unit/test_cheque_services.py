@@ -540,9 +540,14 @@ def test_expired_registration_can_be_reregistered_as_a_new_record(
     service = _service(world)
     cheque = _register(service)
     # Age the stored row (the service returns its own copy; the
-    # repository holds the snapshot).
-    repo.cheques[cheque.id].created_at = datetime.datetime.now(
-        datetime.UTC
+    # repository holds the snapshot). Anchor the age to the fixed job
+    # date (TODAY), never to the wall clock — the daily job computes
+    # age against the date it is run with, so a wall-clock anchor
+    # drifts one day per day (same defect as the four daily-job tests
+    # that failed in CI run #1; this one passed on 2026-11-20 with
+    # exactly one day of margin and would have failed on 2026-11-21).
+    repo.cheques[cheque.id].created_at = datetime.datetime(
+        TODAY.year, TODAY.month, TODAY.day, tzinfo=datetime.UTC
     ) - datetime.timedelta(days=8)
     service.run_daily_cheque_job(TODAY)
     assert repo.cheques[cheque.id].state is ChequeState.EXPIRED_UNRECEIVED
@@ -1127,9 +1132,14 @@ def _register_aged(
     sayad_id: str,
 ) -> Cheque:
     cheque = _register(service, sayad_id=sayad_id)
-    cheque.created_at = datetime.datetime.now(datetime.UTC) - datetime.timedelta(
-        days=days_old
-    )
+    # Anchor the age to the fixed job date (TODAY), never to the wall
+    # clock: the daily job computes age against the date it is run
+    # with, so a wall-clock anchor drifts by one day per day and the
+    # day-3 / day-6 / day-7 milestones stop lining up (CI run #1,
+    # 2026-11-20, failed all four daily-job tests this way).
+    cheque.created_at = datetime.datetime(
+        TODAY.year, TODAY.month, TODAY.day, tzinfo=datetime.UTC
+    ) - datetime.timedelta(days=days_old)
     repo.cheques[cheque.id] = cheque
     return cheque
 
@@ -1649,9 +1659,12 @@ def test_daily_job_skips_an_issued_cheque_in_registered(
     repo, _, _ = world
     service = _service(world)
     cheque = _register_issued(service, sayad_id="3333333333333333")
-    cheque.created_at = datetime.datetime.now(datetime.UTC) - datetime.timedelta(
-        days=7
-    )
+    # Same TODAY anchor as _register_aged (see there): the issued
+    # cheque is skipped by kind whatever its age, but a wall-clock
+    # anchor would still drift the fixture's meaning over time.
+    cheque.created_at = datetime.datetime(
+        TODAY.year, TODAY.month, TODAY.day, tzinfo=datetime.UTC
+    ) - datetime.timedelta(days=7)
     repo.cheques[cheque.id] = cheque
     report = service.run_daily_cheque_job(TODAY)
     assert report.expired == 0

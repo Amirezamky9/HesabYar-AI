@@ -266,10 +266,12 @@ def test_clear_and_reconcile_clearing_legs_live(
 
 def test_real_statement_line_matches_live_cheque_exact(
     adapter: TrytonAccountingAdapter,
+    client: TrytonRestClient,
     company: CompanyRef,
     module_active: None,
     destination_account: AccountRef,
     issuer_party: PartyRef,
+    request: pytest.FixtureRequest,
 ) -> None:
     """A draft statement's deposit line matches the live cheque with confidence exact."""
     journals = adapter.list_statement_journals(company)
@@ -304,6 +306,19 @@ def test_real_statement_line_matches_live_cheque_exact(
             ),
         )
     )
+    # Delete the draft statement afterwards: it is dated the run day,
+    # so a leaked copy outranks every other test's statement in the
+    # shared company's newest-first list — it broke
+    # test_phase2_full_cycle_e2e's latest-statement assertion in CI
+    # run #1 (latest was this statement's id 1, not the phase2
+    # statement's id 3).
+    def _delete_statement() -> None:
+        try:
+            client.delete("account.statement", statement_ref.engine_id)
+        except Exception:
+            pass
+
+    request.addfinalizer(_delete_statement)
     view = adapter.get_bank_statement(BankStatementRef(statement_ref.engine_id))
     assert view is not None
     assert view.state == "draft"
