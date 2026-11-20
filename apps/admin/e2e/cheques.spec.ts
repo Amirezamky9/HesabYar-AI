@@ -159,9 +159,12 @@ test("reports page shows all 17 reports", async ({ page }) => {
 
 test("dashboard shows the three cheque widgets", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByTestId("widget-cheque-exposure")).toBeVisible({ timeout: 90_000 });
-  await expect(page.getByTestId("widget-cheque-in-clearing")).toBeVisible({ timeout: 90_000 });
-  await expect(page.getByTestId("widget-cheque-due-soon")).toBeVisible({ timeout: 90_000 });
+  // The dashboard batch (8 parallel fetches incl. paginated drafts +
+  // invoices) takes ~105s against remote Supabase (measured 2026-11-20);
+  // 90s was too tight there. Local/CI loads it in seconds.
+  await expect(page.getByTestId("widget-cheque-exposure")).toBeVisible({ timeout: 180_000 });
+  await expect(page.getByTestId("widget-cheque-in-clearing")).toBeVisible({ timeout: 180_000 });
+  await expect(page.getByTestId("widget-cheque-due-soon")).toBeVisible({ timeout: 180_000 });
   // The due-soon widget must list the received cheque due in 7 days
   // (at least one cheque; other runs may have seeded more).
   const dueSoon = page.getByTestId("widget-cheque-due-soon");
