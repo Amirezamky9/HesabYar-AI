@@ -1,0 +1,95 @@
+@import "tailwindcss";
+@import "./tokens.css";
+
+/* ------------------------------------------------------------------ */
+/* HesabYar admin — global styles. Tokens live in ./tokens.css; this   */
+/* file only holds base element styles. Logical properties only        */
+/* (spec §5.5 rule 3): no hard-coded left/right anywhere.              */
+/* ------------------------------------------------------------------ */
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    font-family: var(--font-sans);
+  }
+
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-size: 16px;
+    line-height: 1.8;
+    letter-spacing: 0;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    /* Arabic-script shaping (required for Persian joining) is on by
+       default in browsers; no OpenType feature flag is needed. */
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--type-display, inherit);
+    font-weight: var(--type-display-weight, 700);
+    line-height: 1.2;
+    font-synthesis-weight: none;
+  }
+
+  /* Visible keyboard focus everywhere (spec §5.4). */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  /* iOS Safari zooms into any focused field smaller than 16px; only iOS matches this query. */
+  @supports (-webkit-touch-callout: none) {
+    input,
+    textarea,
+    select {
+      font-size: max(1rem, 1em);
+    }
+  }
+
+  /* Respect reduced-motion preferences (spec §5.4). */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/* LTR isolation for identifiers: account codes, IBAN/SHEBA, card numbers, */
+/* invoice ids, phone numbers (spec §5.5 rule 8). */
+.ltr-isolate {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+/* Print (US-305): report views print the content only — the sidebar,
+   top bar and in-page controls hide via `print:hidden`, and the main
+   column goes full width. */
+@media print {
+  body {
+    font-size: 12pt;
+    background: white;
+  }
+
+  main {
+    max-width: none !important;
+    padding-inline: 0 !important;
+  }
+
+  /* Never split a summary card or table row across pages. */
+  section,
+  table {
+    break-inside: avoid;
+  }
+}

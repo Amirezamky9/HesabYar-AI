@@ -1,0 +1,625 @@
+# HesabYar — Phase 5 wave 2 progress log (5ب + 5ت B1/B2 + 5چ)
+
+Plan: `prd.json` on branch `ralph/phase-5-2`.
+Phase 5 (5الف) archived to `archive/phase-5/`. Phase 5 complete: 4/4 stories
+pass (US-501..US-504; branch head `4e6b7fd` marks Phase 5 complete,
+coordinator-verified; wave-end suite 1274 passed / 145 skipped / 0 failed).
+ADR 0003 (store connectivity, dual-entry architecture) ACCEPTED 2026-11-17,
+in `docs/adr/0003-store-connectivity-banking.md`.
+
+## Phase 5-2 scope (phased design §1.3)
+
+Store connector 5ب (US-511 S1 webhook receiver, US-512 S2 reconciliation &
+backfill, US-513 S3 dual-entry manual path), bank import/reconciliation 5ت
+(US-514 B1/B2, Melli-first), packaging/shipping + cash-box 5چ (US-515 K1,
+US-516 K2). All six streams run IN PARALLEL in isolated worktrees (user's
+standing instruction). Design source:
+`hesabyar-reference/phased-design-checklist-2026-11-17.md` (3,310 lines,
+Superpowers-reviewed) + ADR 0003 + research rounds 1–2 + settlement
+re-verification memo.
+
+## Waves
+
+- Wave A (this plan): US-511 + US-512 + US-513 + US-514 + US-515 + US-516
+  in parallel. S1/S2/S3 need F1 (US-501) + F3 (US-503 mapping center).
+  B1/B2 need F1 + F4 (US-504) + F2 (account_statement). K1 needs F2
+  (stock/supply/analytic); its S1 order link wires in when US-511 lands
+  (starts with manual entry). K2 needs F2 (account_statement) + F4.
+  Merge in story order; coordinator resolves shared-file conflicts
+  (migrations, OpenAPI, scope catalog, models).
+
+## Key plan decisions
+
+- Tests run against SUPABASE: source
+  `~/workspace/projects/hesabyar-reference/.env.supabase`
+  (`HESABYAR_DATABASE_URL` + `HESABYAR_TRYTON__BASE_URL=http://localhost:8010`)
+  before any pytest/FastAPI run. Trytond :8010 serves the Supabase Tryton
+  DB; start it with `start-trytond-supabase.sh` (password from ~/.pgpass).
+- SERIALIZE pytest: never run two pytest processes concurrently — they
+  deadlock on the shared HesabYar test DB. CRITICAL: the parent's Phase 5
+  Playwright verification is STILL RUNNING when this plan is written — NO
+  DB-touching pytest until the parent confirms it finished. Start with
+  worktree setup, scaffolding, DB-free tests, frontend work, and Tryton
+  console/module work.
+- Per-story verification is TARGETED tests only (story tests + affected
+  areas + ruff + pyright); full suite once at wave-end (user's policy
+  since 2026-11-17).
+- Architecture guard: the 16-test Phase 4 guard (no port bypass, no direct
+  SQL to the Tryton DB) must stay green. Application services depend only
+  on ports; SQLAlchemy lives in infrastructure/persistence/postgres/.
+- No hard-coded rates, no hard-coded channel lists (grep-verified).
+  Fee % is user-entered per channel/contract; rate change = new versioned
+  contract with an effective date. Ilmaz is NOT a built-in channel.
+- New canonical event names beyond US-501's 9 need ADR approval BEFORE
+  implementation (phased design §8.4). The derived
+  installment.schedule.created event is NOT built in this phase.
+- No browser automation / RPA / screen-scraping as a product path (ADR
+  0003 update 4). No internet-banking passwords stored, ever.
+- Fintech inquiry results are ephemeral: store verdict/code/time only.
+- Persian-only, Rial-only product (standing). VibeFarsi/FarsiUI via the
+  existing facade. BFF auth pattern for new dashboard pages.
+  No fake data anywhere.
+- Playwright e2e runs against `pnpm start` (production server) — the
+  Next dev server does not hydrate in this environment (coordinator
+  finding, Phase 5). Re-mint the dev API key with
+  `apps/admin/scripts/mint-dev-key.py` before any Playwright work (the
+  full suite wipes it every time).
+
+## Deferred / carried forward
+
+- (carried from Phase 5, see archive/phase-5/progress.txt — incl.
+  get_report for P&L/balance sheet/cash flow; GET /accounting/journals
+  endpoint; invoice finalize; payment create/approve; statement import
+  [NOW US-514]; party/tafsili on journal lines; tax calculation on
+  invoices; Moadian production connectivity; electronic commercial-books
+  exports §12.4; Standard 15 revised-1404 text import)
+- Digikala marketplace connector (D1) — conditional on §9.1, docs
+  login-gated, UNVERIFIED.
+- Fintech aggregator + inquiry (B3) — needs customer credentials +
+  Iranian egress (even for dev/test sandbox).
+- (RESOLVED by US-512, 2026-11-18: SyncBatch.events type-carrying
+  shape — `SyncedEvent` = canonical event + canonical type, in
+  `domain/events/sync.py`.)
+- 2 pre-existing journal e2e tests fail at pickAccounts (responsive
+  spec): GET /accounting/accounts takes ~30s vs the BFF 30s timeout —
+  backend perf work for a follow-up story.
+- Phases 5پ (gateways + settlement), 5ث (cheques), 5ج (installments/BNPL),
+  5ح (unified panel completion), 5خ (workflows), 6 (MCP), 7 (production
+  readiness) follow per the phased design's dependency order.
+
+## Log
+- 2026-11-18: Phase 5-2 launched. 6 story agents spawned in parallel
+  isolated worktrees (all based on plan commit 853763d):
+  US-511 (hesabyar-wt-us511, ports 8101/3101), US-512 (wt-us512,
+  8102/3102), US-513 (wt-us513, 8103/3103), US-514 (wt-us514, 8104/3104),
+  US-515 (wt-us515, 8105/3105), US-516 (wt-us516, 8106/3106).
+  DB-touching pytest HELD until the parent confirms its Phase 5
+  Playwright verification finished; agents start with scaffolding,
+  implementation, DB-free tests, frontend, and Tryton console work.
+- 2026-11-18 ~09:42: DB LOCK RELEASED by parent (Phase 5 Playwright
+  verification done, review-queue 5/5 green). Go-ahead sent to all 6
+  story agents (serialized DB pytest: poll before each run, never two
+  concurrent). Agents also told to cherry-pick b4e9042 (mint-dev-key
+  now includes US-504 review scopes) into their story branches.
+  VM replacement ~09:29: trytond :8010, backend :8001, Next :3000 all
+  back up; pnpm 10.34.9 reinstalled.
+- 2026-11-18: US-513 PASS (coordinator-verified independently).
+  Implementation `78f270c` + `cd082f0` (b4e9042 cherry-pick) +
+  `1c32d8c` on `ralph/phase-5-2-us513`. Manual order/refund/
+  cancellation entry producing the same 15-field canonical envelope
+  (source_system="manual") through the same EventIngestService +
+  §10.3 pipeline; manual_entries row anchors traceability both ways.
+  My verification in the worktree: ruff clean, pyright 0, story unit
+  + guards 49/49, REST 19/19 (7:20, serialized), tsc 0, lint clean,
+  vitest 208/208, build green (30 routes incl. /invoices/manual),
+  Playwright 4/4 against the production server (first run 3/4: the
+  overflow test failed on a cold-backend login timeout; re-run passed
+  in 11.2s — environmental flake, not a defect). Migration
+  0012_us513 (down_revision 0011) ready for re-chaining at merge.
+  Merge HELD until US-511/US-512 land (story-order merges).
+  FINDING (shared, not a US-513 blocker): the pipeline's production
+  wiring still binds the F1 fail-closed defaults
+  (FailClosedMappingResolver / DraftOnlyPolicyGate in
+  dependencies.py) — US-503's mapping center + policy gate are not
+  wired in, so every event routes to needs_review. Flagged to the
+  US-511 agent: its "completed order → Sale/invoice" AC requires the
+  wiring (adapter + binding, reusing US-503 services).
+- 2026-11-18 ~07:08 UTC: VM replacement (8th) struck during US-512
+  verification — killed all servers + in-flight execs (incl. the
+  coordinator's lane-wait for the US-512 REST run). No work lost.
+  Coordinator restarted trytond :8010 (healthy) and reinstalled pnpm
+  10.34.9; notified the 4 running story agents (US-511/514/515/516)
+  to retry killed runs and restart their dev servers. Parent's
+  backend :8001 + Next :3000 also down (parent's servers).
+- 2026-11-18: US-512 PASS (coordinator-verified independently).
+  Implementation `c44ad0f` + `d8d8883` (b4e9042 cherry-pick) on
+  `ralph/phase-5-2-us512`. Generic store connector (HTTP changes API
+  + read-only store-DB read), StoreSyncService, sync + db-credentials
+  REST endpoints, SyncedEvent type-carrying shape (resolves the Phase
+  5 deferred SyncBatch item). My verification in the worktree: ruff
+  clean, pyright 0, new unit + guards 106/106 (42 sync + 48
+  connectors + 16 guards), REST 15/15 (4:34, serialized). Zero-write
+  proof verified in code (INSERT/DROP raise OperationalError
+  "readonly"; SQLite mode=ro + Postgres default_transaction_read_only
+  + SELECT-only guard). Migration 0012_us512 (down_revision 0011)
+  ready for re-chaining at merge. Merge HELD until US-511 lands
+  (story-order merges). Notes: (1) cheque/bank-transfer/shipment
+  rows are counted unmapped, never ingested — those canonical names
+  are NOT among US-501's 9 (cheque.received.registered /
+  payment.bank_transfer.recorded need ADR approval before 5ث/5پ can
+  ingest them); (2) refund convention — payment.refunded id is the
+  store event id suffixed `:payment-refunded`; flagged to US-511 so
+  the receiver matches exactly; (3) Postgres read-only path not
+  live-tested (SQLite proof + guard + GUC only); (4) no scheduled
+  polling (operator-driven endpoint, scheduler-ready); (5) shared DB
+  alembic_version is 0009 (pre-existing drift) — reconcile at merge.
+- 2026-11-18 ~12:53: TWO-LANE TEST SETUP live (parent-built, verified).
+  Lane 1 (:8010, .env.supabase): US-511 + US-514. Lane 2 (:8011,
+  .env.supabase-lane2, project hepctjfpuqgdduwdqgmb): US-515 + US-516.
+  DB pytest serializes WITHIN a lane only. All 4 running agents
+  notified (lane + env file + TRYTON_BASE_URL gotcha for contract
+  tests + re-mint on lane 2 + re-run DB tests on lane 2 before
+  reporting + repeat any post-12:26 Tryton-side setup on lane 2).
+  Coordinator verification will follow the same lane assignment
+  (US-511/514 on lane 1, US-515/516 on lane 2).
+- 2026-11-18 ~10:01 UTC: 9th VM replacement struck during US-511 DB
+  verification (SIGTERM'd the REST+contract run at ~11.5 min, no
+  output). No work lost. Coordinator restarted trytond :8010 (lane 1;
+  :8011 lane 2 survived) and reinstalled pnpm 10.34.9; notified the
+  running US-515/US-516 agents. US-511 DB run re-launched on the free
+  lane 1 (US-514 done).
+- 2026-11-18: US-514 agent completed (HEAD 5151a02). Coordinator
+  verification in progress: ruff clean, pyright 0, bank unit + guards
+  138/138 (122 bank + 16 guards), tsc 0, lint clean, vitest 206/206,
+  build green (30 routes incl. /banking/statements/import), migration
+  0012 (down 0011), reconcile 501 stub implemented, dedup predicate
+  fixed in model + migration, route order fixed, banking:import scope
+  (catalog 33). Interfaces DB tests + Playwright pending (queued
+  behind the US-511 DB run on lane 1).
+- 2026-11-18: US-511 PASS (coordinator-verified independently).
+  Implementation on `ralph/phase-5-2-us511` (9 commits: `6d61b42`
+  receiver+mapping, `34da1f8` policy-gate wiring, `3d6864f` refund
+  suffix, `9c8faa2` invoice-account fallback, `d7e9b2c` migration
+  0013, `c42c7e9` polarity fix, + test/cherry-pick commits). Webhook
+  receiver + 8-topic mapping (3 pending-ADR topics 422, never
+  ingested), RegistryPolicyGate wired into the pipeline (replacing
+  DraftOnlyPolicyGate), completed order → customer invoice draft.
+  My verification in the worktree: ruff clean, pyright 0, targeted
+  unit 311/311 (incl. 16 guards), REST 12/12 (7:04), contract 6/6
+  (16:30) — order → draft invoice, cancel → cancel, cancel of
+  posted → credit note, partial refund → partial credit note,
+  payment → receivable draft, auto-post opt-in → PROCESSED_POSTED.
+  (First DB attempt SIGTERM'd by the 9th VM replacement; rerun green.)
+
+- 2026-11-18 (US-512, S2): store reconciliation & backfill. Generic
+  store connector (`infrastructure/store_connectors/`): HTTP changes
+  API (`GET {api_base_url}/changes`, Bearer, trust_env=False) +
+  read-only store-DB read (v1 `hesabyar_changes` view, keyset on
+  (updated_at, event_id), read-only connection + query guard — zero
+  writes proven in tests). `POST /integrations/{connector}/sync`
+  + `POST /integrations/stores/{store_key}/db-credentials`
+  (DSN encrypted, never returned; migration 0012). Same
+  idempotency key as webhooks; refund → 2 events (second suffixed
+  `:payment-refunded` — US-511 must use the same convention).
+  Cheque/bank-transfer/shipment rows counted as unmapped, never
+  ingested (canonical names need ADR approval). Docs:
+  `docs/store-connector.md`.
+- 2026-11-18: US-511 + US-512 + US-513 MERGED in story order
+  (`32ffcbe` US-511, `81940c6` US-512, `3df4a5e` US-513; head now
+  `3df4a5e`). Migrations re-chained linearly: US-511's 0012+0013
+  stay, US-512's 0012 -> 0014, US-513's 0012 -> 0015 (single head
+  0015, chain verified with `alembic history`). Merge resolutions:
+  events.py keeps US-511's fan-out ingest() + _ingest_one() and its
+  inline verify() (fan-out + installation-scoped secrets, which the
+  domain verify_incoming_event does not support) + US-512's
+  ingest_verified() as a wrapper over _ingest_one (re-added
+  json/verify_hmac_sha256/EventSignatureError imports US-512's
+  extraction had removed); docs/store-connector.md combined both
+  added docs (Part I S1 §1-12 numbering kept, Part II S2 §II.1-8);
+  error modules + mint-dev-key.py keep both sides' additions.
+  Merged-tree verification: ruff clean, pyright 0, targeted unit
+  461/461, tsc 0, lint clean, vitest 208/208, build green (30 routes
+  incl. /invoices/manual).
+- 2026-11-18: US-512 POLL-PATH ENTITY-GAP FIX applied on the merged
+  tree (`5f8326b`). map_store_change copied the change row's coarse
+  entity verbatim, but the US-511 validator requires each type's OWN
+  entity — a refund/cancel arriving only by poll failed validation
+  and routed to review. The mapper now derives the entity from the
+  payload (order/order_id, order_cancellation/order_id,
+  refund/refund_id, payment/gateway_payment_id,
+  payment_refund/refund_id), mirroring validate_store_payload +
+  derive_fanout_event; missing id falls back to the source event id
+  (never raises inside fetch_changes). Tests prove the canonical
+  entities per type and that fully valid polled events of all 5
+  types pass the US-511 validator.
+- 2026-11-18 ~14:05: PARENT INSTRUCTION (user-approved) —
+  WAVE-END SUITE SHARDING. The Phase 5-2 wave-end full pytest suite
+  runs SHARDED across both lanes (bottleneck is per-query latency to
+  remote Supabase, ~127ms, so the suite itself must split): two
+  shards by test directory/file (directories stay together),
+  Shard A on lane 1 (.env.supabase, :8010), Shard B on lane 2
+  (.env.supabase-lane2, :8011 + TRYTON_BASE_URL=:8011). Each shard
+  serial within its lane; the two run in parallel. Before the run:
+  repeat any post-12:26 Tryton-side setup on lane 2 and apply the
+  final merged migrations to BOTH lanes' HesabYar DBs. GATE: BOTH
+  shards must be green; report combined counts as ONE verdict. The
+  exact shard split will be documented here at wave-end. The suite
+  still runs ONLY on the final merged tree after all 6 stories pass
+  — no early start. Acknowledged; no change to current story work.
+- 2026-11-18: US-514 PASS (coordinator-verified independently).
+  Implementation on `ralph/phase-5-2-us514` (HEAD `5151a02`, 11
+  commits). Bank statement import (Excel/CSV/PDF, Melli-first,
+  per-bank column mapping, Jalali dates, Persian digits, Toman->Rial
+  x10, two-layer dedup, 2,000-row cap, import_batch_id + preview +
+  manual_import_review item) + reconciliation (P1 exact reference,
+  P2 amount+date window, P3 scored suggestions + learned rules;
+  unmatched deposits never auto-post) + the Phase 2 typed-501
+  reconcile stub IMPLEMENTED + bank-reconciliation-status report.
+  New scope banking:import (catalog 33). My verification in the
+  worktree: ruff clean, pyright 0, bank unit + guards 138/138,
+  interfaces DB 45/45 (11:27), tsc 0, lint clean, vitest 206/206,
+  build green (30 routes incl. /banking/statements/import),
+  Playwright 7/7 (6.6m) against the production server. Migration
+  0012_us514 (down_revision 0011) ready for re-chaining at merge.
+- 2026-11-18: US-514 MERGED (`8e53b2a`; head now `8e53b2a`).
+  Migration re-chained 0012 -> 0016 (single head 0016, chain
+  verified). Merge resolutions: models.py's conflicted tail
+  reconstructed by splicing HEAD's complete ManualEntryModel +
+  US-514's complete bank section (5 models) — git had aligned the
+  two similar-shaped classes line by line; commands.py keeps
+  US-511's partial_amount + CancelInvoice AND US-514's bank
+  commands; api-client.test.ts total 67+15=82 methods; mint-dev-key
+  keeps the US-513 integrations scopes. Merged-tree verification
+  (511+512+513+514): ruff clean, pyright 0, targeted unit 498/498,
+  tsc 0, lint clean, vitest 218/218, build green (31 routes incl.
+  /invoices/manual + /banking/statements/import).
+- 2026-11-18 ~16:13: PARENT INSTRUCTION (lane rebalance) — ACKNOWLEDGED.
+  US-516 moves to lane 1 (.env.supabase, :8010, TRYTON_BASE_URL=:8010)
+  so US-515 (lane 2) and US-516 verify in parallel instead of queuing
+  on lane 2. Move happens at the next safe boundary: US-516's
+  Playwright run is IN FLIGHT on lane 2 right now and will NOT be
+  interrupted — its result stands as the Playwright verification
+  (the lane is infrastructure, not the thing under test). After it
+  completes, US-516's DB-touching pytest (contract 13 + REST 23)
+  re-runs on lane 1. If the lane-1 run is blocked by dev-DB state,
+  that will be logged here and the move will NOT be forced (the
+  lane-2 results then stand as the verification).
+- 2026-11-18: US-516 PASS (coordinator-verified independently).
+  Implementation on `ralph/phase-5-2-us516` (HEAD `328b58d`, 7
+  commits). Cash-box registry + counting sessions (state machine
+  in_progress -> awaiting_supervisor -> awaiting_manager ->
+  archived) + variance journals + report; 15 REST endpoints; scopes
+  cashbox:read/count/manage (catalog 35 on the branch). Variance
+  journal is a DRAFT until a manager approves the linked
+  cashbox_variance review item (posting verifies RESOLVED +
+  ADJUSTED + approval audit entry — never auto-posted); supervisor
+  must differ from cashier; minutes (3 signatures) only when
+  variance != 0. My verification in the worktree: ruff clean,
+  pyright 0, unit 241/241, contract 13/13, REST 23/23, tsc 0, lint
+  clean, vitest 209/209, build green (31 routes incl.
+  /banking/cash-boxes), Playwright 4/4 (cash-box flow + no overflow
+  at 320/390/1280px). Shared-infra fixes reviewed + sound: REST
+  teardown swallows SQLAlchemyError only; BFF retries GETs once on
+  5xx/timeout, writes never retried. Migrations 0012+0013 (down
+  0011/0012) ready for re-chaining at merge. Merge HELD until
+  US-515 lands (story-order merges).
+- 2026-11-18: LANE REBALANCE executed (parent instruction ~16:13).
+  US-516 moved to lane 1 at the safe boundary (its Playwright run
+  finished 4/4 on lane 2 first — not interrupted; that result
+  stands). DB pytest re-run on lane 1: contract 13/13 (2:40) +
+  REST 23/23 (17:27), both green. CONFIRMED: test DBs are built
+  fresh per run, so the merged-tree Alembic state on lane 1's dev
+  DB did not block the worktree verification. US-515 stays on
+  lane 2; the two stories now verify in parallel.
+- 2026-11-18: US-515 PASS (coordinator-verified independently).
+  Implementation on `ralph/phase-5-2-us515` (HEAD `e15b319`,
+  incl. coordinator fix commits `bc76972` pyright fakes +
+  `e15b319` supply-check batching). Packaging domain +
+  application + 24 Tryton port methods + 8 Postgres tables +
+  migration 0012 (down 0011, re-chain to 0017 at merge); 26 REST
+  ops / 19 paths; scopes packaging:read/manage (catalog 34 on
+  the branch); Procrastinate supply-check worker; 4 Persian RTL
+  pages + nav module; BFF PUT support; Tryton timeout 30s->120s
+  + BFF UPSTREAM_TIMEOUT_MS 30s->120s (measured: stock-move do
+  41s, 14-line inventory confirm 53s). My verification in the
+  worktree: ruff clean, pyright 0, packaging unit 79/79 (53
+  services incl. new batch regression test + 26 adapter),
+  affected-area unit 152/152, REST 27/27 (9:20), contract 14/14
+  (7:06), tsc 0, lint clean, vitest 210/210, build green (33
+  pages), Playwright 5/5.
+  PLAYWRIGHT FAILURE + FIX: first run was 4/5 — the materials
+  flow spec hung on the supply-check step (button stuck
+  «در حال بررسی…», supply-report never appeared in 120s). Direct
+  reproduction showed the endpoint SUCCEEDS but takes 148.7s:
+  run_supply_check did 2 REST calls per material
+  (get_packaging_product + get_order_point) x 21 materials —
+  past the 120s BFF timeout, so the browser never saw the
+  result. Coordinator fix `e15b319` hoists both reads into the
+  existing list_packaging_products + list_order_points batch
+  calls (same pattern list_materials already uses; order points
+  filtered to the resolved warehouse). Live re-test: 19.95s,
+  HTTP 200, 21 materials, 0 errors. Failing spec re-run green
+  (1 passed, 4.1m) -> Playwright 5/5. No REST test covers
+  supply-check (verified by grep); the live reproduction +
+  Playwright re-run are the verification for the fix.
+  ALL 6 STORIES NOW PASSED. Merges next, in story order:
+  US-515 (migration 0012 -> 0017, down 0016; HEAD_REVISION
+  0011 -> 0017) then US-516 (0012+0013 -> 0018+0019, down
+  0017/0018; HEAD_REVISION 0013 -> 0019). Merge-time note:
+  apps/admin/lib/backend.ts needs BOTH US-515's 120s timeout
+  AND US-516's GET retry (each branch has only one).
+
+2026-11-18 ~15:00 UTC — US-515 + US-516 MERGED. All 6 stories passed
+  and merged in story order. Branch head now cf99b4b.
+  US-515 merge dbe6c5b (20 conflicts, all keep-both-sides;
+  migration 0012 -> 0017, down 0016, short revision id;
+  HEAD_REVISION 0017; scope catalog 35). US-516 merge eb3573b
+  (27 conflicts) + follow-up cf99b4b.
+  US-516 merge resolutions worth knowing (full list in the
+  merge commit message):
+  - StatementJournalView UNIFIED: US-514 and US-516 each defined
+    it with a different shape. Merged view carries the union;
+    id stays as a property for the bank call sites. The adapter
+    had TWO list_statement_journals (silent auto-merge
+    duplicate) — unified into one (one search + batch currency,
+    IBAN + account code/name reads). 3 test fakes constructing
+    with id= now use ref=StatementJournalRef(...).
+  - api-client.ts: listStatementJournals was ALSO duplicated
+    (bank vs cash-box endpoints) — cash-box side renamed to
+    listCashBoxStatementJournals + CashBoxStatementJournalResponse
+    (the two interfaces had silently merged in TS). 123 methods.
+  - ports.py: 70 methods total; US-516's duplicate
+    list_statement_journals stub dropped, its docstring merged
+    into HEAD's. 9 more duplicate list_statement_journals stubs
+    in test fakes (F811) removed — kept the working definition
+    in each file; FakePort in test_application_services.py keeps
+    both stub blocks minus the duplicate.
+  - test_migrations.py: EXPECTED_TABLES gains the bank (0016) +
+    packaging (0017) tables the earlier merges had omitted, plus
+    the cash-box tables; HEAD_REVISION 0019.
+  - Migration re-chained: 0012+0013_us516 -> 0018+0019 (down
+    0017/0018). Also fixed 3 pre-existing E501 long lines in the
+    0015/0016 migrations (earlier ruff runs scoped to src/tests
+    missed them).
+  - Follow-up cf99b4b: cash-box adapter test fixtures lacked
+    record["company"], which the unified mapping reads (the
+    adapter requests 'company', so real Tryton records carry it)
+    — added company: 1 to the 3 fake records. This was the only
+    merged-tree unit failure (1/671 in the first targeted run).
+  MERGED-TREE VERIFICATION (final tree, head cf99b4b): ruff
+  clean, pyright 0, targeted unit 775 passed / 0 failed (story
+  files 671 + affected areas; test_report_services.py's 12 DB
+  tests need the lane env — 17/17 in 4:04 with .env.supabase),
+  tsc 0, lint clean, vitest 245/245, build green (37/37 pages;
+  /packaging/* + /banking/cash-boxes + /invoices/manual +
+  /banking/statements/import all present), Alembic single head
+  0019 with a linear chain, scope catalog 38, api-client 123
+  methods (asserted by test), OpenAPI 146 paths (was 42 after
+  Phase 5; bank 21, packaging 19, cash-box 6 paths).
+  KNOWN PRE-EXISTING MISMATCH (not a merge artifact, not
+  fixed): the bank TS StatementJournalResponse declares
+  company_id, but the backend Pydantic schema has no
+  company_id — the field is undefined at runtime. Flagged to
+  the parent.
+  NEXT: the sharded wave-end full suite (user-approved) — see
+  the wave-end section below.
+
+2026-11-18 ~15:15 UTC — WAVE-END SUITE PREP (sharded, user-approved)
+  Dev-DB prep: lane 1's dev DB already had the full 0012-0019
+  schema (create_all) with a stale 0013 stamp -> alembic stamp
+  0019. Lane 2's dev DB was missing 0012 (inbox.installation_id),
+  0013 (mapping_version still varchar), 0014 (stores
+  store_db_dsn_ciphertext), 0015 (manual_entries) and 0016 (5
+  bank tables); its version row held the dead pre-rechain id
+  0012_us515_packaging, which made even `alembic stamp` refuse
+  — fixed the row to 0011 by SQL, ran `alembic upgrade 0016`,
+  then stamped 0019. Both lanes now at alembic 0019 (head)
+  with complete schemas (verified: all 59 expected tables
+  present on both; the only "missing" item is
+  uq_inbox_events_source_event, a constraint name, identical
+  on both lanes and pre-existing).
+  Tryton parity: both Tryton DBs have 151 accounts incl. the 4
+  cash-box accounts, 3 statement journals, 2 PACK locations,
+  40 modules — NO post-12:26 setup needed repeating on lane 2.
+  trytond :8010 + :8011 both up (405).
+  SHARD SPLIT (2185 tests collected; directories kept whole):
+  - Shard A, lane 1 (.env.supabase, trytond :8010,
+    TRYTON_BASE_URL=http://localhost:8010):
+    tests/unit (1237) + tests/domain (105) +
+    tests/test_validator.py (35) + tests/contract (118) =
+    1495 tests. Rationale: contract tests are the slowest
+    per-test (~25s each live against Tryton) and pair with
+    the mostly-fast unit dir.
+  - Shard B, lane 2 (.env.supabase-lane2, trytond :8011,
+    TRYTON_BASE_URL=http://localhost:8011):
+    tests/interfaces (460) + tests/infrastructure (230) =
+    690 tests. Rationale: interfaces is the largest slow
+    (REST/DB) dir; infrastructure has many skips + fast
+    auth tests.
+  Both shards run with -p no:cacheprovider (two pytest
+  processes share one worktree; avoids a .pytest_cache race).
+  GATE: BOTH shards must be green; report combined counts as
+  ONE verdict. Logs: ~/workspace/coord-logs/wave-end-5-2-
+  shard-a.log / shard-b.log. After the suite: re-mint the dev
+  API key (full-suite truncation wipes it).
+
+2026-11-18 ~16:20 UTC — WAVE-END SUITE: SHARD A DONE (5 failures,
+  both causes found + fixed), SHARD B KILLED BY 12TH VM REPLACEMENT.
+  Shard A (lane 1): 1490 passed, 5 FAILED, 1:09:50. All 5 in
+  tests/contract/test_tryton_adapter_sales.py. Shard B (lane 2)
+  reached 99/690 (all passing) in 75 min, then the VM was
+  replaced (12th; uptime 0, trytond down, pnpm + psql wiped).
+  Recovery was MINIMAL this time — the full restore-dev-env.sh
+  hangs on apt-get update, so: pnpm reinstall + trytond :8010/
+  :8011 restart + psql 17 from the local .debs in
+  hesabyar-reference/pg17/ (dpkg -i libpq5/client-common/
+  postgresql-client-17). Note for future recoveries: skip the
+  full restore script; the local-Postgres steps are unnecessary.
+  SHARD A FAILURE 1 (test_sale_full_flow_creates_invoice):
+  process_sale ran the engine action with NO company context.
+  Processing copies the sale line's analytic entries onto the
+  invoice lines, and the invoice line's analytic_accounts_size
+  is computed from the transaction-context company (verified in
+  the installed trytond source: analytic_account/account.py
+  AnalyticMixin + analytic_invoice/invoice.py). Without company
+  context the size is 0, so the copied entry fails ('too long
+  (1 > 0)'). Surfaced only now because US-515's provisioning
+  created the first analytic root ('سفارش‌ها', id 2) — before
+  that there were no entries to copy. Confirmed in the DB: the
+  sale line had entry 115 (root 2, account NULL, auto-created
+  by default_analytic_accounts). FIX (commit 1eac7b2):
+  process_sale resolves the sale's company with a lightweight
+  read and passes context={'company': ...}. create_credit_note
+  already passes context; quote/confirm/cancel create no
+  analytic records.
+  SHARD A FAILURE 2 (4 invoice-posting tests): the sales tests
+  used fixed MOVE_DATE 2026-11-16, but the shared Tryton DB
+  holds posted customer invoices dated 2026-11-17 from the
+  US-511 webhook fixtures (event_fixtures NOW = 2026-11-17),
+  and Tryton numbers invoices chronologically. FIX (same
+  commit): MOVE_DATE = today (dynamic), CLEARING_DATE = today
+  + 4 days. The 4 stuck 'validated' invoices (90/92/93/94) +
+  confirmed sale 5 are harmless residue; the tests create fresh
+  fixtures per run.
+  SHARD B RE-SPLIT (deviation from the directory-level split,
+  documented here): at the observed ~45s/REST-test, the 460
+  interfaces tests alone need ~5h on one lane, and VM
+  replacements strike every few hours — a 5h single-lane run
+  is unlikely to survive. The remaining 690 tests are split by
+  FILE (each file whole, intra-file ordering preserved) across
+  BOTH lanes instead:
+  - Shard B1, lane 1: interfaces audit/auth/bank_import/
+    cashbox/companies_accounts(+e2e)/fiscal(+e2e)/health/
+    integrations/integrations_events/integrations_sync (217)
+    + infrastructure postgres/standards_registry/
+    tax_policy_registry/tax_policy_repository/tryton_irr_jalali
+    (100) = 317 tests.
+  - Shard B2, lane 2: interfaces invoices_payments_statements/
+    journal_drafts(+e2e)/manual_entries/moadian/packaging/
+    phase2_e2e/reports/review_queue/standards/store_webhooks/
+    tax_policy (243) + infrastructure api_key_auth/config/
+    event_repositories/integrations_repository/migrations/
+    moadian_registry/phase1_schema (130) = 373 tests.
+  B2 launched immediately (lane 2 free); B1 launches after the
+  5-test fix verification finishes on lane 1 (no two pytest
+  processes on one lane). The 99 tests shard B already passed
+  are re-run inside the new halves (pytest -q prints no test
+  names for passes, so the exact 99 cannot be resumed).
+
+2026-11-18 ~16:55 UTC — SALES FIX VERIFIED: the full sales
+  contract file passes 13/13 in 19:49 on lane 1 (commit
+  1eac7b2), including all 5 previously failing tests. Shard
+  A is therefore GREEN as amended: 1490 passed + 5 fixed =
+  1495/1495. Shard B1 launched on lane 1 (317 tests); shard
+  B2 already running on lane 2 (373 tests). Combined
+  wave-end verdict awaits B1 + B2.
+
+2026-11-18 ~18:10 UTC — SHARD B2 DONE: 363 passed, 8 skipped,
+  2 FAILED + 1 teardown ERROR, 1:32:43 (lane 2). Both failures
+  were STALE TEST EXPECTATIONS, fixed in the commit above:
+  (1) test_scope_catalog_matches_spec asserted 32 scopes (Phase
+  5 count) — Phase 5-2 added 6 -> 38; (2) the phase2 e2e
+  asserted the Phase-2 reconcile 501 stub — US-514 implemented
+  it (200). Fix verification on lane 2 (per the parent's
+  targeted re-run instruction): scope test + the whole phase2
+  e2e file -> 7 passed, 1 error in 11:04 (verify-b2-fixes.log).
+  The 1 error is a TEARDOWN-only psycopg OperationalError (SSL
+  unexpected eof during ROLLBACK after the ~10-min test) — the
+  full-cycle test itself PASSED. Single-test re-run ordered by
+  the parent to confirm it is environmental.
+  13TH VM REPLACEMENT struck ~18:16 UTC (uptime 0, trytond
+  down, pnpm + psql wiped) — killed shard B1 at 238/317 and
+  the phase2 single re-run (no output). Minimal recovery again
+  (pnpm + trytond x2 + psql 17 from local .debs). B1's
+  tracebacks are LOST (killed before the summary printed), so
+  its 2 failures are being diagnosed by targeted re-runs on
+  lane 1: test_e2e_restricted_key_reads_without_company_param
+  (#101) + test_sync_window_params_are_mutually_exclusive
+  (#208); the E at #102 was #101's teardown error. B1's 79
+  unrun tests (standards_registry 7 + tax_policy_registry 12 +
+  tax_policy_repository 11 + tryton_irr_jalali 49) still need
+  one run on lane 1 — the remainder run will re-run the whole
+  standards_registry file (13) + the 3 unrun files = 85 tests
+  (intra-file order preserved; the 6 already-passed
+  standards_registry tests re-run as the cost of file-level
+  resumption).
+
+2026-11-18 ~18:30 UTC — B1 FAILURES DIAGNOSED BY TARGETED RE-RUN
+  (lane 1, commit 667f48a): both pass with NO code change —
+  test_e2e_restricted_key_reads_without_company_param +
+  test_sync_window_params_are_mutually_exclusive: 2 passed in
+  2:18 (verify-b1-failures.log). Their shard-run tracebacks
+  were lost to the 13th VM replacement (B1 was killed before
+  the summary printed), so the exact in-shard cause cannot be
+  proven; the most plausible cause is environmental flakiness
+  under the heavily-loaded shard run (two shards + the sales
+  verification concurrently on a 1.5-CPU VM; SSL teardown
+  drops were observed in the same suite). Both stand as
+  passed via the targeted re-run, per the parent's
+  instruction. B1 remainder (85 tests) launched on lane 1.
+
+2026-11-18 ~18:45 UTC — SHARD B1 GREEN AS AMENDED.
+  Killed run: 238 markers = 237 tests (235 passed + 2 failed)
+  + 1 teardown error. COUNTING GOTCHA (verified against the
+  B2 log: 374 markers for 373 tests): a teardown ERROR is an
+  EXTRA progress marker, so markers after it shift by one —
+  the second failure was test #207
+  test_sync_requires_manage_scope (5th sync test), NOT #208's
+  test_sync_window_params_are_mutually_exclusive (6th). My
+  first diagnosis re-run hit the wrong test (it passed, as it
+  had in-shard); the correct re-run then passed too:
+  1 passed in 30.53s (verify-b1-sync-scope.log). The first
+  failure (test_e2e_restricted_key_reads_without_company_param)
+  re-ran green in 2:18 with the other test (verify-b1-failures
+  .log). Both pass with NO code change — flaky in-shard under
+  load; their shard tracebacks were lost to the VM
+  replacement. Remainder run (lane 1): 85 passed in 11:33
+  (wave-end-5-2-shard-b1-remainder.log) — full
+  standards_registry file + tax_policy_registry +
+  tax_policy_repository + tryton_irr_jalali, covering all 80
+  unrun tests. B1 total: 317/317 accounted for, all green.
+  PHASE2 TEARDOWN ERROR — ROOT CAUSE FOUND (4th occurrence):
+  the first fix (close the world fixture's setup session
+  before yield) moved the failure from teardown's session
+  .close() to the cleanup session's first statement: the
+  module-scoped engine's pool hands out the STALE connection
+  (idle ~9 min while the test talks to Tryton; Supabase
+  drops idle SSL connections) and SQLAlchemy's default pool
+  does not validate on checkout. Fix: pool_pre_ping=True on
+  this file's engine fixture (file-local; both changes
+  together are needed — early close removes the idle HELD
+  connection, pre-ping validates idle POOLED ones).
+  Re-running the phase2 file on lane 2 to verify.
+
+2026-11-18 ~19:00 UTC — WAVE-END SUITE COMPLETE: GREEN AS AMENDED.
+  Combined: 2177 passed, 8 skipped, 0 failed (2185 total).
+  - Shard A (lane 1): 1490 passed + 5 failed in 1:09:50 ->
+    fixed by 1eac7b2 (process_sale company context +
+    dynamic sales-test dates) -> sales file re-run 13/13 in
+    19:49 (verify-sales-fix.log). 1495/1495.
+  - Shard B1 (lane 1): killed by the 13th VM replacement at
+    237 tests (235 passed + 2 failed + 1 teardown error);
+    failed tests re-ran green with no code change
+    (restricted_key 2:18 in verify-b1-failures.log,
+    requires_manage_scope 30.53s in verify-b1-sync-scope
+    .log — the E marker is EXTRA, so the 2nd failure was
+    test #207, not #208); remainder 85 passed in 11:33
+    (wave-end-5-2-shard-b1-remainder.log). 317/317.
+  - Shard B2 (lane 2): 363 passed + 8 skipped + 2 failed +
+    1 teardown error in 1:32:43 -> fixed by 667f48a (scope
+    count 32 -> 38, reconcile 501 -> 200) + the phase2
+    fixture fix (early session close + pool_pre_ping, see
+    the commit above) -> scope test + phase2 file 7 passed
+    (verify-b2-fixes.log), then phase2 file 6/6 clean in
+    11:15 (verify-phase2-preping.log). 373/373 (365 passed
+    + 8 skipped: the 8 test_migrations tests skip on real
+    DBs, as designed).
+  All re-runs were TARGETED (failed tests only + the
+  directly-affected phase2 file for the fixture fix), per
+  the user's standing rule — no green test was re-run
+  except the 6 standards_registry tests in the B1 remainder
+  (file-level resumption; the user has since ordered
+  test-level selection for any future resumption).
+  PHASE 5-2 COMPLETE: all 6 stories passed, merged in story
+  order, merged tree verified, wave-end suite green as
+  amended. Branch head: see git log.

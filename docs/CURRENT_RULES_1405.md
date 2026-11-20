@@ -106,7 +106,7 @@ Circular **200/1405/40 dated 1405/05/11** extended the deadline for uploading Q1
 
 Implementation consequences:
 
-- HesabYar needs an **Electronic Books Export/Compliance** boundary separate from the internal ledger;
+- HesabYar needs an **Electronic Books Export/Compliance** boundary separate from the accounting engine's ledger (Tryton owns the ledger; see ADR 0002);
 - regulatory export schemas are versioned profiles;
 - export batches are immutable and reproducible from a ledger cutoff;
 - deadlines belong to a `ComplianceCalendar`, not hard-coded application conditionals.
@@ -148,7 +148,7 @@ Implementation consequences:
 - keep tax classification “commercial/non-commercial” separate from HesabYar authorization roles;
 - do not activate tax calculations merely because the statute is enacted;
 - activation requires the applicable executive-platform/effective-date conditions and current official rules to be verified;
-- Moadian protocol profiles must be capable of later supporting new commercial/non-commercial workspace and asset-transfer obligations without changing the ledger domain.
+- Moadian protocol profiles must be capable of later supporting new commercial/non-commercial workspace and asset-transfer obligations without changing the accounting domain.
 
 Current consolidated Direct Tax Law:
 https://nezamat.ir/post-28895/

@@ -1,0 +1,189 @@
+/* ------------------------------------------------------------------ */
+/* HesabYar admin — single shared theme-token layer.                   */
+/*                                                                     */
+/* Source: VibeFarsi "paper" theme (MIT, vibefarsi.ir), applied with   */
+/* `npx vibefarsi init --theme paper`. Variable names follow the        */
+/* shadcn/FarsiUI convention (--background, --primary, ...) so both     */
+/* registries share one token layer. Light is the default (spec §5.4); */
+/* dark is opt-in via the `.dark` class on <html>.                     */
+/*                                                                     */
+/* Deviations from upstream paper, made deliberately for a dense       */
+/* financial panel shared with FarsiUI primitives:                     */
+/*  1. Fields use a full 1px border + standard radius (upstream paper  */
+/*     is underline-only: --shape-field 0, --line-field "0 0 1px 0").  */
+/*     Without this, VibeFarsi fields and FarsiUI inputs would look    */
+/*     like two different design systems on the same page.             */
+/*  2. Display type is Vazirmatn (upstream: Noto Naskh Arabic via a    */
+/*     runtime Google Fonts @import). The @import is dropped: the      */
+/*     panel must not depend on a runtime font fetch.                  */
+/*  3. Tokens live on :root (not only [data-theme="paper"]) so light   */
+/*     is the default with no attribute required.                      */
+/* ------------------------------------------------------------------ */
+
+:root,
+[data-theme="paper"] {
+  color-scheme: light;
+
+  /* Colour */
+  --background: oklch(0.985 0.004 85);
+  --foreground: oklch(0.2 0.01 60);
+  --card: oklch(0.985 0.004 85);
+  --card-foreground: oklch(0.2 0.01 60);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.2 0.01 60);
+  --primary: oklch(0.2 0.01 60);
+  --primary-foreground: oklch(0.985 0.004 85);
+  --secondary: oklch(0.94 0.008 85);
+  --secondary-foreground: oklch(0.2 0.01 60);
+  --muted: oklch(0.955 0.006 85);
+  --muted-foreground: oklch(0.47 0.015 60);
+  --accent: oklch(0.94 0.008 85);
+  --accent-foreground: oklch(0.2 0.01 60);
+  --destructive: oklch(0.55 0.2 25);
+  --destructive-foreground: oklch(0.985 0 0);
+  --success: oklch(0.52 0.13 160);
+  --success-foreground: oklch(0.985 0 0);
+  --warning: oklch(0.62 0.14 70);
+  --warning-foreground: oklch(0.2 0.01 60);
+  --border: oklch(0.2 0.01 60 / 14%);
+  --input: oklch(0.2 0.01 60 / 30%);
+  --ring: oklch(0.5 0.02 60);
+  --brand: oklch(0.55 0.19 30);
+  --brand-foreground: oklch(0.985 0 0);
+
+  /* Sidebar (FarsiUI sidebar component) */
+  --sidebar: oklch(0.97 0.005 85);
+  --sidebar-foreground: oklch(0.2 0.01 60);
+  --sidebar-primary: oklch(0.2 0.01 60);
+  --sidebar-primary-foreground: oklch(0.985 0.004 85);
+  --sidebar-accent: oklch(0.94 0.008 85);
+  --sidebar-accent-foreground: oklch(0.2 0.01 60);
+  --sidebar-border: oklch(0.2 0.01 60 / 14%);
+  --sidebar-ring: oklch(0.5 0.02 60);
+
+  /* Design language: type, shape, line, depth, motion, density */
+  --radius: 0.25rem;
+  --type-display: "Vazirmatn", "IRANSans", ui-sans-serif, system-ui, sans-serif;
+  --type-display-weight: 700;
+  --type-body: "Vazirmatn", "IRANSans", ui-sans-serif, system-ui, sans-serif;
+  --shape-control: 0.125rem;
+  --shape-field: 0.25rem;
+  --shape-surface: 0.125rem;
+  --shape-overlay: 0.25rem;
+  --line: 1px;
+  --line-field: 1px;
+  --line-style: solid;
+  --field: transparent;
+  --depth-control: 0 0 #0000;
+  --depth-press: 0 0 #0000;
+  --depth-field: 0 0 #0000;
+  --depth-surface: 0 0 #0000;
+  --depth-overlay: 0 12px 32px -16px oklch(0.2 0.01 60 / 25%);
+  --surface-filter: none;
+  --press: translateY(1px);
+  --motion: 160ms;
+  --motion-ease: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --backdrop: none;
+  --spacing: 0.26rem;
+
+  /* FarsiUI control metrics */
+  --leading-control: 1.5;
+}
+
+/* Optional dark mode (spec §5.4: supported as an option, never default). */
+.dark {
+  color-scheme: dark;
+  --background: oklch(0.22 0.008 60);
+  --foreground: oklch(0.93 0.005 85);
+  --card: oklch(0.24 0.008 60);
+  --card-foreground: oklch(0.93 0.005 85);
+  --popover: oklch(0.24 0.008 60);
+  --popover-foreground: oklch(0.93 0.005 85);
+  --primary: oklch(0.93 0.005 85);
+  --primary-foreground: oklch(0.22 0.008 60);
+  --secondary: oklch(0.3 0.01 60);
+  --secondary-foreground: oklch(0.93 0.005 85);
+  --muted: oklch(0.28 0.008 60);
+  --muted-foreground: oklch(0.7 0.01 60);
+  --accent: oklch(0.3 0.01 60);
+  --accent-foreground: oklch(0.93 0.005 85);
+  --destructive: oklch(0.65 0.18 25);
+  --destructive-foreground: oklch(0.985 0 0);
+  --success: oklch(0.65 0.13 160);
+  --success-foreground: oklch(0.22 0.008 60);
+  --warning: oklch(0.72 0.14 70);
+  --warning-foreground: oklch(0.22 0.008 60);
+  --border: oklch(0.93 0.005 85 / 14%);
+  --input: oklch(0.93 0.005 85 / 30%);
+  --ring: oklch(0.7 0.02 60);
+  --brand: oklch(0.65 0.17 30);
+  --brand-foreground: oklch(0.22 0.008 60);
+  --sidebar: oklch(0.24 0.008 60);
+  --sidebar-foreground: oklch(0.93 0.005 85);
+  --sidebar-primary: oklch(0.93 0.005 85);
+  --sidebar-primary-foreground: oklch(0.22 0.008 60);
+  --sidebar-accent: oklch(0.3 0.01 60);
+  --sidebar-accent-foreground: oklch(0.93 0.005 85);
+  --sidebar-border: oklch(0.93 0.005 85 / 14%);
+  --sidebar-ring: oklch(0.7 0.02 60);
+  --depth-overlay: 0 12px 32px -16px oklch(0 0 0 / 55%);
+}
+
+/* Tailwind v4 theme mapping: tokens -> utilities (bg-background, etc.). */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  /* Design language: type, shape, line, depth and motion of the active system. */
+  --radius-control: var(--shape-control);
+  --radius-field: var(--shape-field);
+  --radius-surface: var(--shape-surface);
+  --radius-overlay: var(--shape-overlay);
+  --border-width-line: var(--line);
+  --border-width-line-field: var(--line-field);
+  --color-field: var(--field);
+  --shadow-control: var(--depth-control);
+  --shadow-press: var(--depth-press);
+  --shadow-field: var(--depth-field);
+  --shadow-surface: var(--depth-surface);
+  --shadow-overlay: var(--depth-overlay);
+  --ease-motion: var(--motion-ease);
+  --font-display: var(--type-display);
+  --font-sans: var(--font-vazirmatn), "IRANSans", "IRANSansX", "Vazirmatn", ui-sans-serif, system-ui, sans-serif;
+}
