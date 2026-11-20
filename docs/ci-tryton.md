@@ -122,6 +122,18 @@ settlement fixture use the raw env var.
   on `party.party`. The setup's REST probe uses `party.party`.
 - **Restart trytond after console provisioning.** The server caches
   model data; the setup restarts it before verification.
+- **Forks: GitHub disables workflows on fork.** When a repository
+  containing workflow files is forked, GitHub disables the workflows
+  on the fork — pushes produce no runs at all, and the Actions page
+  shows "No workflows found" until the first push to the default
+  branch registers the workflow. The Actions *permissions* setting
+  ("Allow all actions and reusable workflows") is separate and can
+  already be on while the workflows are still disabled. The fix is a
+  one-time click on the workflow page: the banner "Workflows aren't
+  being run on this forked repository" → "I understand my workflows,
+  go ahead and enable them". After that, the next push triggers a run.
+  Also: the "Run workflow" button only appears when the workflow file
+  on the DEFAULT branch contains a `workflow_dispatch` trigger.
 
 ## Running it locally
 
