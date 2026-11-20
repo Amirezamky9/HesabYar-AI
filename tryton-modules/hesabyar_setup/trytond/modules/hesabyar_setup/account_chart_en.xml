@@ -1,0 +1,211 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This file is part of HesabYar.  The COPYRIGHT file at the top level of
+this repository contains the full copyright notices and license terms.
+This module is licensed under the GNU General Public License v3 or later,
+like all Tryton modules.  See LICENSE in this package.
+
+Iranian chart extension (US-502), English chart tree: template accounts
+added to the Universal Chart of Accounts for HesabYar. They are created
+for a company either by a fresh install_chart, or by update_chart on an
+existing company (the Adapter Test company picks them up that way).
+
+This follows the Tryton-native per-language chart pattern (see
+account_asset/account_chart_en.xml): the account module ships one chart
+tree per language (account_chart_en.xml etc., ids suffixed _en), and a
+chart extension ships one file per language it supports, attaching to
+that language's tree. HesabYar ships only the English file: the dev DB
+(and the product's Tryton server) runs with language 'en', so the
+English tree is the one installed. On a database without English, this
+file is skipped and the accounts simply do not exist (graceful
+degradation, not a failure). Names are English, consistent with the
+rest of the English chart; the Persian labels live in the HesabYar
+dashboard, which maps account codes to Persian names in its own UI.
+
+Design notes:
+- 1.2.4 / 1.2.5 / 2.1.5 mirror the existing 1.2.1 / 2.1.1 leaves:
+  party_required + reconcile, under the same parents.
+- 1.1.5 / 1.2.6 / 1.2.7 / 2.1.6 are the cash-box accounts (US-516):
+  1.1.5 is the petty-cash (تنخواه) account, 1.2.6 the cash
+  shortage/overage account (variance policy a), 1.2.7 / 2.1.6 the
+  temporary-debtor / miscellaneous-creditor accounts (variance
+  policy b). All four are party_required=False: the cashier is
+  named in the counting session and the signed minutes, not as a
+  Tryton party. None is reconciled: a shortage/overage journal is
+  closed at period end (policy a) or settled within 24h (policy b)
+  by its own journal, never by reconciling move lines.
+- The 7.x memorandum groups carry NO type: Tryton refuses move lines
+  on typeless accounts (account.move.Line.check_account), so a group
+  without a type is unpostable by construction, that is exactly how
+  the universal chart's own groups (1.2.0, 2.1.0) work. Only the
+  leaves carry the off-balance type, and they are party_required so
+  cheque journals post per party.
+- The 7.2.x contra accounts mirror the 7.1.x accounts one-for-one:
+  every memorandum debit has its contra credit, so the memorandum
+  section always nets to zero (Iranian انتظامی bookkeeping).
+- 1.2.9 is the bounced-cheque account (US-530): Bounced Cheques
+  (چک‌های برگشتی / مطالبات غیرجاری) — the bounce destination when
+  the installation chooses it over Accounts Receivable (§5 §9.1
+  #2; default stays Accounts Receivable, see docs/cheque-decisions.md).
+  party_required + reconcile, like the other receivables leaves.
+- 1.1.6 / 1.2.8 / 5.2.4 are the settlement accounts (US-522):
+  1.2.8 is the gateway-receivable account (party_required +
+  reconcile: one receivable per gateway party, dunning/aging per
+  tranche line); 1.1.6 is the gateway clearing account (money in
+  transit between the gateway payout and the bank deposit — NOT
+  party_required, like the cash accounts, but reconcile=True so the
+  bank-statement flow can reconcile the clearing legs later; the
+  clearing module only reconciles clearing lines that sum to zero,
+  so a one-sided clearing leg never reconciles by accident);
+  5.2.4 is the gateway-fee expense (SG&A). The fee VAT goes to the
+  universal chart's 6.3.6 Non-Deductible VAT while
+  fee_vat_claimable=false (phased design §3.6: claimable only with
+  an official gateway invoice/Moadian record); no new account is
+  needed for it.
+-->
+<tryton>
+    <data language="en">
+        <record model="account.account.template" id="hesabyar_account_template_1_2_4_en">
+            <field name="code">1.2.4</field>
+            <field name="name">Notes Receivable Held</field>
+            <field name="parent" ref="account.account_template_1_2_0_en"/>
+            <field name="type" ref="account.account_type_template_accounts_receivable_en"/>
+            <field name="party_required" eval="True"/>
+            <field name="reconcile" eval="True"/>
+        </record>
+
+        <record model="account.account.template" id="hesabyar_account_template_1_2_5_en">
+            <field name="code">1.2.5</field>
+            <field name="name">Notes Receivable in Clearing</field>
+            <field name="parent" ref="account.account_template_1_2_0_en"/>
+            <field name="type" ref="account.account_type_template_accounts_receivable_en"/>
+            <field name="party_required" eval="True"/>
+            <field name="reconcile" eval="True"/>
+        </record>
+
+        <record model="account.account.template" id="hesabyar_account_template_2_1_5_en">
+            <field name="code">2.1.5</field>
+            <field name="name">Notes Payable</field>
+            <field name="parent" ref="account.account_template_2_1_0_en"/>
+            <field name="type" ref="account.account_type_template_payable_en"/>
+            <field name="party_required" eval="True"/>
+            <field name="reconcile" eval="True"/>
+        </record>
+
+        <record model="account.account.template" id="hesabyar_account_template_1_1_5_en">
+            <field name="code">1.1.5</field>
+            <field name="name">Petty Cash</field>
+            <field name="parent" ref="account.account_template_1_1_0_en"/>
+            <field name="type" ref="account.account_type_template_petty_cash_en"/>
+            <field name="party_required" eval="False"/>
+        </record>
+
+        <record model="account.account.template" id="hesabyar_account_template_1_2_6_en">
+            <field name="code">1.2.6</field>
+            <field name="name">Cash Shortage and Overage</field>
+            <field name="parent" ref="account.account_template_1_2_0_en"/>
+            <field name="type" ref="account.account_type_template_accounts_receivable_en"/>
+            <field name="party_required" eval="False"/>
+        </record>
+
+        <record model="account.account.template" id="hesabyar_account_template_1_2_7_en">
+            <field name="code">1.2.7</field>
+            <field name="name">Temporary Debtors — Cash Shortage</field>
+            <field name="parent" ref="account.account_template_1_2_0_en"/>
+            <field name="type" ref="account.account_type_template_accounts_receivable_en"/>
+            <field name="party_required" eval="False"/>
+        </record>
+
+        <record model="account.account.template" id="hesabyar_account_template_1_1_6_en">
+            <field name="code">1.1.6</field>
+            <field name="name">Gateway Clearing</field>
+            <field name="parent" ref="account.account_template_1_1_0_en"/>
+            <field name="type" ref="account.account_type_template_cash_en"/>
+            <field name="party_required" eval="False"/>
+            <field name="reconcile" eval="True"/>
+        </record>
+
+        <record model="account.account.template" id="hesabyar_account_template_1_2_8_en">
+            <field name="code">1.2.8</field>
+            <field name="name">Gateway Receivables</field>
+            <field name="parent" ref="account.account_template_1_2_0_en"/>
+            <field name="type" ref="account.account_type_template_accounts_receivable_en"/>
+            <field name="party_required" eval="True"/>
+            <field name="reconcile" eval="True"/>
+        </record>
+
+        <record model="account.account.template" id="hesabyar_account_template_1_2_9_en">
+            <field name="code">1.2.9</field>
+            <field name="name">Bounced Cheques</field>
+            <field name="parent" ref="account.account_template_1_2_0_en"/>
+            <field name="type" ref="account.account_type_template_accounts_receivable_en"/>
+            <field name="party_required" eval="True"/>
+            <field name="reconcile" eval="True"/>
+        </record>
+
+        <record model="account.account.template" id="hesabyar_account_template_5_2_4_en">
+            <field name="code">5.2.4</field>
+            <field name="name">Gateway Fees</field>
+            <field name="parent" ref="account.account_template_5_2_0_en"/>
+            <field name="type" ref="account.account_type_template_sga_en"/>
+            <field name="party_required" eval="False"/>
+        </record>
+
+        <record model="account.account.template" id="hesabyar_account_template_2_1_6_en">
+            <field name="code">2.1.6</field>
+            <field name="name">Miscellaneous Creditors — Cash Overage</field>
+            <field name="parent" ref="account.account_template_2_1_0_en"/>
+            <field name="type" ref="account.account_type_template_payable_en"/>
+            <field name="party_required" eval="False"/>
+        </record>
+
+        <record model="account.account.template" id="hesabyar_account_template_7_0_0_en">
+            <field name="code">7.0.0</field>
+            <field name="name">Memorandum Accounts</field>
+            <field name="parent" ref="account.account_template_root_en"/>
+        </record>
+
+        <record model="account.account.template" id="hesabyar_account_template_7_1_0_en">
+            <field name="code">7.1.0</field>
+            <field name="name">Collateral Cheques</field>
+            <field name="parent" ref="hesabyar_account_template_7_0_0_en"/>
+        </record>
+
+        <record model="account.account.template" id="hesabyar_account_template_7_1_1_en">
+            <field name="code">7.1.1</field>
+            <field name="name">Collateral Cheques Received</field>
+            <field name="parent" ref="hesabyar_account_template_7_1_0_en"/>
+            <field name="type" ref="account.account_type_template_off_balance_en"/>
+            <field name="party_required" eval="True"/>
+        </record>
+
+        <record model="account.account.template" id="hesabyar_account_template_7_1_2_en">
+            <field name="code">7.1.2</field>
+            <field name="name">Collateral Cheques Held by Others</field>
+            <field name="parent" ref="hesabyar_account_template_7_1_0_en"/>
+            <field name="type" ref="account.account_type_template_off_balance_en"/>
+            <field name="party_required" eval="True"/>
+        </record>
+
+        <record model="account.account.template" id="hesabyar_account_template_7_2_0_en">
+            <field name="code">7.2.0</field>
+            <field name="name">Contra Memorandum Accounts</field>
+            <field name="parent" ref="hesabyar_account_template_7_0_0_en"/>
+        </record>
+
+        <record model="account.account.template" id="hesabyar_account_template_7_2_1_en">
+            <field name="code">7.2.1</field>
+            <field name="name">Contra - Collateral Cheques Received</field>
+            <field name="parent" ref="hesabyar_account_template_7_2_0_en"/>
+            <field name="type" ref="account.account_type_template_off_balance_en"/>
+            <field name="party_required" eval="True"/>
+        </record>
+
+        <record model="account.account.template" id="hesabyar_account_template_7_2_2_en">
+            <field name="code">7.2.2</field>
+            <field name="name">Contra - Collateral Cheques Held by Others</field>
+            <field name="parent" ref="hesabyar_account_template_7_2_0_en"/>
+            <field name="type" ref="account.account_type_template_off_balance_en"/>
+            <field name="party_required" eval="True"/>
+        </record>
+    </data>
+</tryton>

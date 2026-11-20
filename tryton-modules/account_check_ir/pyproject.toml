@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trytond-account-check-ir"
+version = "8.2.0"
+description = "HesabYar Iranian cheque registry (account_check_ir): cheque lifecycle, checkbooks, custody log"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "GPL-3.0-or-later" }
+authors = [{ name = "HesabYar" }]
+keywords = ["accounting", "tryton", "hesabyar", "cheque", "sayad"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Plugins",
+    "Framework :: Tryton",
+    "Topic :: Office/Business :: Financial :: Accounting",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+]
+dependencies = [
+    "trytond>=8.2,<8.3",
+    "trytond-account>=8.2,<8.3",
+    "trytond-account-invoice>=8.2,<8.3",
+    "trytond-account-payment>=8.2,<8.3",
+    "trytond-account-payment-clearing>=8.2,<8.3",
+    "trytond-account-statement>=8.2,<8.3",
+    "trytond-account-dunning>=8.2,<8.3",
+    "trytond-account-dunning-fee>=8.2,<8.3",
+    "trytond-bank>=8.2,<8.3",
+    "trytond-company>=8.2,<8.3",
+    "trytond-party>=8.2,<8.3",
+    "trytond-sale>=8.2,<8.3",
+]
+
+[project.entry-points."trytond.modules"]
+account_check_ir = "trytond.modules.account_check_ir"
+
+[tool.setuptools]
+packages = ["trytond.modules.account_check_ir"]
+
+[tool.setuptools.package-data]
+"trytond.modules.account_check_ir" = ["tryton.cfg", "*.xml", "view/*.xml"]

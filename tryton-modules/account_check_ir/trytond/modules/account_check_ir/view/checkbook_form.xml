@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<!-- This file is part of HesabYar.  The COPYRIGHT file at the top level of
+this repository contains the full copyright notices and license terms.
+This module is licensed under the GNU General Public License v3 or later,
+like all Tryton modules.  See LICENSE in this package. -->
+<form>
+    <label name="name"/>
+    <field name="name"/>
+    <label name="company"/>
+    <field name="company"/>
+    <label name="bank"/>
+    <field name="bank"/>
+    <label name="bank_account"/>
+    <field name="bank_account"/>
+    <label name="first_number"/>
+    <field name="first_number"/>
+    <label name="last_number"/>
+    <field name="last_number"/>
+    <label name="total_leaves"/>
+    <field name="total_leaves"/>
+    <label name="used_leaves"/>
+    <field name="used_leaves"/>
+    <label name="voided_leaves"/>
+    <field name="voided_leaves"/>
+    <label name="remaining_leaves"/>
+    <field name="remaining_leaves"/>
+    <newline/>
+    <field name="checks" colspan="4"/>
+</form>
