@@ -171,10 +171,12 @@ drop the database (`DROP DATABASE hesabyar_tryton_ci;`).
 
 ## Known gaps
 
-- **Playwright is not in CI yet.** The admin UI e2e specs need the
-  US-304 seed, a running backend + `pnpm start` server, and a minted
-  dev API key — none of that is wired into the workflow. The pytest
-  suite is the CI gate for now.
+- **Playwright is in CI now** (job `playwright`, added on
+  `ralph/ci-playwright`) — see `docs/ci-playwright.md`. It reuses
+  this job's Tryton build and adds the US-304 seed, a minted dev API
+  key, the backend + `pnpm start` server. First-run verification is
+  pending: the first CI run IS the verification (no local test runs
+  are possible on the dev VM by standing rule).
 - **trytond-cron does not run in CI.** The supply cron
   (`stock.order_point|supply_stock`) is provisioned but never fires;
   the packaging tests only read its configuration, so this is fine.

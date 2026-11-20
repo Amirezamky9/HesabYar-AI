@@ -77,3 +77,9 @@ scripts/test_*.py
 tryton-modules/*/build/
 tryton-modules/*/dist/
 tryton-modules/*/*.egg-info/
+
+# 9. CI script working dirs (scripts/ci/setup-tryton.sh,
+#    scripts/ci/setup-playwright.sh defaults — local disposable state)
+.tryton-env/
+.tryton-data/
+.playwright-data/
