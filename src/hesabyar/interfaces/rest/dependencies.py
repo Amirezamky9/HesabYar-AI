@@ -54,6 +54,11 @@ from hesabyar.application.commands.events import (
     StoreSettingsService,
 )
 from hesabyar.application.commands.gateways import GatewayReconciliationService
+from hesabyar.application.commands.installments import (
+    InstallmentCollectionHook,
+    InstallmentCommandService,
+)
+from hesabyar.application.commands.installments_finance import InstallmentFinanceService
 from hesabyar.application.commands.integrations import (
     BankConnectionService,
     ChannelRegistryService,
@@ -81,6 +86,7 @@ from hesabyar.application.commands.sayyad import SayyadInquiryService
 from hesabyar.application.commands.settlement import SettlementCommandService
 from hesabyar.application.commands.settlement_import import SettlementImportService
 from hesabyar.application.commands.settlement_posting import SettlementPostingService
+from hesabyar.application.commands.sms import SmsRegistryService, SmsReminderService
 from hesabyar.application.commands.standards import StandardsValidationService
 from hesabyar.application.commands.store_events import StoreDraftBuilder, StoreMappingResolver
 from hesabyar.application.commands.sync import StoreSyncService
@@ -92,6 +98,7 @@ from hesabyar.application.queries.cheques import ChequeQueryService
 from hesabyar.application.queries.companies import CompanyQueryService
 from hesabyar.application.queries.events import EventQueryService
 from hesabyar.application.queries.fiscal import FiscalQueryService, SetupStatusService
+from hesabyar.application.queries.installments import InstallmentQueryService
 from hesabyar.application.queries.integrations import IntegrationsQueryService
 from hesabyar.application.queries.manual_entries import ManualEntryQueryService
 from hesabyar.application.queries.moadian import MoadianQueryService
@@ -100,6 +107,7 @@ from hesabyar.application.queries.payments import PaymentQueryService
 from hesabyar.application.queries.reports import ReportQueryService
 from hesabyar.application.queries.review_queue import ReviewQueueQueryService
 from hesabyar.application.queries.settlement import SettlementQueryService
+from hesabyar.application.queries.sms import SmsQueryService
 from hesabyar.application.queries.standards import StandardsQueryService
 from hesabyar.application.queries.statements import BankStatementQueryService
 from hesabyar.application.queries.tax_policy import TaxPolicyQueryService
@@ -151,6 +159,9 @@ from hesabyar.infrastructure.persistence.postgres.event_repositories import (
     SqlAlchemyExternalIdMapRepository,
     SqlAlchemyStoreSettingsRepository,
 )
+from hesabyar.infrastructure.persistence.postgres.installments_repository import (
+    SqlAlchemyInstallmentRepository,
+)
 from hesabyar.infrastructure.persistence.postgres.integrations_repository import (
     SqlAlchemyIntegrationsRepository,
 )
@@ -172,6 +183,9 @@ from hesabyar.infrastructure.persistence.postgres.settlement_repository import (
     SqlAlchemySettlementAudit,
     SqlAlchemySettlementRepository,
 )
+from hesabyar.infrastructure.persistence.postgres.sms_repository import (
+    SqlAlchemySmsRepository,
+)
 from hesabyar.infrastructure.persistence.postgres.standards_repository import PostgresStandardsRegistry
 from hesabyar.infrastructure.persistence.postgres.tax_policy_repository import (
     SqlAlchemyTaxPolicyRepository,
@@ -180,6 +194,7 @@ from hesabyar.infrastructure.sayyad.simulator import (
     DeterministicEhrazinoSimulator,
     DeterministicFintechSayyadSimulator,
 )
+from hesabyar.infrastructure.sms.factory import DefaultSmsClientFactory
 from hesabyar.infrastructure.store_connectors.factory import StoreConnectorFactory
 from hesabyar.interfaces.rest.errors import ApiError
 from hesabyar.interfaces.rest.services import HealthService
@@ -1374,9 +1389,160 @@ def get_cheque_command_service(
     gate: PolicyGateService = Depends(get_policy_gate_service),
     review: ReviewQueueCommandService = Depends(get_review_queue_command_service),
     scan_store: LocalChequeScanStore = Depends(get_cheque_scan_store),
+    session: Session = Depends(get_db_session),
 ) -> ChequeCommandService:
-    """Build the cheque command service for this request (override point for tests)."""
-    return ChequeCommandService(repository, adapter, gate=gate, review=review, scan_store=scan_store)
+    """Build the cheque command service for this request (override point for tests).
+
+    US-542: the installment collection hook is wired so a clear /
+    bounce for a leg-linked cheque records the collection (the leg
+    outcome hook). The hook shares the request's session, so the
+    collection record commits with the transition.
+    """
+    return ChequeCommandService(
+        repository,
+        adapter,
+        gate=gate,
+        review=review,
+        scan_store=scan_store,
+        leg_hook=InstallmentCollectionHook(SqlAlchemyInstallmentRepository(session)),
+    )
+
+
+# -- Installments (US-540) ------------------------------------------------
+
+
+def get_installment_repository(
+    session: Session = Depends(get_db_session),
+) -> SqlAlchemyInstallmentRepository:
+    """Build the SQLAlchemy installment repository for this request."""
+    return SqlAlchemyInstallmentRepository(session)
+
+
+def get_installment_query_service(
+    repository: SqlAlchemyInstallmentRepository = Depends(get_installment_repository),
+    cheques: SqlAlchemyChequeRepository = Depends(get_cheque_repository),
+    settlement_repository: SqlAlchemySettlementRepository = Depends(
+        get_settlement_repository
+    ),
+) -> InstallmentQueryService:
+    """Build the installment query service for this request (override point for tests).
+
+    US-542 wires the cheque repository in so leg statuses split
+    cheque receipts by their cheque's state (received vs pending
+    clearance) and the detail shows each leg's linked cheque.
+    US-543 wires the settlement repository in: BNPL leg statuses
+    derive from the linked gateway payments' tranches.
+    """
+    return InstallmentQueryService(
+        repository, cheques, settlement_repository=settlement_repository
+    )
+
+
+def get_installment_command_service(
+    repository: SqlAlchemyInstallmentRepository = Depends(get_installment_repository),
+    cheques: SqlAlchemyChequeRepository = Depends(get_cheque_repository),
+    settlement: SettlementCommandService = Depends(get_settlement_command_service),
+    review: ReviewQueueCommandService = Depends(get_review_queue_command_service),
+) -> InstallmentCommandService:
+    """Build the installment command service for this request (override point for tests).
+
+    US-540 creates no journal and makes no engine call, so the
+    service needs only the repository — no adapter, no policy gate.
+    US-542 adds the cheque repository: cheque receipts are
+    validated against the registry (receivable state, leg link,
+    amount) and link the cheque to the leg they pay. US-543 wires
+    the settlement engine in (BNPL receipts create the gateway
+    receivable through it) and the review queue (a gateway
+    rejection files one item).
+    """
+    return InstallmentCommandService(
+        repository, cheques, settlement=settlement, review=review
+    )
+
+
+def get_installment_finance_service(
+    repository: SqlAlchemyInstallmentRepository = Depends(get_installment_repository),
+    review: ReviewQueueCommandService = Depends(get_review_queue_command_service),
+    queue_repository: SqlAlchemyReviewQueueRepository = Depends(
+        get_review_queue_repository
+    ),
+    journals: JournalDraftService = Depends(get_journal_draft_service),
+    cheques: SqlAlchemyChequeRepository = Depends(get_cheque_repository),
+) -> InstallmentFinanceService:
+    """Build the installment finance service for this request (override point for tests).
+
+    US-541 (early settlement + dunning + late-fee journals): the
+    review-queue service files the dunning items, the queue
+    repository de-duplicates them, and the journal-draft service
+    creates the late-fee draft journals (draft by default,
+    auto-post only when the plan opted in). The cheque repository
+    is wired so the leg views split cheque receipts by their
+    cheque's state (US-542): no income on pending cheques, no
+    late fee while a cheque is in flight.
+    """
+    return InstallmentFinanceService(
+        repository,
+        review=review,
+        queue=queue_repository,
+        journals=journals,
+        cheques=cheques,
+    )
+
+
+# -- SMS reminders (US-544) ---------------------------------------------------
+
+
+def get_sms_repository(
+    session: Session = Depends(get_db_session),
+) -> SqlAlchemySmsRepository:
+    """Build the SQLAlchemy SMS repository for this request."""
+    return SqlAlchemySmsRepository(session)
+
+
+def get_sms_query_service(
+    repository: SqlAlchemySmsRepository = Depends(get_sms_repository),
+) -> SmsQueryService:
+    """Build the SMS query service for this request (override point for tests)."""
+    return SmsQueryService(repository)
+
+
+def get_sms_registry_service(
+    repository: SqlAlchemySmsRepository = Depends(get_sms_repository),
+    installments: SqlAlchemyInstallmentRepository = Depends(get_installment_repository),
+    vault: CredentialVaultPort | None = Depends(get_credential_vault),
+) -> SmsRegistryService:
+    """Build the SMS registry service for this request (override point for tests).
+
+    The vault is None when no encryption key is configured — the
+    service fails closed with a typed 503 when a caller tries to
+    store credentials without one.
+    """
+    return SmsRegistryService(repository, installments, vault=vault)
+
+
+def get_sms_reminder_service(
+    repository: SqlAlchemySmsRepository = Depends(get_sms_repository),
+    installments: SqlAlchemyInstallmentRepository = Depends(get_installment_repository),
+    vault: CredentialVaultPort | None = Depends(get_credential_vault),
+    review: ReviewQueueCommandService = Depends(get_review_queue_command_service),
+    cheques: SqlAlchemyChequeRepository = Depends(get_cheque_repository),
+) -> SmsReminderService:
+    """Build the SMS reminder service for this request (override point for tests).
+
+    Live provider calls go through the real HTTP clients; a provider
+    without credentials fails closed before any call is made, and the
+    simulator is the default in dev/test. The cheque repository is
+    wired so the leg views split cheque receipts by their cheque's
+    state (US-542): no reminder for a leg a cheque in flight covers.
+    """
+    return SmsReminderService(
+        repository,
+        installments,
+        client_factory=DefaultSmsClientFactory(),
+        vault=vault,
+        review=review,
+        cheques=cheques,
+    )
 
 
 def get_sayyad_inquiry_service(

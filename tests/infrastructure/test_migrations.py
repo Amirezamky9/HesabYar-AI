@@ -137,6 +137,20 @@ EXPECTED_TABLES = {
     "cheque_custody_log",
     "cheque_inquiry_receipts",
     "cheque_settings",
+    # 0027 installments (US-540)
+    "installment_plans",
+    "installment_legs",
+    "installment_receipts",
+    "installment_receipt_allocations",
+    "installment_sale_contracts",
+    # 0028 installment finance (US-541)
+    "installment_late_fee_assessments",
+    "installment_schedule_amendments",
+    # 0031 SMS reminders (US-544)
+    "sms_providers",
+    "sms_reminder_settings",
+    "sms_contract_reminder_settings",
+    "sms_reminder_log",
 }
 
 # Design-eng §10.4 unique constraints: (table, constraint name, columns).
@@ -289,7 +303,7 @@ SECTION_10_4_CONSTRAINTS = [
     ),
 ]
 
-HEAD_REVISION = "0026"
+HEAD_REVISION = "0031"
 
 
 def _alembic_config() -> Config:

@@ -3,7 +3,7 @@
 Phased design §1.2 (F4) and §7.2: every exception — from any module —
 is a ``ReviewItem`` with the same fields: ``id, type, severity,
 source_event_ref, reason, suggested_action, amount_irr, age +
-sla_deadline, actions[], assignee, audit[]``. The nine item types and
+sla_deadline, actions[], assignee, audit[]``. The ten item types and
 their permitted actions come from §7.2; the Persian labels live in the
 frontend (``features/review-queue``) — this layer stays English.
 
@@ -35,7 +35,13 @@ from enum import StrEnum, unique
 
 @unique
 class ReviewItemType(StrEnum):
-    """The nine exception types of phased design §7.2, in table order."""
+    """The ten exception types of phased design §7.2, in table order.
+
+    The tenth type (``SMS_DELIVERY_FAILED``) arrived with US-544
+    (Phase 5-5 ۵ج): an SMS reminder whose send failed. The §7.2
+    table predates SMS; the type follows the same uniform shape as
+    the other nine.
+    """
 
     MAPPING = "mapping"
     SETTLEMENT_VARIANCE = "settlement_variance"
@@ -46,6 +52,7 @@ class ReviewItemType(StrEnum):
     MANUAL_IMPORT_REVIEW = "manual_import_review"
     CASHBOX_VARIANCE = "cashbox_variance"
     INBOX_DEAD_LETTER = "inbox_dead_letter"
+    SMS_DELIVERY_FAILED = "sms_delivery_failed"
 
 
 @unique
@@ -192,6 +199,11 @@ PERMITTED_ACTIONS: dict[ReviewItemType, tuple[ReviewAction, ...]] = {
         ReviewAction("fix_source_retry", ReviewActionKind.RETRY),
         ReviewAction("close_with_reason", ReviewActionKind.DISMISS, ReviewResolution.SKIPPED),
     ),
+    ReviewItemType.SMS_DELIVERY_FAILED: (
+        ReviewAction("retry_reminder", ReviewActionKind.RETRY),
+        ReviewAction("contact_customer", ReviewActionKind.NOTE),
+        ReviewAction("close_with_reason", ReviewActionKind.DISMISS, ReviewResolution.SKIPPED),
+    ),
 }
 
 
@@ -229,6 +241,7 @@ DEFAULT_SLA_POLICIES: dict[ReviewItemType, SlaPolicy] = {
     ReviewItemType.MANUAL_IMPORT_REVIEW: SlaPolicy(ReviewItemType.MANUAL_IMPORT_REVIEW, sla_hours=48, warn_hours=12),
     ReviewItemType.CASHBOX_VARIANCE: SlaPolicy(ReviewItemType.CASHBOX_VARIANCE, sla_hours=24, warn_hours=6),
     ReviewItemType.INBOX_DEAD_LETTER: SlaPolicy(ReviewItemType.INBOX_DEAD_LETTER, sla_hours=24, warn_hours=6),
+    ReviewItemType.SMS_DELIVERY_FAILED: SlaPolicy(ReviewItemType.SMS_DELIVERY_FAILED, sla_hours=24, warn_hours=6),
 }
 
 
@@ -315,7 +328,7 @@ class ReviewItem:
 class ReviewTypeCounter:
     """Per-type counters for the dashboard (phased design §7.3).
 
-    All nine types are always present in the summary — even with zero
+    All ten types are always present in the summary — even with zero
     items — so the dashboard never has to guess which types exist.
     """
 

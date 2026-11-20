@@ -305,6 +305,21 @@ class SqlAlchemyChequeRepository(ChequeRepositoryPort):
         row = self._session.execute(stmt).scalar_one_or_none()
         return _cheque_from_row(row) if row is not None else None
 
+    def list_by_installment_leg_id(
+        self, leg_id: str, *, tenant_id: str, installation_id: str
+    ) -> Sequence[Cheque]:
+        """Cheques linked to one installment leg, newest first (US-542)."""
+        stmt = (
+            select(ChequeModel)
+            .where(
+                ChequeModel.installment_leg_id == leg_id,
+                ChequeModel.tenant_id == tenant_id,
+                ChequeModel.installation_id == installation_id,
+            )
+            .order_by(ChequeModel.created_at.desc(), ChequeModel.id.desc())
+        )
+        return [_cheque_from_row(row) for row in self._session.execute(stmt).scalars().all()]
+
     def find_in_clearing_cheques(self) -> list[Cheque]:
         """All cheques currently in clearing (US-533 stale filing)."""
         stmt = (

@@ -21,7 +21,7 @@ counters, ageing and admin alerts for critical items past SLA.
 | Admin page | `apps/admin/app/(dashboard)/review-queue/page.tsx` + `apps/admin/features/review-queue/` |
 | Dashboard widget | `apps/admin/features/dashboard/widgets.tsx` (`ReviewQueueWidget`) |
 
-## The nine item types (§7.2)
+## The ten item types (§7.2 + US-544)
 
 | # | Type | Source module | Permitted actions |
 |---|---|---|---|
@@ -34,6 +34,13 @@ counters, ageing and admin alerts for critical items past SLA.
 | 7 | `manual_import_review` | Imports (5پ/5ت) | approve_preview, fix_rows_recalc, cancel_batch |
 | 8 | `cashbox_variance` | Cash box (5چ) | approve_variance_entry (manager), recount, escalate_to_manager |
 | 9 | `inbox_dead_letter` | Event platform (5الف) | replay, fix_source_retry, close_with_reason |
+| 10 | `sms_delivery_failed` | SMS reminders (5ج, US-544) | retry_reminder, contact_customer, close_with_reason |
+
+The tenth type arrived with US-544: an SMS reminder whose send
+failed files here (filing it as `installment_overdue` would be
+semantically wrong — a pre-due reminder failure is not an overdue
+installment). The §7.2 table lists nine; the type follows the
+same uniform shape as the other nine.
 
 The permitted actions are the ONLY actions the API accepts for a
 type's items; anything else is 422 `REVIEW_ACTION_NOT_PERMITTED`.
@@ -105,13 +112,13 @@ assignment), `settings:manage` (SLA policy updates).
 
 | Route | Scope | Notes |
 |---|---|---|
-| `GET /review-queue/types` | `review:read` | All nine types with permitted actions |
+| `GET /review-queue/types` | `review:read` | All ten types with permitted actions |
 | `GET /review-queue/items` | `review:read` | Filters: type, severity, status, channel, company, assignee, min/max amount (IRR), min/max age (hours), overdue. Default sort: critical first, then oldest. Cursor pagination. |
 | `POST /review-queue/items` | `review:file` | Files an item (status `open`, `filed` audit entry) |
 | `GET /review-queue/items/{id}` | `review:read` | Detail with the audit trail |
 | `POST /review-queue/items/{id}/actions` | `review:resolve` | `{action, note?}` — must be permitted for the type |
 | `PATCH /review-queue/items/{id}` | `review:resolve` | `{assignee}` — null unassigns |
-| `GET /review-queue/summary` | `review:read` | Per-type counters (all nine, even zero), totals, oldest item, admin notifications; optional `company` filter |
+| `GET /review-queue/summary` | `review:read` | Per-type counters (all ten, even zero), totals, oldest item, admin notifications; optional `company` filter |
 | `GET /review-queue/sla-policies` | `review:read` | Effective policy per type |
 | `PATCH /review-queue/sla-policies/{type}` | `settings:manage` | `{sla_hours, warn_hours}` |
 
@@ -146,16 +153,16 @@ says so honestly instead of killing the dashboard.
 ## Tests
 
 - `tests/unit/test_review_queue_services.py` — domain + services
-  over in-memory ports (no DB): the nine types, permitted actions,
+  over in-memory ports (no DB): the ten types, permitted actions,
   default sort, filters, SLA math, summary counters, admin
   notifications, action lifecycle, SLA validation.
 - `tests/interfaces/test_rest_review_queue.py` — real app + auth +
-  PostgreSQL: all nine types returned by the API (one sample item per
+  PostgreSQL: all ten types returned by the API (one sample item per
   type), filters, sort, pagination, actions, assignment, summary,
   SLA policies, tenant isolation.
 - `apps/admin/features/review-queue/review-queue-data.test.ts` —
   Persian labels, age formatting, SLA state.
-- `apps/admin/e2e/review-queue.spec.ts` — live flow: seed nine items
+- `apps/admin/e2e/review-queue.spec.ts` — live flow: seed ten items
   via the BFF, filters, detail dialog + action, SLA settings,
   dashboard widget; responsive (320/390/1280, no overflow) and
   keyboard + contrast AA. `/review-queue` is also in the shared

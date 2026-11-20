@@ -26,6 +26,7 @@ from hesabyar.domain.cheques.models import (
     ChequeState,
     CustodyLogEntry,
     InquiryReceipt,
+    InstallmentLegStatus,
     StorageLocation,
 )
 from hesabyar.domain.cheques.validation import ChequeRegistration
@@ -40,6 +41,19 @@ class ChequeRepositoryPort(Protocol):
 
     def get(self, cheque_id: str, *, tenant_id: str, installation_id: str) -> Cheque | None:
         """Return one cheque, or None when missing / out of scope."""
+        ...
+
+    def list_by_installment_leg_id(
+        self, leg_id: str, *, tenant_id: str, installation_id: str
+    ) -> Sequence[Cheque]:
+        """Return the cheques linked to one installment leg (US-542).
+
+        Newest first. Normally exactly one: one cheque pays one
+        leg. A leg may carry more than one link when a cheque was
+        intake-linked to it before the receipt's cheque was linked
+        (the receipt's cheque is the one backing the pending
+        allocations; the query service prefers it for display).
+        """
         ...
 
     def get_by_sayad_id(
@@ -150,6 +164,59 @@ class ChequeRepositoryPort(Protocol):
         installation's clearing window with no bank document is
         filed to the review queue as ``stale_in_clearing`` — it is
         NEVER auto-bounced.
+        """
+        ...
+
+
+class InstallmentLegOutcomeHook(Protocol):
+    """The leg-side listener for cheque clear/bounce outcomes (US-542).
+
+    The cheque lifecycle (US-531/532) is CLOSED: this hook adds no
+    cheque behaviour — it is the seam the ۵ج installment module
+    listens on. The cheque command service fires it, AFTER the
+    engine transition + the registry mirror have both succeeded,
+    for a RECEIVED cheque carrying an ``installment_leg_id``:
+
+    - ``clear`` → outcome ``PAID``: the leg's money has arrived.
+      The installment implementation records the COLLECTION (sets
+      ``collected_at`` on the receipt backing the cheque) — the
+      hook US-541's income engine consumes. Income is recognised
+      on COLLECTION, never on receipt / pending_clearance. The leg
+      itself needs no write: its status is computed from the
+      cheque's state, so the next read shows it paid.
+    - ``bounce`` → outcome ``UNPAID``: the leg's money never
+      arrived. The installment implementation writes NOTHING — the
+      leg returns to unpaid / overdue by computation, the cheque
+      row is the bounce record (reason / date / certificate), and
+      US-541's late-fee engine operates on the overdue leg from
+      its original due date (§9.1 #13). The hook exists so the
+      bounce is observable on the leg side (logging, later
+      dunning triggers) without the cheque module knowing about
+      installments.
+
+    The hook MUST NOT raise into the cheque transition: the engine
+    has already committed the clear/bounce, and a hook failure
+    must never mask it. The cheque service catches hook failures,
+    logs them, and files a ``installment_collection_hook_failed``
+    review item; the hook implementation itself stays small and
+    total (a missing receipt or a dangling leg link is a warning,
+    never an exception).
+    """
+
+    def on_leg_outcome(
+        self,
+        *,
+        cheque: Cheque,
+        outcome: InstallmentLegStatus,
+        event_date: datetime.date,
+    ) -> None:
+        """React to a clear (PAID) or bounce (UNPAID) for a leg-linked cheque.
+
+        ``cheque`` is the saved registry row (state already
+        ``cleared`` / ``bounced``, ``installment_leg_id`` set);
+        ``event_date`` is the business date of the outcome (the
+        clear date / the bounce date) — the collection date for a
+        clear.
         """
         ...
 

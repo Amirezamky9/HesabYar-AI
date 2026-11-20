@@ -19,6 +19,8 @@
  *   ایمپورت فایل، قراردادها
  * - مرکز چک `/cheques` (US-535): مرکز چک، ثبت چک، در انتظار برگ،
  *   دسته‌چک‌ها، گزارش‌های چک
+ * - مرکز اقساط `/installments` (US-545): مرکز اقساط، برنامهٔ جدید،
+ *   گزارش‌های اقساط
  * - گزارش‌ها `/reports` (US-305)
  */
 
@@ -28,6 +30,7 @@ import {
   Bot,
   Building2,
   Calculator,
+  CalendarClock,
   CalendarDays,
   ChartColumn,
   CircleDollarSign,
@@ -122,6 +125,16 @@ export const NAV_MODULES: NavModule[] = [
     ],
   },
   {
+    id: "installments",
+    label: "مرکز اقساط",
+    icon: CalendarClock,
+    children: [
+      { id: "installments-center", label: "مرکز اقساط", href: "/installments", icon: CalendarClock },
+      { id: "installments-new", label: "برنامهٔ جدید", href: "/installments/new", icon: NotebookPen },
+      { id: "installments-reports", label: "گزارش‌های اقساط", href: "/installments/reports", icon: ChartColumn },
+    ],
+  },
+  {
     id: "settlements",
     label: "مرکز تسویه",
     icon: CircleDollarSign,
@@ -179,9 +192,12 @@ export const ROUTE_LABELS: Record<string, string> = {
   "cash-boxes": "صندوق‌ها",
   reports: "گزارش‌ها",
   cheques: "مرکز چک",
-  new: "ثبت چک",
+  // Shared segment: /cheques/new and /installments/new both end in
+  // "new", so the label stays generic (US-545).
+  new: "ثبت جدید",
   intake: "در انتظار برگ",
   checkbooks: "دسته‌چک‌ها",
+  installments: "مرکز اقساط",
   settlements: "مرکز تسویه",
   schedule: "برنامهٔ قسط‌ها",
   import: "ایمپورت فایل",

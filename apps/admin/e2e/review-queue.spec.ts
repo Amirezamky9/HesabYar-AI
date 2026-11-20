@@ -5,7 +5,7 @@ import { firstCompanyId } from "./journal-helpers";
 /**
  * Review queue (US-504, Phase 5 F4), against the real backend
  * (Supabase). Full flow: login → seed one item per type via the BFF
- * → queue lists all nine → filters → detail dialog + action → SLA
+ * → queue lists all ten → filters → detail dialog + action → SLA
  * settings → dashboard widget. Every figure comes from the live API.
  *
  * Seeded items carry a unique stamp per run (`US-504 e2e <stamp>`)
@@ -30,6 +30,7 @@ const SEED_TYPES: { type: string; severity: string; channel: string | null; amou
   { type: "manual_import_review", severity: "info", channel: "sadad", amountIrr: null },
   { type: "cashbox_variance", severity: "critical", channel: null, amountIrr: 120_000 },
   { type: "inbox_dead_letter", severity: "critical", channel: "store", amountIrr: null },
+  { type: "sms_delivery_failed", severity: "warning", channel: null, amountIrr: null },
 ];
 
 /** Collect console errors for the whole flow; asserted at the end. */
@@ -118,7 +119,7 @@ async function loadAllQueuedItems(page: Page, reasons: string[]): Promise<void> 
   }
 }
 
-test("review queue: all nine types, filters, action, SLA settings, dashboard widget", async ({
+test("review queue: all ten types, filters, action, SLA settings, dashboard widget", async ({
   page,
 }) => {
   test.skip(!DEV_KEY, "HESABYAR_DEV_API_KEY not set — mint one per apps/admin/README.md");
@@ -132,7 +133,7 @@ test("review queue: all nine types, filters, action, SLA settings, dashboard wid
     await seedItem(page, companyId, stamp, seed);
   }
 
-  // -- Queue lists all nine seeded items --------------------------------
+  // -- Queue lists all ten seeded items ---------------------------------
   await page.goto("/review-queue");
   await expect(page.getByRole("heading", { name: "صف بازبینی" })).toBeVisible({ timeout: 30_000 });
   await loadAllQueuedItems(page, SEED_TYPES.map((seed) => reasonFor(seed.type)));
@@ -148,8 +149,8 @@ test("review queue: all nine types, filters, action, SLA settings, dashboard wid
     total_open: number;
     total_in_review: number;
   };
-  expect(summaryBody.counters).toHaveLength(9);
-  expect(summaryBody.total_open + summaryBody.total_in_review).toBeGreaterThanOrEqual(9);
+  expect(summaryBody.counters).toHaveLength(10);
+  expect(summaryBody.total_open + summaryBody.total_in_review).toBeGreaterThanOrEqual(10);
   await expect(page.getByTestId("counter-waiting")).toBeVisible({ timeout: 30_000 });
 
   // -- Filter by type: only the cheque item remains ----------------------

@@ -52,6 +52,11 @@ from hesabyar.infrastructure.events.settlement_queue import (
     SettlementWorkerFactory,
     register_settlement_tasks,
 )
+from hesabyar.infrastructure.events.sms_queue import (
+    DAILY_REMINDERS_CRON,
+    SmsWorkerFactory,
+    register_sms_tasks,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +104,8 @@ def create_event_app(
     settlement_tick_cron: str = TICK_CRON,
     cheque_factory: ChequeWorkerFactory | None = None,
     cheque_daily_cron: str = DAILY_CRON,
+    sms_factory: SmsWorkerFactory | None = None,
+    sms_daily_reminders_cron: str = DAILY_REMINDERS_CRON,
 ) -> procrastinate.App:
     """Build the Procrastinate app with the event-platform tasks.
 
@@ -109,8 +116,10 @@ def create_event_app(
     packaging supply-check task is registered too; when
     ``settlement_factory`` is given, the daily settlement tick is
     registered too; when ``cheque_factory`` is given, the daily
-    cheque job (reminders + expiry) is registered too. The API
-    process (``create_defer_app``) passes none of them.
+    cheque job (reminders + expiry) is registered too; when
+    ``sms_factory`` is given, the daily SMS reminder job is
+    registered too. The API process (``create_defer_app``) passes
+    none of them.
     """
     app = procrastinate.App(connector=connector)
 
@@ -143,6 +152,9 @@ def create_event_app(
 
     if cheque_factory is not None:
         register_cheque_tasks(app, cheque_factory, daily_cron=cheque_daily_cron)
+
+    if sms_factory is not None:
+        register_sms_tasks(app, sms_factory, daily_reminders_cron=sms_daily_reminders_cron)
 
     return app
 

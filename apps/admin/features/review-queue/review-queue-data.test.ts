@@ -14,8 +14,8 @@ import {
 } from "./review-queue-data";
 
 describe("review queue labels", () => {
-  it("covers all nine §7.2 item types", () => {
-    expect(REVIEW_ITEM_TYPES).toHaveLength(9);
+  it("covers all ten §7.2 item types", () => {
+    expect(REVIEW_ITEM_TYPES).toHaveLength(10);
     expect(REVIEW_ITEM_TYPES).toEqual([
       "mapping",
       "settlement_variance",

@@ -211,7 +211,10 @@ per-event policy rows (default draft).
 - **Two-way test with a real `installment_leg`** (۵ج): the link +
   hooks are implemented (`leg_status_effect`: clear → leg `paid`,
   bounce → leg `unpaid`, persisted as `installment_leg_status`);
-  the test against a real leg waits for ۵ج — do not fake it.
+  the test against a real leg LANDED in US-542
+  (`tests/contract/test_installments_us542.py`) — the leg side
+  (pending_clearance, the collection hook) is in
+  `docs/installments.md`.
 - **Rebase onto merged US-530**: align the adapter to the real
   module (done for intake — direct `create`, real field set),
   add `transition_rest` to the module, install on lane 2,

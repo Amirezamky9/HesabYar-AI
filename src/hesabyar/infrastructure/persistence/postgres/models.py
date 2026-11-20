@@ -4268,7 +4268,8 @@ class ReviewItemModel(Base):
         CheckConstraint(
             "item_type IN ('mapping', 'settlement_variance', 'cheque_exception', "
             "'bank_unmatched', 'packaging_reorder', 'installment_overdue', "
-            "'manual_import_review', 'cashbox_variance', 'inbox_dead_letter')",
+            "'manual_import_review', 'cashbox_variance', 'inbox_dead_letter', "
+            "'sms_delivery_failed')",
             name="ck_review_items_item_type",
         ),
         CheckConstraint(
@@ -4320,7 +4321,7 @@ class ReviewItemModel(Base):
     item_type: Mapped[str] = mapped_column(
         String(32),
         nullable=False,
-        comment="Exception type — one of the nine §7.2 types",
+        comment="Exception type — one of the ten §7.2 + US-544 types",
     )
     subtype: Mapped[str | None] = mapped_column(
         String(64),
@@ -4503,7 +4504,8 @@ class ReviewSlaPolicyModel(Base):
         CheckConstraint(
             "item_type IN ('mapping', 'settlement_variance', 'cheque_exception', "
             "'bank_unmatched', 'packaging_reorder', 'installment_overdue', "
-            "'manual_import_review', 'cashbox_variance', 'inbox_dead_letter')",
+            "'manual_import_review', 'cashbox_variance', 'inbox_dead_letter', "
+            "'sms_delivery_failed')",
             name="ck_review_sla_policies_item_type",
         ),
         CheckConstraint(
@@ -4528,7 +4530,7 @@ class ReviewSlaPolicyModel(Base):
     item_type: Mapped[str] = mapped_column(
         String(32),
         nullable=False,
-        comment="Exception type — one of the nine §7.2 types",
+        comment="Exception type — one of the ten §7.2 + US-544 types",
     )
     sla_hours: Mapped[int] = mapped_column(
         Integer,
@@ -8265,3 +8267,1183 @@ class ChequeSettingsModel(Base):
 
     def __repr__(self) -> str:
         return f"ChequeSettingsModel(installation_id={self.installation_id!r})"
+
+
+# ---------------------------------------------------------------------------
+# Installments (US-540, Phase 5-5 ۵ج)
+# ---------------------------------------------------------------------------
+
+
+class InstallmentPlanModel(Base):
+    """One installment plan: exactly one sales invoice, one schedule.
+
+    Maps to the 'installment_plans' table. The unique index on
+    (installation_id, invoice_id) is the one-plan-per-invoice
+    backstop. No status column exists by design — leg and plan
+    status are computed from receipts + the wall-clock date
+    (``hesabyar.domain.installments.state_machine``) or from the
+    linked settlement tranches (BNPL plans,
+    ``hesabyar.domain.installments.bnpl``), never stored. ``kind``
+    (US-543) IS stored: it separates the internal and BNPL worlds
+    and is the report filter (``GET /installments/plans?kind=``).
+    """
+
+    __tablename__ = "installment_plans"
+    __table_args__ = (
+        UniqueConstraint(
+            "installation_id",
+            "invoice_id",
+            name="uq_installment_plans_installation_invoice",
+        ),
+        Index("ix_installment_plans_installation_created", "installation_id", "created_at"),
+        Index("ix_installment_plans_installation_contract", "installation_id", "contract_id"),
+        Index("ix_installment_plans_installation_kind", "installation_id", "kind"),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+        comment="UUID primary key",
+    )
+    tenant_id: Mapped[str] = mapped_column(
+        String(36),
+        nullable=False,
+        comment="Tenant id (from the authenticated API key)",
+    )
+    installation_id: Mapped[str] = mapped_column(
+        String(36),
+        nullable=False,
+        comment="Installation id (from the authenticated API key)",
+    )
+    company_engine_id: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        comment="Engine company id holding this plan's books",
+    )
+    invoice_id: Mapped[str] = mapped_column(
+        String(128),
+        nullable=False,
+        comment="The ONE sales invoice this plan belongs to (HesaYar invoice id or engine id)",
+    )
+    contract_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("installment_sale_contracts.id"),
+        nullable=True,
+        comment="Sale contract governing late fees / early settlement (NULL = no contract)",
+    )
+    customer_ref: Mapped[str | None] = mapped_column(
+        String(128),
+        nullable=True,
+        comment="Site customer reference (email/phone/customer code)",
+    )
+    total_principal_irr: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+        comment="Total principal in Rial (sum of the legs; validated at creation)",
+    )
+    leg_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        comment="Number of legs in the schedule",
+    )
+    interval_days: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="Days between legs (payment terms; NULL when legs were supplied explicitly)",
+    )
+    first_due_date: Mapped[datetime.date | None] = mapped_column(
+        Date,
+        nullable=True,
+        comment="First leg due date, Gregorian (payment terms; NULL for explicit legs)",
+    )
+    auto_post: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment="Posting preference for journals later stories create (late fee, finance income): "
+        "draft by default (ADR 0003 decision 1)",
+    )
+    applied_advance_irr: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+        default=0,
+        comment="Advance already applied to the schedule by early settlement (US-541); "
+        "the held advance is the receipts' advances minus this",
+    )
+    source: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="manual",
+        comment="Plan source: 'manual' (REST) | 'derived' (from sales.order.completed, ADR 0005)",
+    )
+    source_event_id: Mapped[str | None] = mapped_column(
+        String(128),
+        nullable=True,
+        comment="§10.2 source_event_id of the order event the plan was derived from (NULL for manual plans)",
+    )
+    kind: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="internal",
+        comment="Plan kind (US-543): 'internal' (customer pays the seller) | 'bnpl' (the gateway pays in tranches)",
+    )
+    gateway_channel_key: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        comment="Registry channel key of the BNPL gateway (US-543; required for BNPL plans, NULL for internal ones)",
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Row creation timestamp (UTC)",
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        onupdate=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Last-modified timestamp (UTC)",
+    )
+
+    def __repr__(self) -> str:
+        return f"InstallmentPlanModel(id={self.id!r}, invoice_id={self.invoice_id!r})"
+
+
+class InstallmentLegModel(Base):
+    """One leg of an installment plan: sequence + due date + principal.
+
+    Maps to the 'installment_legs' table. No received amount and no
+    status column — both are computed from the receipt allocations.
+    The cheque module's ``installment_leg_id`` points at this table
+    (the link target US-531 already carries; US-542 consumes it).
+    """
+
+    __tablename__ = "installment_legs"
+    __table_args__ = (
+        UniqueConstraint(
+            "plan_id",
+            "sequence",
+            name="uq_installment_legs_plan_sequence",
+        ),
+        Index("ix_installment_legs_plan_due", "plan_id", "due_date"),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+        comment="UUID primary key",
+    )
+    plan_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("installment_plans.id"),
+        nullable=False,
+        comment="Plan this leg belongs to",
+    )
+    sequence: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        comment="Leg sequence within the plan (1-based)",
+    )
+    due_date: Mapped[datetime.date] = mapped_column(
+        Date,
+        nullable=False,
+        comment="Leg due date, Gregorian (payload is Jalali)",
+    )
+    principal_irr: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+        comment="Leg principal in Rial (payload Toman x10 at the boundary)",
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Row creation timestamp (UTC)",
+    )
+
+    def __repr__(self) -> str:
+        return f"InstallmentLegModel(id={self.id!r}, plan_id={self.plan_id!r}, sequence={self.sequence!r})"
+
+
+class InstallmentReceiptModel(Base):
+    """One multi-stage receipt against a plan (the linkage guard's record).
+
+    Maps to the 'installment_receipts' table. ``invoice_id`` and
+    ``journal_move_id`` are both NOT NULL — the database enforces
+    what the guard enforces in the service: a receipt without both
+    refs cannot exist. ``advance_irr`` is the overpayment remainder
+    (held on the plan, never silently applied to a leg).
+    ``cheque_id`` (US-542) names the cheque backing a cheque
+    receipt (NULL otherwise); ``collected_at`` (US-542) is the
+    date the money actually arrived — the collection hook's record
+    for US-541's income recognition. The ``gateway_*`` columns
+    (US-543) link a BNPL receipt to its gateway payment (the
+    receivable FROM THE GATEWAY, in the settlement engine's
+    ``gateway_payments`` table — a cross-module reference, no SQL
+    FK, like the settlement tables' Tryton refs); they are NULL
+    for non-BNPL receipts.
+    """
+
+    __tablename__ = "installment_receipts"
+    __table_args__ = (
+        Index("ix_installment_receipts_plan_received", "plan_id", "received_date"),
+        Index("ix_installment_receipts_installation_invoice", "installation_id", "invoice_id"),
+        Index("ix_installment_receipts_cheque", "cheque_id"),
+        Index("ix_installment_receipts_gateway_payment", "gateway_payment_id"),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+        comment="UUID primary key",
+    )
+    plan_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("installment_plans.id"),
+        nullable=False,
+        comment="Plan this receipt pays into",
+    )
+    tenant_id: Mapped[str] = mapped_column(
+        String(36),
+        nullable=False,
+        comment="Tenant id (from the authenticated API key)",
+    )
+    installation_id: Mapped[str] = mapped_column(
+        String(36),
+        nullable=False,
+        comment="Installation id (from the authenticated API key)",
+    )
+    invoice_id: Mapped[str] = mapped_column(
+        String(128),
+        nullable=False,
+        comment="Original invoice ref (linkage guard: must equal the plan's invoice)",
+    )
+    journal_move_id: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        comment="Engine move id of the accounting document for this receipt (linkage guard)",
+    )
+    amount_irr: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+        comment="Receipt amount in Rial (payload Toman x10 at the boundary)",
+    )
+    received_date: Mapped[datetime.date] = mapped_column(
+        Date,
+        nullable=False,
+        comment="Receipt date, Gregorian (payload is Jalali)",
+    )
+    payment_method: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="cash",
+        comment="Payment method: 'cash' | 'bank_transfer' | 'other' (US-540); "
+        "'cheque' (US-542); 'bnpl' (US-543, BNPL plans only)",
+    )
+    advance_irr: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+        default=0,
+        comment="Overpayment remainder in Rial (amount - allocated; held, never auto-applied)",
+    )
+    finance_income_irr: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+        default=0,
+        comment="Finance-income portion of a settlement receipt in Rial (US-541; 0 on an ordinary receipt)",
+    )
+    late_fee_irr: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+        default=0,
+        comment="Late-fee portion of a settlement receipt in Rial (US-541; 0 on an ordinary receipt)",
+    )
+    applied_advance_irr: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+        default=0,
+        comment="Held advance from earlier receipts applied by this receipt in Rial (US-541; "
+        "a settlement receipt's allocations may exceed its amount by exactly this)",
+    )
+    is_early_settlement: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment="True when this receipt is an early-settlement receipt (US-541)",
+    )
+    reference: Mapped[str | None] = mapped_column(
+        String(128),
+        nullable=True,
+        comment="Caller-supplied receipt reference (bank ref, receipt number)",
+    )
+    notes: Mapped[str | None] = mapped_column(
+        Text(),
+        nullable=True,
+        comment="Free-text notes",
+    )
+    cheque_id: Mapped[str | None] = mapped_column(
+        String(36),
+        nullable=True,
+        comment="Cheque backing this receipt (US-542; set only for payment_method='cheque'; one receipt per cheque)",
+    )
+    collected_at: Mapped[datetime.date | None] = mapped_column(
+        Date,
+        nullable=True,
+        comment=(
+            "Date the money actually arrived (US-542 collection hook): "
+            "received_date for cash/bank/other receipts; the clear date "
+            "for a cheque receipt; NULL while uncollected"
+        ),
+    )
+    gateway_channel_key: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        comment="BNPL gateway channel key (US-543; NULL for non-BNPL receipts)",
+    )
+    gateway_reference: Mapped[str | None] = mapped_column(
+        String(128),
+        nullable=True,
+        comment="Gateway transaction id (US-543; the settlement engine's gateway_transaction_id)",
+    )
+    gateway_payment_id: Mapped[str | None] = mapped_column(
+        String(36),
+        nullable=True,
+        comment="gateway_payments row id (US-543; the receivable from the gateway; no SQL FK — cross-module ref)",
+    )
+    bnpl_status: Mapped[str | None] = mapped_column(
+        String(16),
+        nullable=True,
+        comment="BNPL gateway-side status (US-543): 'active' | 'rejected' | 'cancelled'; NULL for non-BNPL receipts",
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Row creation timestamp (UTC)",
+    )
+
+    def __repr__(self) -> str:
+        return f"InstallmentReceiptModel(id={self.id!r}, plan_id={self.plan_id!r}, amount_irr={self.amount_irr!r})"
+
+
+class InstallmentReceiptAllocationModel(Base):
+    """One slice of a receipt applied to one leg.
+
+    Maps to the 'installment_receipt_allocations' table. The
+    allocation rule caps every slice at the leg's balance, so the
+    sum of a leg's slices never exceeds its principal.
+    """
+
+    __tablename__ = "installment_receipt_allocations"
+    __table_args__ = (
+        UniqueConstraint(
+            "receipt_id",
+            "leg_id",
+            name="uq_installment_allocations_receipt_leg",
+        ),
+        Index("ix_installment_allocations_leg", "leg_id"),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+        comment="UUID primary key",
+    )
+    receipt_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("installment_receipts.id"),
+        nullable=False,
+        comment="Receipt this allocation belongs to",
+    )
+    leg_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("installment_legs.id"),
+        nullable=False,
+        comment="Leg this slice pays",
+    )
+    amount_irr: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+        comment="Allocated amount in Rial (never more than the leg's balance)",
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Row creation timestamp (UTC)",
+    )
+
+    def __repr__(self) -> str:
+        return f"InstallmentReceiptAllocationModel(receipt_id={self.receipt_id!r}, leg_id={self.leg_id!r})"
+
+
+class InstallmentSaleContractModel(Base):
+    """An installment sale contract version (قرارداد فروش قسطی).
+
+    Maps to the 'installment_sale_contracts' table. The late-fee
+    rule, penalty account and early-settlement terms are all
+    user-entered per contract — nothing money-shaped is hard-coded.
+    ``late_fee_rate`` is stored as exact decimal text (a fraction
+    for *_PERCENT bases, whole Rial per day for FIXED_PER_DAY).
+    """
+
+    __tablename__ = "installment_sale_contracts"
+    __table_args__ = (
+        UniqueConstraint(
+            "installation_id",
+            "code",
+            "version",
+            name="uq_installment_contracts_installation_code_version",
+        ),
+        Index("ix_installment_contracts_installation_code", "installation_id", "code"),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+        comment="UUID primary key",
+    )
+    tenant_id: Mapped[str] = mapped_column(
+        String(36),
+        nullable=False,
+        comment="Tenant id (from the authenticated API key)",
+    )
+    installation_id: Mapped[str] = mapped_column(
+        String(36),
+        nullable=False,
+        comment="Installation id (from the authenticated API key)",
+    )
+    company_engine_id: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        comment="Engine company id holding this contract's books",
+    )
+    code: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        comment="Contract code (versions share a code)",
+    )
+    name: Mapped[str] = mapped_column(
+        String(256),
+        nullable=False,
+        comment="Contract display name",
+    )
+    version: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+        comment="Contract version (increments per code)",
+    )
+    effective_from: Mapped[datetime.date] = mapped_column(
+        Date,
+        nullable=False,
+        comment="Date this version takes effect, Gregorian (payload is Jalali)",
+    )
+    late_fee_basis: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="none",
+        comment="Late-fee basis: 'none' | 'daily_percent' | 'monthly_percent' | 'fixed_per_day'",
+    )
+    late_fee_rate: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="0",
+        comment="Late-fee rate as exact decimal text (fraction for *_PERCENT, Rial/day for FIXED_PER_DAY)",
+    )
+    late_fee_grace_days: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        comment="Days past the due date before the late fee starts accruing",
+    )
+    penalty_account_engine_id: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="Engine account id of the penalty (finance income) account (NULL = not configured)",
+    )
+    penalty_account_code: Mapped[str | None] = mapped_column(
+        String(32),
+        nullable=True,
+        comment="Chart code of the penalty account, for display/audit",
+    )
+    finance_income_rate: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="0",
+        comment="Finance-income rate as exact decimal text (US-541): the fraction of principal "
+        "charged as finance income over the whole plan (0 = none)",
+    )
+    dunning_offsets: Mapped[str] = mapped_column(
+        String(256),
+        nullable=False,
+        default="",
+        comment="Dunning schedule as comma-separated day offsets (US-541), e.g. '3,7,14,30'; "
+        "empty means no dunning schedule",
+    )
+    receivable_account_engine_id: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="Engine account id of the customer-receivable account (US-541): the debit side "
+        "of the late-fee journal (NULL = not configured)",
+    )
+    receivable_account_code: Mapped[str | None] = mapped_column(
+        String(32),
+        nullable=True,
+        comment="Chart code of the receivable account, for display/audit",
+    )
+    early_settlement_fee_policy: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="waived",
+        comment="Accrued late fees on early settlement: 'waived' | 'kept'",
+    )
+    early_settlement_income_policy: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="waived",
+        comment="Unrealised finance income on early settlement: 'waived' | 'discounted' | 'full'",
+    )
+    early_settlement_discount_rate: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="0",
+        comment="Discount fraction as exact decimal text (US-541), applied to the remaining "
+        "unrealised income when the income policy is 'discounted'",
+    )
+    supersedes_contract_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("installment_sale_contracts.id"),
+        nullable=True,
+        comment="Previous version this version replaces (NULL for version 1)",
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        comment="Whether this version is currently in force",
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Row creation timestamp (UTC)",
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        onupdate=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Last-modified timestamp (UTC)",
+    )
+
+    def __repr__(self) -> str:
+        return f"InstallmentSaleContractModel(id={self.id!r}, code={self.code!r}, version={self.version!r})"
+
+
+class InstallmentLateFeeAssessmentModel(Base):
+    """A late-fee assessment for one leg (US-541, Phase 5-5 ۵ج).
+
+    Maps to the 'installment_late_fee_assessments' table. A
+    cumulative snapshot: ``fee_irr`` is the TOTAL fee accrued on
+    the leg through ``assessed_through``; the journal (when one was
+    created) covers only the increment since the previous journaled
+    assessment. One assessment per (leg, date) — the unique
+    constraint is the dunning run's idempotency backstop.
+    """
+
+    __tablename__ = "installment_late_fee_assessments"
+    __table_args__ = (
+        UniqueConstraint(
+            "leg_id",
+            "assessed_through",
+            name="uq_installment_assessments_leg_date",
+        ),
+        Index("ix_installment_assessments_leg", "leg_id", "assessed_through"),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+        comment="UUID primary key",
+    )
+    leg_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("installment_legs.id"),
+        nullable=False,
+        comment="Leg this assessment covers",
+    )
+    plan_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("installment_plans.id"),
+        nullable=False,
+        comment="Plan the leg belongs to",
+    )
+    tenant_id: Mapped[str] = mapped_column(
+        String(36),
+        nullable=False,
+        comment="Tenant id (from the authenticated API key)",
+    )
+    installation_id: Mapped[str] = mapped_column(
+        String(36),
+        nullable=False,
+        comment="Installation id (from the authenticated API key)",
+    )
+    assessed_through: Mapped[datetime.date] = mapped_column(
+        Date,
+        nullable=False,
+        comment="Date the fee was accrued through, Gregorian",
+    )
+    days_overdue: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        comment="Whole days past the leg's due date at assessment time",
+    )
+    fee_irr: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+        comment="Total late fee accrued on the leg through assessed_through, in Rial",
+    )
+    journal_move_id: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="Engine move id of the draft/posted journal for this increment (NULL = not journaled)",
+    )
+    journal_state: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="none",
+        comment="Journal state: 'none' | 'draft' | 'posted'",
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Row creation timestamp (UTC)",
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"InstallmentLateFeeAssessmentModel(id={self.id!r}, leg_id={self.leg_id!r}, "
+            f"fee_irr={self.fee_irr!r})"
+        )
+
+
+class InstallmentScheduleAmendmentModel(Base):
+    """A recorded change to a plan's schedule (US-541, Phase 5-5 ۵ج).
+
+    Maps to the 'installment_schedule_amendments' table.
+    Re-amortisation rewrites leg principals; the amendment is the
+    audit record — the before/after principals per leg (JSONB
+    lists of ``{leg_id, sequence, principal_irr}``), how much
+    advance was applied, and which receipt triggered it.
+    """
+
+    __tablename__ = "installment_schedule_amendments"
+    __table_args__ = (
+        Index("ix_installment_amendments_plan_created", "plan_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+        comment="UUID primary key",
+    )
+    plan_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("installment_plans.id"),
+        nullable=False,
+        comment="Plan whose schedule changed",
+    )
+    tenant_id: Mapped[str] = mapped_column(
+        String(36),
+        nullable=False,
+        comment="Tenant id (from the authenticated API key)",
+    )
+    installation_id: Mapped[str] = mapped_column(
+        String(36),
+        nullable=False,
+        comment="Installation id (from the authenticated API key)",
+    )
+    kind: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        comment="Amendment kind: 're_amortisation' (later kinds extend this)",
+    )
+    applied_advance_irr: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+        comment="Advance applied to the schedule by this amendment, in Rial",
+    )
+    legs_before: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB,
+        nullable=False,
+        comment="Leg principals before the change: [{leg_id, sequence, principal_irr}]",
+    )
+    legs_after: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB,
+        nullable=False,
+        comment="Leg principals after the change: [{leg_id, sequence, principal_irr}]",
+    )
+    receipt_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("installment_receipts.id"),
+        nullable=True,
+        comment="Receipt that triggered the amendment (the partial settlement receipt)",
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Row creation timestamp (UTC)",
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"InstallmentScheduleAmendmentModel(id={self.id!r}, plan_id={self.plan_id!r}, "
+            f"kind={self.kind!r})"
+        )
+
+
+# ---------------------------------------------------------------------------
+# SMS providers + reminders (US-544, Phase 5-5 ۵ج)
+# ---------------------------------------------------------------------------
+
+
+class SmsProviderModel(Base):
+    """One SMS provider in an installation's registry.
+
+    Maps to the 'sms_providers' table. Built-ins (Kavenegar, sms.ir,
+    simulator) come from the seed; custom providers are user-added
+    rows. Price / rate limit / line type / contract / eNamad are
+    USER-ENTERED (ADR 0003 amendment) — never hard-coded. The
+    credential payload is Fernet-encrypted
+    (``credentials_ciphertext``); the read model exposes only
+    ``has_credentials``. Exactly one default provider per
+    installation (partial unique index on ``is_default``).
+    """
+
+    __tablename__ = "sms_providers"
+    __table_args__ = (
+        UniqueConstraint(
+            "installation_id",
+            "provider_key",
+            name="uq_sms_providers_installation_key",
+        ),
+        Index(
+            "uq_sms_providers_installation_default",
+            "installation_id",
+            unique=True,
+            postgresql_where=text("is_default"),
+        ),
+        Index("ix_sms_providers_installation_key", "installation_id", "provider_key"),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+        comment="UUID primary key",
+    )
+    installation_id: Mapped[str] = mapped_column(
+        String(36),
+        nullable=False,
+        comment="Installation id (from the authenticated API key)",
+    )
+    provider_key: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        comment="Stable slug: 'kavenegar' | 'sms_ir' | 'simulator' | a custom key",
+    )
+    display_name_fa: Mapped[str] = mapped_column(
+        String(256),
+        nullable=False,
+        comment="Provider display name (Persian)",
+    )
+    provider_kind: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        comment="Client kind: 'kavenegar' | 'sms_ir' | 'simulator' | 'custom'",
+    )
+    is_builtin: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment="True for the rows the seed creates",
+    )
+    enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment="Whether reminders may send through this provider",
+    )
+    is_default: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment="Whether this is the installation's default provider (one per installation)",
+    )
+    status: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="setup",
+        comment="Operational status: 'setup' | 'active' | 'disabled' | 'error'",
+    )
+    line_number: Mapped[str | None] = mapped_column(
+        String(32),
+        nullable=True,
+        comment="Sender line number (user-entered; sms.ir requires an int64 line)",
+    )
+    price_per_sms_toman: Mapped[str | None] = mapped_column(
+        String(32),
+        nullable=True,
+        comment="Informational price per SMS in Toman, exact decimal text (user-entered; never x10-converted)",
+    )
+    rate_limit_per_minute: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="User-entered rate limit in messages per minute (NULL = unknown)",
+    )
+    line_type: Mapped[str | None] = mapped_column(
+        String(32),
+        nullable=True,
+        comment="Line kind, free string (conventional: 'service' | 'dedicated')",
+    )
+    contract_required: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment="Whether the provider requires a contract with the operator",
+    )
+    enmad_required: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment="Whether the provider requires an eNamad for the store",
+    )
+    notes: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="Free-text operator notes",
+    )
+    credentials_ciphertext: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="Fernet-encrypted credential JSON (never logged, never returned)",
+    )
+    credentials_key_id: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        comment="Encryption key id (for future rotation)",
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Row creation timestamp (UTC)",
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        onupdate=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Last-modified timestamp (UTC)",
+    )
+
+    def __repr__(self) -> str:
+        return f"SmsProviderModel(id={self.id!r}, provider_key={self.provider_key!r})"
+
+
+class SmsReminderSettingsModel(Base):
+    """One installation's reminder policy (one row per installation).
+
+    Maps to the 'sms_reminder_settings' table. ``enabled`` is the
+    master opt-in for AUTOMATIC sends (the daily job sends nothing
+    for an installation with no row, or a disabled row). The
+    offsets are JSON arrays of day counts; the templates are
+    user-editable Persian text with ``{placeholders}``.
+    """
+
+    __tablename__ = "sms_reminder_settings"
+    __table_args__ = (
+        Index("ix_sms_reminder_settings_enabled", "installation_id", "enabled"),
+    )
+
+    installation_id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        comment="Installation id (one policy row per installation)",
+    )
+    tenant_id: Mapped[str] = mapped_column(
+        String(36),
+        nullable=False,
+        comment="Tenant id (lets the daily job scan plans without a key)",
+    )
+    enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment="Master opt-in for automatic reminder sends (default: off)",
+    )
+    offsets_days_before: Mapped[list] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=list,
+        comment="Days before the due date that fire (e.g. [3, 0])",
+    )
+    offsets_days_overdue: Mapped[list] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=list,
+        comment="Days after the due date that fire (e.g. [1])",
+    )
+    template_before_due: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        comment="User-editable Persian template for a not-yet-overdue leg",
+    )
+    template_overdue: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        comment="User-editable Persian template for an overdue leg",
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Row creation timestamp (UTC)",
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        onupdate=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Last-modified timestamp (UTC)",
+    )
+
+    def __repr__(self) -> str:
+        return f"SmsReminderSettingsModel(installation_id={self.installation_id!r}, enabled={self.enabled!r})"
+
+
+class SmsContractReminderSettingsModel(Base):
+    """The per-contract opt-in for automatic reminders.
+
+    Maps to the 'sms_contract_reminder_settings' table. Automatic
+    reminders send only when the provider is enabled AND the plan's
+    contract has a row here with ``reminders_enabled=True``. Born
+    disabled: opt-in is explicit, never implied.
+    """
+
+    __tablename__ = "sms_contract_reminder_settings"
+    __table_args__ = (
+        UniqueConstraint(
+            "installation_id",
+            "contract_id",
+            name="uq_sms_contract_settings_installation_contract",
+        ),
+        Index(
+            "ix_sms_contract_settings_installation",
+            "installation_id",
+            "contract_id",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+        comment="UUID primary key",
+    )
+    installation_id: Mapped[str] = mapped_column(
+        String(36),
+        nullable=False,
+        comment="Installation id (from the authenticated API key)",
+    )
+    contract_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("installment_sale_contracts.id"),
+        nullable=False,
+        comment="Sale contract this opt-in belongs to",
+    )
+    reminders_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment="Whether automatic reminders are opted in for this contract",
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Row creation timestamp (UTC)",
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        onupdate=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Last-modified timestamp (UTC)",
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"SmsContractReminderSettingsModel(contract_id={self.contract_id!r}, "
+            f"reminders_enabled={self.reminders_enabled!r})"
+        )
+
+
+class SmsReminderLogModel(Base):
+    """One reminder attempt in the log (the DLQ + the audit trail).
+
+    Maps to the 'sms_reminder_log' table. Every attempt is logged —
+    sent, failed, skipped, or dry-run — with its provider, cost,
+    and delivery status. ``offset_days`` is negative before the due
+    date (``-3`` = 3 days before), ``0`` on the day, positive when
+    overdue. The partial unique index on (installation, leg,
+    offset) over the sent statuses (``queued`` / ``sent`` /
+    ``delivered``) is the dedup backstop: a leg + offset is never
+    reminded twice. ``provider_key`` is denormalized (the provider
+    row may later be deleted; the log keeps the key).
+    """
+
+    __tablename__ = "sms_reminder_log"
+    __table_args__ = (
+        Index(
+            "uq_sms_reminder_log_installation_leg_offset_sent",
+            "installation_id",
+            "leg_id",
+            "offset_days",
+            unique=True,
+            postgresql_where=text("status IN ('queued', 'sent', 'delivered')"),
+        ),
+        Index("ix_sms_reminder_log_installation_created", "installation_id", "created_at"),
+        Index("ix_sms_reminder_log_plan_created", "plan_id", "created_at"),
+        Index("ix_sms_reminder_log_installation_status", "installation_id", "status"),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+        comment="UUID primary key",
+    )
+    tenant_id: Mapped[str] = mapped_column(
+        String(36),
+        nullable=False,
+        comment="Tenant id (from the authenticated API key)",
+    )
+    installation_id: Mapped[str] = mapped_column(
+        String(36),
+        nullable=False,
+        comment="Installation id (from the authenticated API key)",
+    )
+    plan_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("installment_plans.id"),
+        nullable=False,
+        comment="Plan this reminder belongs to",
+    )
+    leg_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("installment_legs.id"),
+        nullable=False,
+        comment="Leg this reminder is about",
+    )
+    provider_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("sms_providers.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="Provider row (NULL when the provider was deleted; provider_key survives)",
+    )
+    provider_key: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        comment="Denormalized provider key (survives a provider delete)",
+    )
+    recipient_phone: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="",
+        comment="Recipient mobile in canonical 09... form (empty when unknown, e.g. a skipped row)",
+    )
+    message_text: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        comment="Rendered message text (Persian, Jalali due date, Persian digits)",
+    )
+    offset_days: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        comment="Days from the due date: negative = before, 0 = on the day, positive = overdue",
+    )
+    trigger: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        comment="What caused the send: 'scheduled' (daily job) | 'manual' (operator trigger)",
+    )
+    status: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        comment="Outcome: 'queued' | 'sent' | 'delivered' | 'failed' | 'skipped' | 'dry_run'",
+    )
+    provider_message_id: Mapped[str | None] = mapped_column(
+        String(128),
+        nullable=True,
+        comment="Provider-side message id (fake 'sim-...' id for the simulator)",
+    )
+    provider_status_raw: Mapped[str | None] = mapped_column(
+        String(256),
+        nullable=True,
+        comment="Raw provider status (code + text, or pack id for sms.ir)",
+    )
+    cost_toman: Mapped[str | None] = mapped_column(
+        String(32),
+        nullable=True,
+        comment="Informational cost in Toman, exact decimal text (only when the provider's unit is known)",
+    )
+    provider_cost_raw: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        comment="Provider-reported cost, verbatim",
+    )
+    provider_cost_unit: Mapped[str | None] = mapped_column(
+        String(16),
+        nullable=True,
+        comment="Unit of provider_cost_raw: 'IRR' (Kavenegar) | 'unverified' (sms.ir) | NULL",
+    )
+    error_code: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        comment="Stable error code for failed/skipped rows (NULL otherwise)",
+    )
+    error_detail: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="Human-readable failure detail (never credential material)",
+    )
+    sent_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="When the provider accepted the send (NULL for failed/skipped/dry-run rows)",
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Row creation timestamp (UTC)",
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"SmsReminderLogModel(id={self.id!r}, leg_id={self.leg_id!r}, "
+            f"offset_days={self.offset_days!r}, status={self.status!r})"
+        )
+

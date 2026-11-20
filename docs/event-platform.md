@@ -32,7 +32,7 @@ Every event arrives as one JSON object with exactly these 15 fields
 | `payload` | The event body (a JSON object) |
 | `payload_hash` | SHA-256 of the canonical JSON (sorted keys, compact separators); computed when absent, must match when supplied |
 
-Canonical event types (exactly eleven; a new name needs ADR approval
+Canonical event types (exactly twelve; a new name needs ADR approval
 and is rejected with `EVENT_UNKNOWN_TYPE` until then):
 
 `sales.order.completed`, `sales.order.cancelled`,
@@ -40,7 +40,10 @@ and is rejected with `EVENT_UNKNOWN_TYPE` until then):
 `payment.settlement.received`, `purchase.invoice.received`,
 `inventory.cost.recognized`, `bank.transaction.imported`,
 `cheque.received.registered`, `cheque.received.cancelled` (the two
-cheque names approved by ADR 0004 and wired ingestible by US-533).
+cheque names approved by ADR 0004 and wired ingestible by US-533),
+`installment.schedule.created` (approved by ADR 0005, US-540 —
+derived inside HesabYar from `sales.order.completed`, never a store
+webhook topic; the derivation lands in a later 5ج story).
 
 **The event type is NOT one of the 15 envelope fields.** It is the
 routing discriminator that travels *alongside* the envelope: on the
@@ -73,7 +76,7 @@ verify → inbox store → normalize → map → draft → validate
 
 | Step | What happens | Failure |
 |---|---|---|
-| 1. Verify | Envelope validation + the alongside event type (`X-HesabYar-Event-Type`, one of the eleven §10.2 types) + HMAC-SHA256 signature when the store has a secret configured (hex or base64; timing-safe compare). No secret → the check is skipped and the skip is recorded on the ingest response. | 422 / 401 |
+| 1. Verify | Envelope validation + the alongside event type (`X-HesabYar-Event-Type`, one of the twelve canonical types) + HMAC-SHA256 signature when the store has a secret configured (hex or base64; timing-safe compare). No secret → the check is skipped and the skip is recorded on the ingest response. | 422 / 401 |
 | 2. Inbox store | Idempotency key claimed first (§10.4 constraint 2), then the inbox row under a transaction-scoped advisory lock on the source-event identity (§10.4 constraint 1, unique constraint as backstop). | 409 Conflict (same key, different hash) |
 | 3. Normalize | Money fields converted to whole Rial at the connector boundary (§5 below). The raw envelope is never rewritten. | `needs_review` (permanent) |
 | 4. Map | Versioned account/company/journal mapping resolved. | `needs_review` — never a default account (§10.5) |
@@ -134,9 +137,16 @@ minutes. Expired records are purged by maintenance
 - **Worker**: Procrastinate (MIT, Postgres-native, no Redis) is the
   trigger/scheduler only. Tasks: `events.process_inbox_event`
   (one-shot, deferred on ingest/replay) and `events.sweep`
-  (periodic, every minute, `* * * * *`). Deferring is best-effort:
-  a queue failure is logged at warning and never fails an ingest —
-  the sweep is the backstop. The Procrastinate schema is managed by
+  (periodic, every minute, `* * * * *`). Other periodic jobs
+  registered on the same app (each on its own queue, each with its
+  own factory): the packaging supply check
+  (`packaging.supply_check`, queue `packaging`), the settlement
+  tick (`settlement.tick`, queue `settlement`), the cheque daily
+  job (`cheque.daily`, queue `cheques`), and the SMS reminder job
+  (`sms.daily_reminders`, queue `sms`, daily 09:00 Tehran — see
+  `docs/sms-providers.md`). Deferring is best-effort: a queue
+  failure is logged at warning and never fails an ingest — the
+  sweep is the backstop. The Procrastinate schema is managed by
   Procrastinate itself (`app.schema_manager.apply_schema()`), NOT by
   Alembic. Run the worker with `scripts/run_event_worker.py`
   (`--once` for a single sweep, `--skip-schema` when the schema is
@@ -284,7 +294,7 @@ the pipeline exactly like its automatic twin.
 | Refund (without payment) | `sales.refund.created` |
 | Cancellation | `sales.order.cancelled` |
 
-Only the eleven canonical event types (§1) — no new event name.
+Only the twelve canonical event types (§1) — no new event name.
 
 ### 11.1 Envelope construction
 

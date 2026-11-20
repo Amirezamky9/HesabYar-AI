@@ -11,7 +11,7 @@
 import type { StatusTone } from "@/components/ui";
 import { faNumber } from "@/lib/utils";
 
-/** The nine item types (phased design §7.2), in table order. */
+/** The ten item types (phased design §7.2 lists nine; US-544 added the tenth), in table order. */
 export const REVIEW_ITEM_TYPES = [
   "mapping",
   "settlement_variance",
@@ -22,6 +22,7 @@ export const REVIEW_ITEM_TYPES = [
   "manual_import_review",
   "cashbox_variance",
   "inbox_dead_letter",
+  "sms_delivery_failed",
 ] as const;
 
 export type ReviewItemTypeCode = (typeof REVIEW_ITEM_TYPES)[number];
@@ -36,6 +37,7 @@ export const REVIEW_ITEM_TYPE_LABELS: Record<string, { label: string; descriptio
   manual_import_review: { label: "ایمپورت دستی در انتظار تأیید", description: "بچ ایمپورت نیازمند تأیید پیش‌نمایش" },
   cashbox_variance: { label: "مغایرت صندوق", description: "اختلاف شمارش صندوق با ماندهٔ دفتری" },
   inbox_dead_letter: { label: "رویداد مرده", description: "رویدادی که پردازش آن ناموفق مانده است" },
+  sms_delivery_failed: { label: "ارسال پیامک ناموفق", description: "یادآوری پیامکی که ارسال آن ناموفق مانده است" },
 };
 
 export function reviewTypeLabel(type: string | null | undefined): string {
@@ -125,6 +127,7 @@ export const REVIEW_ACTION_LABELS: Record<string, string> = {
   replay: "بازپخش دستی",
   fix_source_retry: "اصلاح دادهٔ مبدأ و پردازش مجدد",
   close_with_reason: "بستن با دلیل",
+  retry_reminder: "ارسال مجدد یادآوری",
   filed: "ثبت در صف",
   assign: "تخصیص",
 };

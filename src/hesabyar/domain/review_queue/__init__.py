@@ -1,7 +1,7 @@
 """Review-queue bounded context (Phase 5, foundation stream F4).
 
 One uniform queue for every exception type of the store-connectivity
-phases (phased design §7.2): nine item types, one data model, one API,
+phases (phased design §7.2): ten item types, one data model, one API,
 one page. The queue is the single destination for exceptions from
 phases 5ب–5چ; this package is the skeleton — the owning modules file
 items into it and execute the type-specific effects, while the queue

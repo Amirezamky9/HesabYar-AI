@@ -169,6 +169,30 @@ from hesabyar.domain.gateways.errors import (
     GatewayUnsupportedOperationError,
     GatewayVerificationMismatchError,
 )
+from hesabyar.domain.installments.errors import (
+    InstallmentAlreadySettledError,
+    InstallmentBnplAlreadyRejectedError,
+    InstallmentBnplEarlySettlementError,
+    InstallmentBnplGatewayMismatchError,
+    InstallmentBnplPlanMethodError,
+    InstallmentBnplPlanRequiredError,
+    InstallmentBnplUnavailableError,
+    InstallmentChequeAlreadyUsedError,
+    InstallmentChequeAmountError,
+    InstallmentChequeLinkError,
+    InstallmentChequeNotReceivableError,
+    InstallmentContractNotFoundError,
+    InstallmentInvoiceMismatchError,
+    InstallmentLateFeeAccountMissingError,
+    InstallmentLinkageError,
+    InstallmentNotBnplReceiptError,
+    InstallmentPaymentMethodError,
+    InstallmentPlanExistsError,
+    InstallmentPlanNotFoundError,
+    InstallmentReceiptNotFoundError,
+    InstallmentSettlementAmountError,
+    InstallmentValidationError,
+)
 from hesabyar.domain.packaging.errors import (
     CarrierRateNotFoundError,
     CostCenterExistsError,
@@ -209,6 +233,27 @@ from hesabyar.domain.settlement.errors import (
     SettlementTrancheNotFoundError,
     SettlementWiringUnresolvedError,
     SettlementWriteOffNotAllowedError,
+)
+from hesabyar.domain.sms.errors import (
+    SmsLegNotFoundError,
+    SmsLegNotRemindableError,
+    SmsNoProviderAvailableError,
+    SmsNoUnpaidLegError,
+    SmsProviderAuthError,
+    SmsProviderClientUnavailableError,
+    SmsProviderInUseError,
+    SmsProviderInvalidResponseError,
+    SmsProviderKeyConflictError,
+    SmsProviderNotConfiguredError,
+    SmsProviderNotEnabledError,
+    SmsProviderNotFoundError,
+    SmsProviderRejectedError,
+    SmsProviderUnreachableError,
+    SmsRecipientPhoneMissingError,
+    SmsReminderAlreadySentError,
+    SmsReminderNotOptedInError,
+    SmsValidationError,
+    SmsVaultUnavailableError,
 )
 
 logger = logging.getLogger(__name__)
@@ -633,6 +678,126 @@ def api_error_from_hesabyar_error(exc: HesabYarError) -> ApiError:
             code="CHEQUE_ENGINE_ERROR",
             detail="The cheque engine failed to answer the request.",
         )
+    if isinstance(exc, InstallmentPlanNotFoundError):
+        return ApiError(status_code=404, code="INSTALLMENT_PLAN_NOT_FOUND", detail=exc.message)
+    if isinstance(exc, InstallmentContractNotFoundError):
+        return ApiError(status_code=404, code="INSTALLMENT_CONTRACT_NOT_FOUND", detail=exc.message)
+    if isinstance(exc, InstallmentPlanExistsError):
+        return ApiError(status_code=409, code="INSTALLMENT_PLAN_EXISTS", detail=exc.message)
+    if isinstance(exc, InstallmentLinkageError):
+        return ApiError(
+            status_code=422,
+            code="INSTALLMENT_RECEIPT_LINKAGE_REQUIRED",
+            detail=exc.message,
+        )
+    if isinstance(exc, InstallmentInvoiceMismatchError):
+        return ApiError(status_code=422, code="INSTALLMENT_INVOICE_MISMATCH", detail=exc.message)
+    if isinstance(exc, InstallmentPaymentMethodError):
+        return ApiError(
+            status_code=422, code="INSTALLMENT_PAYMENT_METHOD_UNSUPPORTED", detail=exc.message
+        )
+    if isinstance(exc, InstallmentReceiptNotFoundError):
+        return ApiError(status_code=404, code="INSTALLMENT_RECEIPT_NOT_FOUND", detail=exc.message)
+    if isinstance(exc, InstallmentBnplPlanRequiredError):
+        return ApiError(status_code=422, code="INSTALLMENT_BNPL_PLAN_REQUIRED", detail=exc.message)
+    if isinstance(exc, InstallmentBnplPlanMethodError):
+        return ApiError(
+            status_code=422, code="INSTALLMENT_BNPL_PLAN_METHOD_NOT_ALLOWED", detail=exc.message
+        )
+    if isinstance(exc, InstallmentBnplGatewayMismatchError):
+        return ApiError(
+            status_code=422, code="INSTALLMENT_BNPL_GATEWAY_MISMATCH", detail=exc.message
+        )
+    if isinstance(exc, InstallmentNotBnplReceiptError):
+        return ApiError(status_code=422, code="INSTALLMENT_NOT_A_BNPL_RECEIPT", detail=exc.message)
+    if isinstance(exc, InstallmentBnplAlreadyRejectedError):
+        return ApiError(
+            status_code=409, code="INSTALLMENT_BNPL_ALREADY_REJECTED", detail=exc.message
+        )
+    if isinstance(exc, InstallmentBnplUnavailableError):
+        return ApiError(status_code=503, code="INSTALLMENT_BNPL_UNAVAILABLE", detail=exc.message)
+    if isinstance(exc, InstallmentBnplEarlySettlementError):
+        return ApiError(
+            status_code=422,
+            code="INSTALLMENT_BNPL_EARLY_SETTLEMENT_NOT_ALLOWED",
+            detail=exc.message,
+        )
+    if isinstance(exc, InstallmentChequeNotReceivableError):
+        return ApiError(
+            status_code=422, code="INSTALLMENT_CHEQUE_NOT_RECEIVABLE", detail=exc.message
+        )
+    if isinstance(exc, InstallmentChequeLinkError):
+        return ApiError(
+            status_code=422, code="INSTALLMENT_CHEQUE_LINK_MISMATCH", detail=exc.message
+        )
+    if isinstance(exc, InstallmentChequeAlreadyUsedError):
+        return ApiError(
+            status_code=422, code="INSTALLMENT_CHEQUE_ALREADY_USED", detail=exc.message
+        )
+    if isinstance(exc, InstallmentChequeAmountError):
+        return ApiError(
+            status_code=422, code="INSTALLMENT_CHEQUE_AMOUNT_EXCEEDED", detail=exc.message
+        )
+    if isinstance(exc, InstallmentLateFeeAccountMissingError):
+        return ApiError(
+            status_code=422, code="INSTALLMENT_LATE_FEE_ACCOUNT_MISSING", detail=exc.message
+        )
+    if isinstance(exc, InstallmentSettlementAmountError):
+        return ApiError(
+            status_code=422, code="INSTALLMENT_SETTLEMENT_AMOUNT_INSUFFICIENT", detail=exc.message
+        )
+    if isinstance(exc, InstallmentAlreadySettledError):
+        return ApiError(
+            status_code=409, code="INSTALLMENT_PLAN_ALREADY_SETTLED", detail=exc.message
+        )
+    if isinstance(exc, InstallmentValidationError):
+        detail = exc.message
+        if exc.field_errors:
+            problems = "; ".join(f"{name}: {problem}" for name, problem in sorted(exc.field_errors.items()))
+            detail = f"{exc.message} Problems: {problems}"
+        return ApiError(status_code=422, code="INSTALLMENT_VALIDATION_FAILED", detail=detail)
+    if isinstance(exc, SmsValidationError):
+        detail = exc.message
+        if exc.field_errors:
+            problems = "; ".join(f"{name}: {problem}" for name, problem in sorted(exc.field_errors.items()))
+            detail = f"{exc.message} Problems: {problems}"
+        return ApiError(status_code=422, code="SMS_VALIDATION_FAILED", detail=detail)
+    if isinstance(exc, SmsProviderNotFoundError):
+        return ApiError(status_code=404, code="SMS_PROVIDER_NOT_FOUND", detail=exc.message)
+    if isinstance(exc, SmsProviderKeyConflictError):
+        return ApiError(status_code=409, code="SMS_PROVIDER_KEY_CONFLICT", detail=exc.message)
+    if isinstance(exc, SmsProviderInUseError):
+        return ApiError(status_code=409, code="SMS_PROVIDER_IN_USE", detail=exc.message)
+    if isinstance(exc, SmsProviderNotConfiguredError):
+        return ApiError(status_code=422, code="SMS_PROVIDER_NOT_CONFIGURED", detail=exc.message)
+    if isinstance(exc, SmsProviderNotEnabledError):
+        return ApiError(status_code=422, code="SMS_PROVIDER_NOT_ENABLED", detail=exc.message)
+    if isinstance(exc, SmsProviderClientUnavailableError):
+        return ApiError(status_code=501, code="SMS_PROVIDER_CLIENT_UNAVAILABLE", detail=exc.message)
+    if isinstance(exc, SmsProviderUnreachableError):
+        return ApiError(status_code=502, code="SMS_PROVIDER_UNREACHABLE", detail=exc.message)
+    if isinstance(exc, SmsProviderAuthError):
+        return ApiError(status_code=422, code="SMS_PROVIDER_AUTH_FAILED", detail=exc.message)
+    if isinstance(exc, SmsProviderRejectedError):
+        return ApiError(status_code=422, code="SMS_PROVIDER_REJECTED", detail=exc.message)
+    if isinstance(exc, SmsProviderInvalidResponseError):
+        return ApiError(status_code=502, code="SMS_PROVIDER_INVALID_RESPONSE", detail=exc.message)
+    if isinstance(exc, SmsVaultUnavailableError):
+        return ApiError(status_code=503, code="SMS_CREDENTIAL_VAULT_UNAVAILABLE", detail=exc.message)
+    if isinstance(exc, SmsNoProviderAvailableError):
+        return ApiError(status_code=422, code="SMS_NO_PROVIDER_AVAILABLE", detail=exc.message)
+    if isinstance(exc, SmsReminderNotOptedInError):
+        return ApiError(status_code=422, code="SMS_REMINDER_NOT_OPTED_IN", detail=exc.message)
+    if isinstance(exc, SmsReminderAlreadySentError):
+        return ApiError(status_code=409, code="SMS_REMINDER_ALREADY_SENT", detail=exc.message)
+    if isinstance(exc, SmsRecipientPhoneMissingError):
+        return ApiError(status_code=422, code="SMS_RECIPIENT_PHONE_MISSING", detail=exc.message)
+    if isinstance(exc, SmsLegNotFoundError):
+        return ApiError(status_code=404, code="SMS_LEG_NOT_FOUND", detail=exc.message)
+    if isinstance(exc, SmsLegNotRemindableError):
+        return ApiError(status_code=422, code="SMS_LEG_NOT_REMINDABLE", detail=exc.message)
+    if isinstance(exc, SmsNoUnpaidLegError):
+        return ApiError(status_code=422, code="SMS_NO_UNPAID_LEG", detail=exc.message)
     if isinstance(exc, SayyadLiveNotReadyError):
         return ApiError(status_code=501, code="SAYYAD_LIVE_NOT_CONNECTED", detail=exc.message)
     if isinstance(exc, SayyadInquiryError):

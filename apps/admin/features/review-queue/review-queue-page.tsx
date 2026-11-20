@@ -1,6 +1,6 @@
 /**
  * Review queue page (US-504, Phase 5 F4) — the single queue for all
- * nine exception types (phased design §7.2), under module 1
+ * ten exception types (phased design §7.2 + US-544), under module 1
  * (dashboard ← صف بازبینی).
  *
  * Data is live from the backend via the BFF: the list (filters +

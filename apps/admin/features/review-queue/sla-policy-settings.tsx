@@ -1,7 +1,7 @@
 /**
  * SLA policy settings (US-504) — per-type ageing/SLA configuration.
  *
- * Lists the effective policy for all nine types (configured row over
+ * Lists the effective policy for all ten types (configured row over
  * the skeleton default) and lets an admin change the deadline and
  * warn window per type. Updates need the `settings:manage` scope;
  * a key without it gets a Persian 403 explanation instead of a

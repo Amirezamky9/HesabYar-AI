@@ -39,12 +39,14 @@ from hesabyar.application.commands.packaging import PackagingCommandService
 from hesabyar.application.commands.policy_gate import RegistryPolicyGate
 from hesabyar.application.commands.review_queue import ReviewQueueCommandService
 from hesabyar.application.commands.settlement import SettlementCommandService
+from hesabyar.application.commands.sms import SmsReminderService
 from hesabyar.application.commands.store_events import StoreDraftBuilder, StoreMappingResolver
 from hesabyar.infrastructure.accounting.tryton.adapter import TrytonAccountingAdapter
 from hesabyar.infrastructure.accounting.tryton.client import TrytonRestClient
 from hesabyar.infrastructure.accounting.tryton.fiscal_period_checker import (
     TrytonFiscalPeriodChecker,
 )
+from hesabyar.infrastructure.auth.credential_vault import FernetCredentialVault
 from hesabyar.infrastructure.config import AppSettings
 from hesabyar.infrastructure.events.cheque_queue import (
     CHEQUE_QUEUE,
@@ -73,6 +75,11 @@ from hesabyar.infrastructure.events.settlement_queue import (
     SettlementWorkerFactory,
     SettlementWorkerHandle,
 )
+from hesabyar.infrastructure.events.sms_queue import (
+    SMS_QUEUE,
+    SmsWorkerFactory,
+    SmsWorkerHandle,
+)
 from hesabyar.infrastructure.files.local_scan_store import LocalChequeScanStore
 from hesabyar.infrastructure.persistence.postgres.cheques_repository import (
     SqlAlchemyChequeRepository,
@@ -87,6 +94,9 @@ from hesabyar.infrastructure.persistence.postgres.event_repositories import (
 from hesabyar.infrastructure.persistence.postgres.integrations_repository import (
     SqlAlchemyIntegrationsRepository,
 )
+from hesabyar.infrastructure.persistence.postgres.installments_repository import (
+    SqlAlchemyInstallmentRepository,
+)
 from hesabyar.infrastructure.persistence.postgres.models import EngineCompanyModel
 from hesabyar.infrastructure.persistence.postgres.packaging_repository import (
     SqlAlchemyPackagingRepository,
@@ -98,6 +108,10 @@ from hesabyar.infrastructure.persistence.postgres.settlement_repository import (
     SqlAlchemySettlementAudit,
     SqlAlchemySettlementRepository,
 )
+from hesabyar.infrastructure.persistence.postgres.sms_repository import (
+    SqlAlchemySmsRepository,
+)
+from hesabyar.infrastructure.sms.factory import DefaultSmsClientFactory
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("hesabyar.event_worker")
@@ -334,6 +348,60 @@ def build_cheque_factory(settings: AppSettings) -> ChequeWorkerFactory:
     return factory
 
 
+def build_sms_factory(settings: AppSettings) -> SmsWorkerFactory:
+    """Build a factory producing one SMS handle per daily-job run.
+
+    Shares the same pooled engine pattern as the other factories:
+    each job run gets a fresh session, closed afterwards. The daily
+    reminder job needs no Tryton client (it only reads installment
+    schedules and sends SMS) but it does need the credential vault
+    (to decrypt provider API keys) and the review queue (send
+    failures file items). A missing key means no vault: live
+    providers fail closed per-send, and the simulator still works.
+    A malformed key is logged loudly and treated the same way —
+    the worker must not die because one queue cannot decrypt.
+    """
+    engine = create_engine(
+        settings.database.sqlalchemy_url,
+        pool_size=settings.database.pool_size,
+        max_overflow=settings.database.max_overflow,
+        pool_timeout=settings.database.pool_timeout_seconds,
+    )
+    session_factory = sessionmaker(bind=engine)
+    key = settings.auth.credentials_encryption_key
+    vault: FernetCredentialVault | None = None
+    if key is not None:
+        try:
+            vault = FernetCredentialVault(key)
+        except ValueError:
+            logger.error(
+                "Invalid credential-encryption key: live SMS providers "
+                "will fail closed until it is fixed."
+            )
+
+    def factory() -> SmsWorkerHandle:
+        session = session_factory()
+        review_repo = SqlAlchemyReviewQueueRepository(session)
+        reminders = SmsReminderService(
+            SqlAlchemySmsRepository(session),
+            SqlAlchemyInstallmentRepository(session),
+            client_factory=DefaultSmsClientFactory(),
+            vault=vault,
+            review=ReviewQueueCommandService(review_repo, review_repo),
+            cheques=SqlAlchemyChequeRepository(session),
+        )
+
+        def commit() -> None:
+            session.commit()
+
+        def close() -> None:
+            session.close()
+
+        return SmsWorkerHandle(reminders=reminders, commit=commit, close=close)
+
+    return factory
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the worker (or one sweep with --once)."""
     parser = argparse.ArgumentParser(description="HesabYar event-platform worker (US-501).")
@@ -387,6 +455,7 @@ def main(argv: list[str] | None = None) -> int:
         settlement_factory=build_settlement_factory(settings),
         settlement_tick_cron=settings.settlement.tick_cron,
         cheque_factory=build_cheque_factory(settings),
+        sms_factory=build_sms_factory(settings),
     )
     with app.open():
         if not args.skip_schema:
@@ -394,12 +463,14 @@ def main(argv: list[str] | None = None) -> int:
             app.schema_manager.apply_schema()
         logger.info(
             "Starting event worker (queues=%s, sweep=%s, supply_check=%s, settlement_tick=%s).",
-            [EVENTS_QUEUE, PACKAGING_QUEUE, SETTLEMENT_QUEUE, CHEQUE_QUEUE],
+            [EVENTS_QUEUE, PACKAGING_QUEUE, SETTLEMENT_QUEUE, CHEQUE_QUEUE, SMS_QUEUE],
             settings.events.worker_sweep_cron,
             settings.packaging.supply_check_cron,
             settings.settlement.tick_cron,
         )
-        app.run_worker(queues=[EVENTS_QUEUE, PACKAGING_QUEUE, SETTLEMENT_QUEUE, CHEQUE_QUEUE])
+        app.run_worker(
+            queues=[EVENTS_QUEUE, PACKAGING_QUEUE, SETTLEMENT_QUEUE, CHEQUE_QUEUE, SMS_QUEUE]
+        )
     return 0
 
 

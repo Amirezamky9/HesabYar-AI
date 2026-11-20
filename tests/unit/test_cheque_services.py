@@ -47,6 +47,7 @@ from hesabyar.domain.cheques.models import (
     RedBrownPolicy,
     StorageLocation,
 )
+from hesabyar.domain.cheques.ports import InstallmentLegOutcomeHook
 from hesabyar.domain.cheques.state_machine import journal_design_for
 
 TENANT_ID = "00000000-0000-0000-0000-000000000531"
@@ -146,6 +147,19 @@ class FakeChequeRepository:
             for c in self.cheques.values()
             if c.state is ChequeState.IN_CLEARING
         ]
+
+    def list_by_installment_leg_id(
+        self, leg_id: str, *, tenant_id: str, installation_id: str
+    ) -> list[Cheque]:
+        rows = [
+            c
+            for c in self.cheques.values()
+            if c.installment_leg_id == leg_id
+            and c.tenant_id == tenant_id
+            and c.installation_id == installation_id
+        ]
+        rows.sort(key=lambda c: c.created_at, reverse=True)
+        return [copy.deepcopy(c) for c in rows]
 
     def list(
         self,
@@ -385,6 +399,32 @@ class RecordingReview:
 
 
 @dataclass
+class RecordingLegHook:
+    """Records leg-outcome hook calls (US-542) — optionally failing."""
+
+    calls: list[dict[str, Any]] = field(default_factory=list)
+    fail: bool = False
+
+    def on_leg_outcome(
+        self,
+        *,
+        cheque: Cheque,
+        outcome: InstallmentLegStatus,
+        event_date: datetime.date,
+    ) -> None:
+        if self.fail:
+            raise RuntimeError("simulated hook failure")
+        self.calls.append(
+            {
+                "cheque_id": cheque.id,
+                "leg_id": cheque.installment_leg_id,
+                "outcome": outcome,
+                "event_date": event_date,
+            }
+        )
+
+
+@dataclass
 class StubGate:
     """Policy gate stub: allow or deny every journal, recording the calls."""
 
@@ -424,6 +464,7 @@ def _service(
     *,
     gate: StubGate | None = None,
     today: datetime.date | None = None,
+    leg_hook: InstallmentLegOutcomeHook | None = None,
 ) -> ChequeCommandService:
     repo, engine, review = world
     # The fakes implement only the port methods the service uses;
@@ -436,6 +477,7 @@ def _service(
         gate=cast(PolicyGateService, gate) if gate is not None else None,
         review=cast(ReviewQueueCommandService, review),
         today=today,
+        leg_hook=leg_hook,
     )
 
 
@@ -811,6 +853,92 @@ def test_bounce_records_reason_date_certificate_and_files_dunning(
     assert bounced.installment_leg_status is InstallmentLegStatus.UNPAID
     assert any(
         item["subtype"] == "cheque_bounced" for item in review.items
+    )
+
+
+# -- the leg-outcome hook (US-542) ------------------------------------------------------
+
+
+def test_clear_fires_the_leg_outcome_hook_with_paid(
+    world: tuple[FakeChequeRepository, FakeEngine, RecordingReview],
+) -> None:
+    hook = RecordingLegHook()
+    service = _service(world, today=TODAY, leg_hook=hook)
+    cheque = _in_clearing(service, installment_leg_id="leg-7")
+    service.clear(
+        tenant_id=TENANT_ID,
+        installation_id=INSTALLATION_ID,
+        cheque_id=cheque.id,
+        actor=ACTOR,
+    )
+    assert hook.calls == [
+        {
+            "cheque_id": cheque.id,
+            "leg_id": "leg-7",
+            "outcome": InstallmentLegStatus.PAID,
+            "event_date": TODAY,
+        }
+    ]
+
+
+def test_bounce_fires_the_leg_outcome_hook_with_unpaid_and_the_bounce_date(
+    world: tuple[FakeChequeRepository, FakeEngine, RecordingReview],
+) -> None:
+    hook = RecordingLegHook()
+    service = _service(world, today=TODAY, leg_hook=hook)
+    cheque = _in_clearing(service, installment_leg_id="leg-7")
+    service.bounce(
+        tenant_id=TENANT_ID,
+        installation_id=INSTALLATION_ID,
+        cheque_id=cheque.id,
+        actor=ACTOR,
+        bounce_reason="عدم کفایت موجودی",
+        bounce_date="1405-10-20",
+        certificate_reference="cert-1",
+    )
+    assert hook.calls == [
+        {
+            "cheque_id": cheque.id,
+            "leg_id": "leg-7",
+            "outcome": InstallmentLegStatus.UNPAID,
+            "event_date": datetime.date(2027, 1, 10),
+        }
+    ]
+
+
+def test_hook_is_not_fired_without_a_leg_link(
+    world: tuple[FakeChequeRepository, FakeEngine, RecordingReview],
+) -> None:
+    hook = RecordingLegHook()
+    service = _service(world, today=TODAY, leg_hook=hook)
+    cheque = _in_clearing(service)
+    service.clear(
+        tenant_id=TENANT_ID,
+        installation_id=INSTALLATION_ID,
+        cheque_id=cheque.id,
+        actor=ACTOR,
+    )
+    assert hook.calls == []
+
+
+def test_hook_failure_never_masks_the_transition(
+    world: tuple[FakeChequeRepository, FakeEngine, RecordingReview],
+) -> None:
+    _, _, review = world
+    hook = RecordingLegHook(fail=True)
+    service = _service(world, today=TODAY, leg_hook=hook)
+    cheque = _in_clearing(service, installment_leg_id="leg-7")
+    cleared = service.clear(
+        tenant_id=TENANT_ID,
+        installation_id=INSTALLATION_ID,
+        cheque_id=cheque.id,
+        actor=ACTOR,
+    )
+    assert cleared.state is ChequeState.CLEARED
+    assert cleared.installment_leg_status is InstallmentLegStatus.PAID
+    assert any(
+        item["subtype"] == "installment_collection_hook_failed"
+        for item in review.items
     )
 
 

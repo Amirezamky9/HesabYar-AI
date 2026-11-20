@@ -10,11 +10,13 @@ idempotency_key, payload, payload_hash``
 
 ``event_type`` is the routing discriminator carried alongside the
 envelope (stored in ``inbox_events.event_type``, migration 0004);
-it is one of the eleven canonical types — the nine of §10.2 plus
+it is one of the twelve canonical types — the nine of §10.2 plus
 the two cheque intake types approved by ADR 0004 (US-530) and
-wired ingestible by US-533 — validated by
+wired ingestible by US-533, plus ``installment.schedule.created``
+approved by ADR 0005 (US-540, derived inside HesabYar from
+``sales.order.completed`` — never a store webhook topic) — validated by
 :func:`parse_event_type` at the receiver — never a field of the
-envelope itself. New event names beyond the eleven need ADR approval
+envelope itself. New event names beyond the twelve need ADR approval
 (ADR 0003 round-2 update 8).
 
 Schema versioning: new events are ``schema_version=1``. An event
@@ -57,9 +59,14 @@ EVENT_INGEST_OPERATION = "events.ingest"
 
 @unique
 class CanonicalEventType(StrEnum):
-    """The eleven canonical event types: the nine of spec §10.2 plus
+    """The twelve canonical event types: the nine of spec §10.2 plus
     the two cheque intake types approved by ADR 0004 (US-530) and
-    wired ingestible by US-533."""
+    wired ingestible by US-533, plus the installment schedule type
+    approved by ADR 0005 (US-540). The installment type is derived
+    inside HesabYar from ``sales.order.completed`` — it is never a
+    store webhook topic and has no store-document builder support;
+    a store-sent copy fails closed to the review queue like the
+    other non-store canonical types."""
 
     SALES_ORDER_COMPLETED = "sales.order.completed"
     SALES_ORDER_CANCELLED = "sales.order.cancelled"
@@ -72,6 +79,7 @@ class CanonicalEventType(StrEnum):
     BANK_TRANSACTION_IMPORTED = "bank.transaction.imported"
     CHEQUE_RECEIVED_REGISTERED = "cheque.received.registered"
     CHEQUE_RECEIVED_CANCELLED = "cheque.received.cancelled"
+    INSTALLMENT_SCHEDULE_CREATED = "installment.schedule.created"
 
 
 CANONICAL_EVENT_TYPES: frozenset[str] = frozenset(t.value for t in CanonicalEventType)

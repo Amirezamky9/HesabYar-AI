@@ -300,10 +300,28 @@ describe("api methods", () => {
       "getInquiryLedger",
       "runReceiptRuleAudit",
       "runChequeClearing",
+      // Phase 5-5 installments center (US-545)
+      "listInstallmentPlans",
+      "getInstallmentPlan",
+      "createInstallmentPlan",
+      "createInstallmentReceipt",
+      "rejectBnplReceipt",
+      "listInstallmentContracts",
+      "getInstallmentContract",
+      "createInstallmentContract",
+      "getPayoffQuote",
+      "createEarlySettlement",
+      "listOverdueLegs",
+      "runDunning",
+      "listPlanAmendments",
+      "triggerPlanReminder",
+      "listPlanReminders",
+      "listSmsReminders",
+      "listSmsProviders",
     ]) {
       expect(methods).toContain(name);
     }
-    expect(methods).toHaveLength(190);
+    expect(methods).toHaveLength(207);
   });
 });
 

@@ -53,6 +53,7 @@ ALL_TYPES = [
     "manual_import_review",
     "cashbox_variance",
     "inbox_dead_letter",
+    "sms_delivery_failed",
 ]
 
 
@@ -232,7 +233,7 @@ def test_file_item_requires_review_file_scope(settings: AppSettings, world: Worl
 # ---------------------------------------------------------------------------
 
 
-def test_list_types_returns_all_nine_with_actions(settings: AppSettings, world: World) -> None:
+def test_list_types_returns_all_ten_with_actions(settings: AppSettings, world: World) -> None:
     client = _test_client(settings)
     response = client.get("/api/v1/review-queue/types", headers=_auth(world.read_key))
     assert response.status_code == 200
@@ -244,11 +245,11 @@ def test_list_types_returns_all_nine_with_actions(settings: AppSettings, world: 
 
 
 # ---------------------------------------------------------------------------
-# POST + GET /review-queue/items — the nine types, filters, sort, paging
+# POST + GET /review-queue/items — the ten types, filters, sort, paging
 # ---------------------------------------------------------------------------
 
 
-def test_api_returns_all_nine_item_types(settings: AppSettings, world: World) -> None:
+def test_api_returns_all_ten_item_types(settings: AppSettings, world: World) -> None:
     """Exit criterion (phased design §1.2): one sample item per type, all returned."""
     client = _test_client(settings)
     for item_type in ALL_TYPES:
@@ -257,7 +258,7 @@ def test_api_returns_all_nine_item_types(settings: AppSettings, world: World) ->
     assert response.status_code == 200
     body = response.json()
     assert body["next_cursor"] is None
-    assert len(body["items"]) == 9
+    assert len(body["items"]) == 10
     assert {item["item_type"] for item in body["items"]} == set(ALL_TYPES)
     for item in body["items"]:
         assert len(item["actions"]) >= 1
@@ -492,14 +493,14 @@ def test_assign_item(settings: AppSettings, world: World) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_summary_covers_all_nine_types(settings: AppSettings, world: World) -> None:
+def test_summary_covers_all_ten_types(settings: AppSettings, world: World) -> None:
     client = _test_client(settings)
     _file_item(client, world.resolve_key, item_type="mapping")
     _file_item(client, world.resolve_key, item_type="mapping")
     response = client.get("/api/v1/review-queue/summary", headers=_auth(world.read_key))
     assert response.status_code == 200
     body = response.json()
-    assert len(body["counters"]) == 9
+    assert len(body["counters"]) == 10
     assert {c["item_type"] for c in body["counters"]} == set(ALL_TYPES)
     assert body["total_open"] == 2
     assert body["total_overdue"] == 0
@@ -548,7 +549,7 @@ def test_sla_policies_default_then_update(settings: AppSettings, world: World) -
     response = client.get("/api/v1/review-queue/sla-policies", headers=_auth(world.read_key))
     assert response.status_code == 200
     policies = {p["item_type"]: p for p in response.json()}
-    assert len(policies) == 9
+    assert len(policies) == 10
     assert policies["mapping"]["sla_hours"] == 48
     assert policies["mapping"]["warn_hours"] == 12
     assert policies["mapping"]["updated_at"] is None

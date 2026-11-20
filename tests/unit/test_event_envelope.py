@@ -103,13 +103,14 @@ def test_non_integer_schema_version_is_rejected() -> None:
         CanonicalEvent.from_raw(raw_envelope(schema_version="1"))
 
 
-def test_all_eleven_canonical_event_types_are_accepted() -> None:
+def test_all_twelve_canonical_event_types_are_accepted() -> None:
     """Every §10.2 event type parses (validated alongside the envelope).
 
     Nine from US-501 plus the two cheque names wired by US-533
-    (ADR 0004).
+    (ADR 0004) plus ``installment.schedule.created`` approved by
+    ADR 0005 (US-540).
     """
-    assert len(CANONICAL_EVENT_TYPES) == 11
+    assert len(CANONICAL_EVENT_TYPES) == 12
     for event_type in CanonicalEventType:
         assert parse_event_type(event_type.value) == event_type
 

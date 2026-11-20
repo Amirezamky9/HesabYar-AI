@@ -82,6 +82,56 @@ export function persianApiErrorMessage(err: unknown, fallback: string): string {
         return "مدیر هنوز شمارش مجدد نخواسته است؛ درخواست شمارش مجدد از صف بازبینی می‌آید.";
       case "COUNT_WRONG_ACTOR":
         return "این امضا یا اقدام به شما تعلق ندارد؛ نقش درست را انتخاب کنید.";
+      case "INSTALLMENT_PLAN_NOT_FOUND":
+        return "این برنامهٔ قسط پیدا نشد؛ ممکن است حذف شده باشد.";
+      case "INSTALLMENT_PLAN_EXISTS":
+        return "برای این فاکتور قبلاً یک برنامهٔ قسط ساخته شده است؛ هر فاکتور فقط یک برنامه دارد.";
+      case "INSTALLMENT_RECEIPT_LINKAGE_REQUIRED":
+        return "هر دریافت قسط باید هم به فاکتور اصلی و هم به سند حسابداری (روزنامه) مرتبط باشد؛ هر دو مرجع را وارد کنید.";
+      case "INSTALLMENT_INVOICE_MISMATCH":
+        return "فاکتور واردشده با فاکتور این برنامه یکی نیست.";
+      case "INSTALLMENT_VALIDATION_FAILED":
+        return "اطلاعات واردشده معتبر نیست؛ مبلغ‌ها، تاریخ‌ها و تعداد اقساط را بررسی کنید.";
+      case "INSTALLMENT_SETTLEMENT_AMOUNT_INSUFFICIENT":
+        return "مبلغ تسویه کمتر از مبلغ تسویهٔ زودهنگام است؛ مبلغ را با نقل‌قول تسویه مقایسه کنید.";
+      case "INSTALLMENT_CHEQUE_NOT_RECEIVABLE":
+        return "این چک نمی‌تواند پشتوانهٔ دریافت باشد؛ فقط چک دریافتی تجاری در وضعیت «نزد ما» یا «در جریان وصول» قابل قبول است.";
+      case "INSTALLMENT_CHEQUE_ALREADY_USED":
+        return "این چک قبلاً پشتوانهٔ یک دریافت دیگر شده است.";
+      case "INSTALLMENT_CHEQUE_AMOUNT_EXCEEDED":
+        return "مبلغ دریافت از مبلغ چک بیشتر است.";
+      case "INSTALLMENT_CHEQUE_LINK_MISMATCH":
+        return "این چک قبلاً به قسط دیگری مرتبط شده است.";
+      case "INSTALLMENT_BNPL_PLAN_REQUIRED":
+        return "دریافت BNPL فقط روی برنامهٔ BNPL ممکن است.";
+      case "INSTALLMENT_BNPL_PLAN_METHOD_NOT_ALLOWED":
+        return "روی برنامهٔ BNPL فقط دریافت از درگاه ممکن است؛ نقدی، بانکی و چک قابل قبول نیست.";
+      case "INSTALLMENT_BNPL_GATEWAY_MISMATCH":
+        return "درگاه این دریافت با درگاه برنامه یکی نیست.";
+      case "INSTALLMENT_BNPL_ALREADY_REJECTED":
+        return "این دریافت BNPL قبلاً رد شده است.";
+      case "INSTALLMENT_LATE_FEE_ACCOUNT_MISSING":
+        return "حساب جریمه یا حساب دریافتنی در قرارداد تنظیم نشده است؛ اول قرارداد را کامل کنید.";
+      case "INSTALLMENT_BNPL_EARLY_SETTLEMENT_NOT_ALLOWED":
+        return "برنامهٔ BNPL تسویهٔ زودهنگام ندارد؛ وصول با درگاه است.";
+      case "SMS_REMINDER_ALREADY_SENT":
+        return "برای این قسط و این فاصلهٔ زمانی قبلاً یادآوری ارسال شده است.";
+      case "SMS_LEG_NOT_REMINDABLE":
+        return "این قسط قابل یادآوری نیست؛ یا پرداخت شده یا در انتظار وصول چک است.";
+      case "SMS_NO_UNPAID_LEG":
+        return "این برنامه قسط پرداخت‌نشده‌ای ندارد.";
+      case "SMS_RECIPIENT_PHONE_MISSING":
+        return "شمارهٔ موبایل مشتری ثبت نشده است؛ شماره را وارد کنید.";
+      case "SMS_NO_PROVIDER_AVAILABLE":
+        return "ارائه‌دهندهٔ پیامک فعالی تنظیم نشده است؛ اول یک ارائه‌دهنده را فعال کنید.";
+      case "SMS_PROVIDER_NOT_ENABLED":
+        return "این ارائه‌دهندهٔ پیامک فعال نیست.";
+      case "INSTALLMENT_PLAN_ALREADY_SETTLED":
+        return "این برنامه قبلاً تسویه شده است.";
+      case "INSTALLMENT_NOT_A_BNPL_RECEIPT":
+        return "این دریافت، دریافت BNPL نیست.";
+      case "INSTALLMENT_PAYMENT_METHOD_UNSUPPORTED":
+        return "روش پرداخت برای این برنامه پشتیبانی نمی‌شود.";
       case "LEDGER_INVALID_INVOICE":
       case "LEDGER_INVALID_PAYMENT":
       case "LEDGER_INVALID_STATEMENT":

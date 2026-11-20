@@ -43,6 +43,15 @@ and files a review item after ``held`` (manual return, never an
 automatic void); :meth:`verify_leaf_against_sources` runs the
 three-way mismatch matrix (site vs leaf vs Sayyad) and never
 confirms on mismatch.
+
+Installment legs (US-542, ۵ج): after a successful ``clear`` /
+``bounce`` for a received cheque carrying an
+``installment_leg_id``, the service fires the optional leg-outcome
+hook (:class:`InstallmentLegOutcomeHook` — the installment module
+listens on it and records the collection on clear). The hook adds
+NO cheque behaviour: unwired it is a no-op, and a hook failure
+never masks the transition (it is logged + filed as a review
+item). The cheque lifecycle itself is closed.
 """
 
 from __future__ import annotations
@@ -80,6 +89,7 @@ from hesabyar.domain.cheques.models import (
     InquiryChannel,
     InquiryReceipt,
     InquiryType,
+    InstallmentLegStatus,
     SayadStatus,
     StorageLocation,
 )
@@ -87,6 +97,7 @@ from hesabyar.domain.cheques.ports import (
     ChequeRepositoryPort,
     ChequeScanDownloadError,
     ChequeScanStorePort,
+    InstallmentLegOutcomeHook,
     registration_to_cheque,
 )
 from hesabyar.domain.cheques.state_machine import (
@@ -186,6 +197,7 @@ class ChequeCommandService:
         review: ReviewQueueCommandService | None = None,
         today: datetime.date | None = None,
         scan_store: ChequeScanStorePort | None = None,
+        leg_hook: InstallmentLegOutcomeHook | None = None,
     ) -> None:
         self._repository = repository
         self._engine = engine
@@ -193,6 +205,10 @@ class ChequeCommandService:
         self._review = review
         self._today = today
         self._scan_store = scan_store
+        # The ۵ج leg-side listener (US-542): fired after a clear /
+        # bounce for a received cheque carrying an installment_leg_id.
+        # None = no listener (the cheque lifecycle is unchanged).
+        self._leg_hook = leg_hook
 
     # -- helpers -----------------------------------------------------------
 
@@ -307,6 +323,58 @@ class ChequeCommandService:
             )
         except Exception:  # noqa: BLE001 - filing must never mask the transition outcome
             logger.exception("Failed to file cheque review item %s for %s", subtype, cheque.id)
+
+    def _fire_leg_hook(
+        self,
+        cheque: Cheque,
+        outcome: InstallmentLegStatus,
+        event_date: datetime.date,
+        *,
+        actor: str,
+    ) -> None:
+        """Notify the installment leg listener of a clear/bounce (US-542).
+
+        Only for a RECEIVED cheque carrying an ``installment_leg_id``,
+        and only when a hook is wired. NEVER raises: the engine
+        transition has already committed, so a hook failure is logged
+        and filed as a review item instead — the leg's status is
+        still correct (it derives from the cheque's state), only the
+        collection record for US-541's income recognition may be
+        missing, and that is repairable.
+        """
+        if self._leg_hook is None:
+            return
+        if cheque.kind != ChequeKind.RECEIVED or cheque.installment_leg_id is None:
+            return
+        try:
+            self._leg_hook.on_leg_outcome(
+                cheque=cheque, outcome=outcome, event_date=event_date
+            )
+        except Exception as exc:  # noqa: BLE001 - a hook failure must never mask the transition
+            logger.exception(
+                "Installment leg outcome hook failed for cheque %s (%s)",
+                cheque.id,
+                outcome.value,
+            )
+            self._file_review(
+                tenant_id=cheque.tenant_id,
+                cheque=cheque,
+                subtype="installment_collection_hook_failed",
+                severity=ReviewSeverity.WARNING,
+                reason=(
+                    f"The installment leg outcome hook failed after cheque "
+                    f"{cheque.sayad_id} {outcome.value} ({exc}). The leg's "
+                    "status is still correct (it derives from the cheque's "
+                    "state), but the collection record for US-541's income "
+                    "recognition may be missing."
+                ),
+                suggested_action=(
+                    "Re-run the collection recording for this cheque's "
+                    "installment leg (the receipt's collected_at), then "
+                    "resolve this item."
+                ),
+                actor=actor,
+            )
 
     def _apply_engine_result(
         self,
@@ -1064,7 +1132,8 @@ class ChequeCommandService:
         commercial journal the accountant has posted. The linked
         installment leg (when any, received only) is marked paid by
         the leg-status hook; the ۵ج module consumes the persisted
-        effect.
+        effect, and the leg-outcome hook fires (US-542) so the
+        installment module records the collection.
         """
         cheque = self._require_cheque(
             cheque_id, tenant_id=tenant_id, installation_id=installation_id
@@ -1093,7 +1162,11 @@ class ChequeCommandService:
         )
         if cheque.kind == ChequeKind.RECEIVED and cheque.installment_leg_id is not None:
             cheque.installment_leg_status = leg_status_effect(TRANSITION_CLEAR)
-        return self._apply_engine_result(cheque, view, TRANSITION_CLEAR, actor=actor)
+        saved = self._apply_engine_result(cheque, view, TRANSITION_CLEAR, actor=actor)
+        self._fire_leg_hook(
+            saved, InstallmentLegStatus.PAID, self._clock_date(), actor=actor
+        )
+        return saved
 
     # -- bounce: in_clearing -> bounced (سند ۴) / issued -> bounced (سند ۱۲) ---
 
@@ -1119,7 +1192,8 @@ class ChequeCommandService:
         period fails the transition). The claim returns to the
         customer, a dunning notification is filed to the review
         queue, and the linked installment leg (when any) is marked
-        unpaid by the leg-status hook.
+        unpaid by the leg-status hook; the leg-outcome hook fires
+        (US-542) so the installment module observes the bounce.
         Issued (issued -> bounced, سند ۱۲): our own leaf bounced
         (signature mismatch and the like) — the obligation returns
         to the supplier. No bank certificate exists for our own
@@ -1178,6 +1252,9 @@ class ChequeCommandService:
             if cheque.installment_leg_id is not None:
                 cheque.installment_leg_status = leg_status_effect(TRANSITION_BOUNCE)
         saved = self._apply_engine_result(cheque, view, TRANSITION_BOUNCE, actor=actor)
+        self._fire_leg_hook(
+            saved, InstallmentLegStatus.UNPAID, bounce_day.date, actor=actor
+        )
         if cheque.kind == ChequeKind.RECEIVED:
             self._file_review(
                 tenant_id=tenant_id,

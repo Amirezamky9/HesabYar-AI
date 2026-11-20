@@ -13,12 +13,17 @@
  * US-516), plus the Phase 5-3 settlement endpoints (US-521–524:
  * gateway payments, tranches, exceptions, fee records, file imports,
  * events, deposits, tie-out) and the US-503 channel/contract
- * registry the settlement center reads. Response types mirror the
+ * registry the settlement center reads, plus the Phase 5-5
+ * installment endpoints (US-540–545: plans, receipts, contracts,
+ * payoff quotes, early settlements, the overdue report, dunning,
+ * plan amendments, SMS reminders) and the US-544 SMS provider
+ * registry. Response types mirror the
  * backend's Pydantic schemas
  * (see docs/rest-api.md, docs/standards-registry.md,
  * docs/tax-policy.md, docs/report-validations.md, docs/moadian.md,
  * docs/review-queue.md, docs/event-platform.md, docs/cashbox.md,
- * docs/packaging.md, docs/settlement.md).
+ * docs/packaging.md, docs/settlement.md, docs/installments.md,
+ * docs/sms-providers.md).
  *
  * Errors: the backend returns RFC 9457 problem-details
  * ({ type, title, status, detail, code, request_id }). Failures throw
@@ -2126,6 +2131,370 @@ export interface InquiryReceiptRequest {
 }
 
 // ---------------------------------------------------------------------------
+// Installments (US-540–545, Phase 5-5 ۵ج) + SMS reminders (US-544)
+//
+// Response types mirror the backend's Pydantic schemas
+// (src/hesabyar/interfaces/rest/schemas/installments.py and
+// schemas/sms.py). Amounts in requests are Toman; responses carry
+// Rial (*_irr) with Toman alongside. Dates are Jalali YYYY-MM-DD.
+// Leg statuses are computed at read time, never stored:
+// expected | due | partially_paid | paid | overdue |
+// pending_clearance (internal plans) and expected |
+// gateway_confirmed | settled_per_tranche | paid (BNPL plans).
+// ---------------------------------------------------------------------------
+
+export interface InstallmentLegAllocationResponse {
+  leg_id: string;
+  amount_irr: number;
+  amount_toman: number;
+}
+
+/** The cheque linked to a leg (US-542) — sayad_id, due date, state. */
+export interface LinkedChequeResponse {
+  cheque_id: string;
+  sayad_id: string;
+  due_date: string;
+  state: string;
+  amount_irr: number;
+  amount_toman: number;
+}
+
+export interface InstallmentLegResponse {
+  id: string;
+  plan_id: string;
+  sequence: number;
+  due_date: string;
+  principal_irr: number;
+  principal_toman: number;
+  received_irr: number;
+  received_toman: number;
+  balance_irr: number;
+  balance_toman: number;
+  status: string;
+  pending_clearance_irr: number;
+  pending_clearance_toman: number;
+  linked_cheque: LinkedChequeResponse | null;
+}
+
+export interface InstallmentReceiptResponse {
+  id: string;
+  plan_id: string;
+  invoice_id: string;
+  journal_move_id: number;
+  amount_irr: number;
+  amount_toman: number;
+  received_date: string;
+  payment_method: string;
+  cheque_id: string | null;
+  collected_at: string | null;
+  allocations: InstallmentLegAllocationResponse[];
+  allocated_irr: number;
+  advance_irr: number;
+  advance_toman: number;
+  finance_income_irr: number;
+  finance_income_toman: number;
+  late_fee_irr: number;
+  late_fee_toman: number;
+  applied_advance_irr: number;
+  applied_advance_toman: number;
+  is_early_settlement: boolean;
+  reference: string | null;
+  notes: string | null;
+  /** US-543 (BNPL): the gateway link — null for non-BNPL receipts. */
+  gateway: string | null;
+  gateway_reference: string | null;
+  gateway_payment_id: string | null;
+  bnpl_status: string | null;
+  created_at: string;
+}
+
+export interface InstallmentPlanResponse {
+  id: string;
+  invoice_id: string;
+  contract_id: string | null;
+  customer_ref: string | null;
+  company_engine_id: number;
+  total_principal_irr: number;
+  total_principal_toman: number;
+  leg_count: number;
+  interval_days: number | null;
+  first_due_date: string | null;
+  auto_post: boolean;
+  applied_advance_irr: number;
+  applied_advance_toman: number;
+  source: string;
+  kind: string;
+  gateway_channel_key: string | null;
+  status: string;
+  total_received_irr: number;
+  total_received_toman: number;
+  outstanding_irr: number;
+  outstanding_toman: number;
+  pending_clearance_irr: number;
+  pending_clearance_toman: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InstallmentPlanDetailResponse {
+  plan: InstallmentPlanResponse;
+  legs: InstallmentLegResponse[];
+  receipts: InstallmentReceiptResponse[];
+  status: string;
+  total_received_irr: number;
+  total_received_toman: number;
+  total_advance_irr: number;
+  total_advance_toman: number;
+  outstanding_irr: number;
+  outstanding_toman: number;
+  total_pending_clearance_irr: number;
+  total_pending_clearance_toman: number;
+  /** US-543 (BNPL): gateway-side totals, never summed with the customer side. */
+  gateway_receivable_irr: number;
+  gateway_receivable_toman: number;
+  gateway_settled_irr: number;
+  gateway_settled_toman: number;
+}
+
+export interface InstallmentContractResponse {
+  id: string;
+  code: string;
+  name: string;
+  version: number;
+  effective_from: string;
+  company_engine_id: number;
+  late_fee_basis: string;
+  late_fee_rate: number;
+  late_fee_grace_days: number;
+  penalty_account_engine_id: number | null;
+  penalty_account_code: string | null;
+  finance_income_rate: number;
+  dunning_offsets: number[];
+  receivable_account_engine_id: number | null;
+  receivable_account_code: string | null;
+  early_settlement_fee_policy: string;
+  early_settlement_income_policy: string;
+  early_settlement_discount_rate: number;
+  supersedes_contract_id: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PayoffQuoteResponse {
+  plan_id: string;
+  as_of: string;
+  contract_id: string | null;
+  remaining_principal_irr: number;
+  remaining_principal_toman: number;
+  income_realised_irr: number;
+  income_realised_toman: number;
+  income_realised_unpaid_irr: number;
+  income_realised_unpaid_toman: number;
+  income_unrealised_irr: number;
+  income_unrealised_toman: number;
+  income_due_irr: number;
+  income_due_toman: number;
+  income_policy: string;
+  late_fees_accrued_irr: number;
+  late_fees_accrued_toman: number;
+  late_fees_due_irr: number;
+  late_fees_due_toman: number;
+  fee_policy: string;
+  advance_held_irr: number;
+  advance_held_toman: number;
+  payoff_total_irr: number;
+  payoff_total_toman: number;
+  open_leg_count: number;
+}
+
+export interface LegPrincipalSnapshotResponse {
+  leg_id: string;
+  sequence: number;
+  principal_irr: number;
+  principal_toman: number;
+}
+
+/** One schedule amendment (US-541 rows, US-545 read): the plan-change audit record. */
+export interface ScheduleAmendmentResponse {
+  id: string;
+  plan_id: string;
+  kind: string;
+  applied_advance_irr: number;
+  applied_advance_toman: number;
+  legs_before: LegPrincipalSnapshotResponse[];
+  legs_after: LegPrincipalSnapshotResponse[];
+  receipt_id: string | null;
+  created_at: string;
+}
+
+export interface EarlySettlementResponse {
+  receipt: InstallmentReceiptResponse;
+  quote: PayoffQuoteResponse;
+  settlement_type: string;
+  journal_move_ids: number[];
+  amendment: ScheduleAmendmentResponse | null;
+}
+
+export interface OverdueLegResponse {
+  plan_id: string;
+  invoice_id: string;
+  customer_ref: string | null;
+  contract_code: string | null;
+  leg_id: string;
+  sequence: number;
+  due_date: string;
+  days_overdue: number;
+  principal_irr: number;
+  principal_toman: number;
+  received_irr: number;
+  received_toman: number;
+  balance_irr: number;
+  balance_toman: number;
+  dunning_stage: number;
+  next_reminder_date: string | null;
+  late_fee_accrued_irr: number;
+  late_fee_accrued_toman: number;
+}
+
+export interface OverdueReportResponse {
+  rows: OverdueLegResponse[];
+  total_rows: number;
+  total_balance_irr: number;
+  total_balance_toman: number;
+  total_late_fees_irr: number;
+  total_late_fees_toman: number;
+}
+
+export interface DunningRunResponse {
+  as_of: string;
+  plans_scanned: number;
+  overdue_legs: number;
+  items_filed: string[];
+  fees_assessed_irr: number;
+  fees_assessed_toman: number;
+  journals_created: number[];
+  legs_skipped_no_account: string[];
+}
+
+/** One SMS reminder-log row (US-544; the DLQ + audit trail). */
+export interface ReminderLogResponse {
+  id: string;
+  tenant_id: string;
+  installation_id: string;
+  plan_id: string;
+  leg_id: string;
+  provider_id: string | null;
+  provider_key: string;
+  recipient_phone: string;
+  message_text: string;
+  offset_days: number;
+  trigger: string;
+  status: string;
+  provider_message_id: string | null;
+  provider_status_raw: string | null;
+  /** Cost in Toman when the provider's unit is known — null otherwise, never guessed. */
+  cost_toman: number | null;
+  provider_cost_raw: string | null;
+  provider_cost_unit: string | null;
+  error_code: string | null;
+  error_detail: string | null;
+  sent_at: string | null;
+  created_at: string | null;
+}
+
+/** One SMS provider row (credentials never included — only `has_credentials`). */
+export interface SmsProviderResponse {
+  id: string;
+  installation_id: string;
+  provider_key: string;
+  display_name_fa: string;
+  provider_kind: string;
+  is_builtin: boolean;
+  enabled: boolean;
+  is_default: boolean;
+  status: string;
+  line_number: string | null;
+  price_per_sms_toman: number | null;
+  rate_limit_per_minute: number | null;
+  line_type: string | null;
+  contract_required: boolean;
+  enmad_required: boolean;
+  notes: string | null;
+  has_credentials: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface CreateInstallmentPlanRequest {
+  company_id: string;
+  invoice_id: string;
+  contract_id?: string | null;
+  contract_code?: string | null;
+  customer_ref?: string | null;
+  total_principal_toman?: number | null;
+  leg_count?: number | null;
+  interval_days?: number | null;
+  first_due_date?: string | null;
+  legs?: { due_date: string; principal_toman: number }[] | null;
+  auto_post?: boolean;
+  kind?: string;
+  gateway_channel_key?: string | null;
+}
+
+export interface CreateInstallmentReceiptRequest {
+  invoice_id: string;
+  journal_move_id: number;
+  amount_toman: number;
+  received_date?: string | null;
+  payment_method?: string;
+  cheque_id?: string | null;
+  reference?: string | null;
+  notes?: string | null;
+  gateway?: string | null;
+  gateway_reference?: string | null;
+}
+
+export interface CreateInstallmentContractRequest {
+  company_id: string;
+  code: string;
+  name: string;
+  version?: number;
+  effective_from: string;
+  late_fee_basis?: string;
+  late_fee_rate?: string | number;
+  late_fee_grace_days?: number;
+  penalty_account_engine_id?: number | null;
+  penalty_account_code?: string | null;
+  finance_income_rate?: string | number;
+  dunning_offsets?: number[] | null;
+  receivable_account_engine_id?: number | null;
+  receivable_account_code?: string | null;
+  early_settlement_fee_policy?: string;
+  early_settlement_income_policy?: string;
+  early_settlement_discount_rate?: string | number;
+  supersedes_contract_id?: string | null;
+}
+
+export interface EarlySettlementRequestBody {
+  invoice_id: string;
+  journal_move_id: number;
+  amount_toman: number;
+  settlement_type?: string;
+  settlement_date?: string | null;
+  payment_method?: string;
+  reference?: string | null;
+  notes?: string | null;
+}
+
+export interface TriggerReminderRequestBody {
+  leg_id?: string | null;
+  provider_id?: string | null;
+  recipient_phone?: string | null;
+  dry_run?: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // Transport over the BFF
 // ---------------------------------------------------------------------------
 
@@ -2199,7 +2568,7 @@ export async function bffRequest<T>(path: string, options: RequestOptions = {}):
 }
 
 // ---------------------------------------------------------------------------
-// Endpoint methods (160) — one per backend route
+// Endpoint methods (207) — one per backend route
 // ---------------------------------------------------------------------------
 
 export const api = {
@@ -3302,4 +3671,128 @@ export const api = {
       body,
       idempotencyKey,
     }),
+
+  // -- installments center (US-545, Phase 5-5 ۵ج) ---------------------------
+  // The BFF catch-all proxies these to /api/v1/installments/* and
+  // /api/v1/integrations/sms/* — no dedicated BFF route is needed.
+  // Reads need installments:read; writes need installments:write;
+  // the manual reminder trigger and the SMS registry need
+  // sms:manage. Amounts in the create bodies are Toman (x10 to Rial
+  // at the backend boundary); dates are Jalali YYYY-MM-DD.
+  listInstallmentPlans: (
+    params: {
+      invoice_id?: string;
+      kind?: string;
+      status?: string;
+      limit?: number;
+      offset?: number;
+    } = {},
+  ) =>
+    bffRequest<InstallmentPlanResponse[]>(
+      `installments/plans${buildQuery(params as Record<string, string | number | undefined>)}`,
+    ),
+  getInstallmentPlan: (planId: string) =>
+    bffRequest<InstallmentPlanDetailResponse>(`installments/plans/${encodeURIComponent(planId)}`),
+  createInstallmentPlan: (body: CreateInstallmentPlanRequest, idempotencyKey = newIdempotencyKey()) =>
+    bffRequest<InstallmentPlanResponse>("installments/plans", {
+      method: "POST",
+      body,
+      idempotencyKey,
+    }),
+  createInstallmentReceipt: (
+    planId: string,
+    body: CreateInstallmentReceiptRequest,
+    idempotencyKey = newIdempotencyKey(),
+  ) =>
+    bffRequest<InstallmentReceiptResponse>(`installments/plans/${encodeURIComponent(planId)}/receipts`, {
+      method: "POST",
+      body,
+      idempotencyKey,
+    }),
+  rejectBnplReceipt: (
+    planId: string,
+    receiptId: string,
+    body: { reason: string },
+    idempotencyKey = newIdempotencyKey(),
+  ) =>
+    bffRequest<InstallmentReceiptResponse>(
+      `installments/plans/${encodeURIComponent(planId)}/receipts/${encodeURIComponent(receiptId)}/reject-bnpl`,
+      { method: "POST", body, idempotencyKey },
+    ),
+  listInstallmentContracts: (params: { code?: string; limit?: number; offset?: number } = {}) =>
+    bffRequest<InstallmentContractResponse[]>(
+      `installments/contracts${buildQuery(params as Record<string, string | number | undefined>)}`,
+    ),
+  getInstallmentContract: (contractId: string) =>
+    bffRequest<InstallmentContractResponse>(
+      `installments/contracts/${encodeURIComponent(contractId)}`,
+    ),
+  createInstallmentContract: (
+    body: CreateInstallmentContractRequest,
+    idempotencyKey = newIdempotencyKey(),
+  ) =>
+    bffRequest<InstallmentContractResponse>("installments/contracts", {
+      method: "POST",
+      body,
+      idempotencyKey,
+    }),
+  getPayoffQuote: (planId: string, asOf?: string) =>
+    bffRequest<PayoffQuoteResponse>(
+      `installments/plans/${encodeURIComponent(planId)}/payoff-quote${buildQuery({ as_of: asOf })}`,
+    ),
+  createEarlySettlement: (
+    planId: string,
+    body: EarlySettlementRequestBody,
+    idempotencyKey = newIdempotencyKey(),
+  ) =>
+    bffRequest<EarlySettlementResponse>(
+      `installments/plans/${encodeURIComponent(planId)}/early-settlement`,
+      { method: "POST", body, idempotencyKey },
+    ),
+  listOverdueLegs: (params: { plan_id?: string; limit?: number; offset?: number } = {}) =>
+    bffRequest<OverdueReportResponse>(
+      `installments/overdue${buildQuery(params as Record<string, string | number | undefined>)}`,
+    ),
+  runDunning: (body: { as_of?: string } = {}, idempotencyKey = newIdempotencyKey()) =>
+    bffRequest<DunningRunResponse>("installments/dunning/run", {
+      method: "POST",
+      body,
+      idempotencyKey,
+    }),
+  listPlanAmendments: (planId: string) =>
+    bffRequest<ScheduleAmendmentResponse[]>(
+      `installments/plans/${encodeURIComponent(planId)}/amendments`,
+    ),
+  triggerPlanReminder: (
+    planId: string,
+    body: TriggerReminderRequestBody,
+    idempotencyKey = newIdempotencyKey(),
+  ) =>
+    bffRequest<ReminderLogResponse>(`installments/plans/${encodeURIComponent(planId)}/remind`, {
+      method: "POST",
+      body,
+      idempotencyKey,
+    }),
+  listPlanReminders: (
+    planId: string,
+    params: { status?: string; leg_id?: string; limit?: number; offset?: number } = {},
+  ) =>
+    bffRequest<ReminderLogResponse[]>(
+      `installments/plans/${encodeURIComponent(planId)}/reminders${buildQuery(params as Record<string, string | number | undefined>)}`,
+    ),
+  listSmsReminders: (
+    params: {
+      plan_id?: string;
+      leg_id?: string;
+      provider_key?: string;
+      status?: string;
+      trigger?: string;
+      limit?: number;
+      offset?: number;
+    } = {},
+  ) =>
+    bffRequest<ReminderLogResponse[]>(
+      `integrations/sms/reminders${buildQuery(params as Record<string, string | number | undefined>)}`,
+    ),
+  listSmsProviders: () => bffRequest<SmsProviderResponse[]>("integrations/sms/providers"),
 };

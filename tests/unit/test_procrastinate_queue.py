@@ -11,6 +11,7 @@ import procrastinate
 from procrastinate.testing import InMemoryConnector
 
 from hesabyar.application.commands.events import EventPipelineService, EventWorker
+from hesabyar.application.commands.sms import SmsReminderService
 from hesabyar.domain.events.models import InboxEventStatus
 from hesabyar.infrastructure.events.defaults import InProcessOutboxPublisher
 from hesabyar.infrastructure.events.procrastinate_queue import (
@@ -23,6 +24,12 @@ from hesabyar.infrastructure.events.procrastinate_queue import (
     create_connector,
     create_defer_app,
     create_event_app,
+)
+from hesabyar.infrastructure.events.sms_queue import (
+    DAILY_REMINDERS_CRON,
+    DAILY_REMINDERS_TASK,
+    SMS_QUEUE,
+    SmsWorkerHandle,
 )
 from tests.event_fixtures import (
     FakeAuditLog,
@@ -38,6 +45,8 @@ from tests.event_fixtures import (
     ingest_into,
     must_get,
 )
+from tests.unit.test_installment_services import FakeInstallmentRepository
+from tests.unit.test_sms_services import FakeSmsClientFactory, FakeSmsRepository, FakeVault
 
 
 def _make_worker(inbox: FakeInboxRepository, outbox: FakeOutboxRepository) -> EventWorker:
@@ -123,6 +132,54 @@ def test_defer_is_best_effort_and_never_raises() -> None:
     queue = ProcrastinateJobQueue(app)
     queue.defer_process_event("evt-1")  # would raise KeyError without the guard
     queue.defer_sweep()
+
+
+def test_sms_daily_reminders_task_is_registered_and_runs() -> None:
+    """US-544: the daily SMS reminder job is registered on the sms queue."""
+    inbox = FakeInboxRepository()
+    outbox = FakeOutboxRepository()
+    sms_repo = FakeSmsRepository()
+    commits = 0
+    closes = 0
+
+    def sms_factory() -> SmsWorkerHandle:
+        nonlocal commits, closes
+
+        def commit() -> None:
+            nonlocal commits
+            commits += 1
+
+        def close() -> None:
+            nonlocal closes
+            closes += 1
+
+        reminders = SmsReminderService(
+            sms_repo,
+            FakeInstallmentRepository(),
+            client_factory=FakeSmsClientFactory(),
+            vault=FakeVault(),
+            review=None,
+        )
+        return SmsWorkerHandle(reminders=reminders, commit=commit, close=close)
+
+    app = create_event_app(
+        InMemoryConnector(),
+        lambda: WorkerHandle(
+            worker=_make_worker(inbox, outbox), commit=lambda: None, close=lambda: None
+        ),
+        sms_factory=sms_factory,
+    )
+    assert DAILY_REMINDERS_TASK in app.tasks
+    assert app.tasks[DAILY_REMINDERS_TASK].queue == SMS_QUEUE
+    assert DAILY_REMINDERS_CRON == "30 5 * * *"  # daily 09:00 Tehran
+
+    app.tasks[DAILY_REMINDERS_TASK].defer()
+    app.run_worker(wait=False)
+    # No installation has reminders enabled, so the job scans nothing —
+    # but it ran: the handle committed and closed. (The periodic
+    # scheduler may also fire the job, so >= 1, like the sweep test.)
+    assert commits >= 1
+    assert closes == commits
 
 
 def test_defer_app_registers_tasks_but_never_runs_them_here() -> None:

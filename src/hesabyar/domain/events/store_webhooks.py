@@ -20,7 +20,7 @@ Store webhook              Canonical event(s)
 ``shipment.dispatched``    *pending ADR approval* (packaging + shipment-cost consumers)
 =========================  ============================================
 
-Only the eleven canonical types may be used — a new type name
+Only the twelve canonical types may be used — a new type name
 needs ADR approval first (ADR 0003 round-2 update 8). The two
 pending rows are defined here so the mapping is explicit and
 reviewable, but the receiver rejects them with
@@ -29,7 +29,9 @@ are never silently ingested under a made-up type. The cheque rows
 were pending until ADR 0004 (US-530) approved the names and US-533
 wired them in; the store's cancellation topic ``cheque.cancelled``
 is the ninth store topic (ADR 0004: "the site's cancellation
-topic").
+topic"). The twelfth canonical type,
+``installment.schedule.created`` (ADR 0005, US-540), is derived
+inside HesabYar and is NOT a store topic — it has no row here.
 
 How the topic arrives: the store sends its webhook topic (or, for
 callers that already speak canonical events, the canonical type) in
@@ -71,7 +73,8 @@ inside ``order.completed`` (``installment`` object). They are
 carried through normalization (money fields converted) and stored
 with the event for the 5ج installments phase. The derived
 ``installment.schedule.created`` event is NOT built here — its name
-needs ADR approval first.
+is approved by ADR 0005 (US-540) and the derivation lands in a
+later 5ج story; it is never a store webhook topic.
 """
 
 from __future__ import annotations
@@ -656,8 +659,9 @@ def _validate_installment(payload: Mapping[str, Any]) -> None:
     The 5ج installments phase derives the schedule from these fields;
     here they are only shape-checked (and their money fields converted
     at the connector boundary like every other amount). No derived
-    ``installment.schedule.created`` event is created — its name needs
-    ADR approval first.
+    ``installment.schedule.created`` event is created here — the name
+    is approved by ADR 0005 (US-540) and the derivation lands in a
+    later 5ج story.
     """
     installment = payload.get("installment")
     if installment is None:
