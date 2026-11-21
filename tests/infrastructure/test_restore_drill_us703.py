@@ -8,9 +8,12 @@ checks. Runs in CI (both python-tests jobs); skips cleanly when:
 - no CREATEDB role is available (the drill needs one to make
   scratch databases);
 - pg_dump is OLDER than the server (pg_dump refuses to dump a newer
-  server — the ubuntu-latest runner ships postgresql-client 16, so
-  the tryton job's postgres:17 service skips until CI installs
-  postgresql-client-17);
+  server — install a matching postgresql-client);
+- (the reverse mismatch is handled by the product, not skipped: a
+  pg_dump 17+ client dumping a PG16 server writes
+  ``SET transaction_timeout = 0;`` into the archive, which the PG16
+  server rejects on restore — ``restore`` tolerates exactly that
+  version-mismatched GUC SET, see pg_tools._only_benign_guc_errors);
 - (full-pair test only) trytond is not reachable, or the Tryton
   database DSN does not connect.
 

@@ -200,18 +200,29 @@ def _provision(
     )
     session.add(row)
     session.flush()
+    # Read every id BEFORE commit/close: commit expires all
+    # attributes (expire_on_commit) and close detaches the
+    # instances, so reading tenant.id afterwards raises
+    # DetachedInstanceError (CI run #32). The ids are
+    # client-generated UUIDs, already set — only the READ must
+    # happen while the session is alive (the same pattern as
+    # tests/mcp/conftest.py's world fixture).
+    tenant_id = tenant.id
+    connection_id = connection.id
+    row_id = row.id
+    key_secret = key.secret
     session.commit()
     session.close()
     return (
         World(
             installation_id=installation_id,
-            tenant_id=tenant.id,
-            company_row_id=row.id,
-            key_secret=key.secret,
+            tenant_id=tenant_id,
+            company_row_id=row_id,
+            key_secret=key_secret,
             source_system=source_system,
         ),
-        [tenant.id],
-        [connection.id],
+        [tenant_id],
+        [connection_id],
     )
 
 

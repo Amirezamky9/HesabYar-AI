@@ -264,6 +264,15 @@ open item, not a pass.
 scratch database.** The same trytond that serves production does
 this (the adapter's `database` setting selects the scratch DB by
 name; the restored DB already contains the REST application key).
+One caveat, proven in CI (run #32): trytond CACHES its database
+list (`Database.list`, TTL = the `session.timeout` setting,
+default 300s), so a scratch database created after trytond
+started is invisible to it — every REST call 404s — until the
+cache expires. The drill waits for the scratch database to become
+visible (bounded, default 360s) before running the Tryton checks;
+if it never becomes visible (an operator raised `session.timeout`
+far above the default), the Tryton checks are SKIPPED with that
+reason — restart trytond after the restore and re-run the drill.
 If the worker cannot reach trytond, the Tryton checks are skipped —
 configure the worker's Tryton settings before relying on the
 drill.

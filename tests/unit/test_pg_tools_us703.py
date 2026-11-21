@@ -219,7 +219,12 @@ def test_restore_uses_no_owner_flags_for_scratch_only() -> None:
     runner = _runner(fake)
     runner.restore(DSN, b"dump-bytes", no_owner=True)
     restore_call = next(c for c in fake.calls if c["args"][0] == "pg_restore")
-    assert "--exit-on-error" in restore_call["args"]
+    # NO --exit-on-error by design: a pg_dump 17+ archive's preamble
+    # SETs transaction_timeout, which a PG16-or-older server rejects,
+    # and --exit-on-error would abort the restore at that first
+    # harmless statement (CI run #32). restore() inspects stderr
+    # instead and tolerates only version-mismatched GUC SETs.
+    assert "--exit-on-error" not in restore_call["args"]
     assert "--no-owner" in restore_call["args"]
     assert "--no-privileges" in restore_call["args"]
     # pg_restore requires -d (PGDATABASE alone does not substitute);
@@ -235,6 +240,68 @@ def test_restore_uses_no_owner_flags_for_scratch_only() -> None:
     assert "--no-privileges" not in restore_call2["args"]
     assert "-d" in restore_call2["args"]
     assert restore_call2["args"][restore_call2["args"].index("-d") + 1] == "hesabyar_test"
+
+
+# The verbatim pg_restore stderr for a pg_dump 17+ archive restored
+# into a PG16-or-older server (CI run #32): the preamble SET fails,
+# the restore continues, pg_restore exits 1.
+_TRANSACTION_TIMEOUT_STDERR = (
+    'pg_restore: error: could not execute query: ERROR:  '
+    'unrecognized configuration parameter "transaction_timeout"\n'
+    "Command was: SET transaction_timeout = 0;\n"
+)
+
+
+def test_restore_tolerates_a_version_mismatched_guc_set() -> None:
+    """A transaction_timeout-only failure is a successful restore."""
+    fake = FakeRunner(fail_with=_TRANSACTION_TIMEOUT_STDERR)
+    runner = _runner(fake)
+    runner.restore(DSN, b"dump-bytes", no_owner=True)  # must not raise
+    restore_call = next(c for c in fake.calls if c["args"][0] == "pg_restore")
+    assert "--exit-on-error" not in restore_call["args"]
+
+
+def test_restore_tolerates_several_benign_guc_sets() -> None:
+    """Every error benign (a future pg_dump's newer GUC) still passes."""
+    fake = FakeRunner(
+        fail_with=(
+            _TRANSACTION_TIMEOUT_STDERR
+            + 'pg_restore: error: could not execute query: ERROR:  '
+            'unrecognized configuration parameter "future_setting"\n'
+            "Command was: SET future_setting = 0;\n"
+        )
+    )
+    runner = _runner(fake)
+    runner.restore(DSN, b"dump-bytes", no_owner=True)  # must not raise
+
+
+def test_restore_still_fails_on_a_real_error() -> None:
+    """A genuine pg_restore failure is never tolerated away."""
+    fake = FakeRunner(
+        fail_with=(
+            "pg_restore: error: could not execute query: ERROR:  "
+            'relation "gateway_payments" already exists\n'
+            "Command was: CREATE TABLE public.gateway_payments (\n"
+        )
+    )
+    runner = _runner(fake)
+    with pytest.raises(BackupToolError, match="pg_restore failed"):
+        runner.restore(DSN, b"dump-bytes", no_owner=True)
+
+
+def test_restore_still_fails_when_a_real_error_hides_behind_a_benign_one() -> None:
+    """One benign GUC error + one real error still fails the restore."""
+    fake = FakeRunner(
+        fail_with=(
+            _TRANSACTION_TIMEOUT_STDERR
+            + "pg_restore: error: could not execute query: ERROR:  "
+            'permission denied for schema public\n'
+            "Command was: CREATE TABLE public.gateway_payments (\n"
+        )
+    )
+    runner = _runner(fake)
+    with pytest.raises(BackupToolError, match="pg_restore failed"):
+        runner.restore(DSN, b"dump-bytes", no_owner=True)
 
 
 def test_timeout_is_translated() -> None:

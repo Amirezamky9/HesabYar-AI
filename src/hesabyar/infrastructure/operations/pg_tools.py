@@ -24,6 +24,19 @@ Version note: pg_dump refuses to dump a server NEWER than itself
 ("aborting because of server version mismatch"). The runner
 surfaces that stderr verbatim (scrubbed) so the fix — install a
 postgresql-client at least as new as the server — is obvious.
+
+The reverse mismatch is subtler: pg_dump 17+ writes
+``SET transaction_timeout = 0;`` at the top of EVERY dump (based on
+the CLIENT version, not the server's — a pg_dump 17 dumping a PG16
+server still writes it), and a PG16-or-older server rejects that
+SET with "unrecognized configuration parameter". In a default
+pg_restore run the failed SET is reported and the restore
+CONTINUES (exit status 1 is the only cost); with
+``--exit-on-error`` the restore aborts at the first statement and
+the target stays empty. So ``restore`` deliberately runs WITHOUT
+``--exit-on-error`` and tolerates ONLY errors that are a
+version-mismatched GUC SET (see ``_only_benign_guc_errors``) —
+every other pg_restore error still fails the restore.
 """
 
 from __future__ import annotations
@@ -51,6 +64,40 @@ _SAFE_DB_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 
 #: ``pg_dump (PostgreSQL) 16.4`` -> ``16.4``.
 _VERSION_RE = re.compile(r"(\d+)\.(\d+)")
+
+#: pg_restore prints the failing statement after each query error:
+#: ``Command was: SET transaction_timeout = 0;``.
+_COMMAND_WAS_RE = re.compile(r"^Command was:\s*(?P<command>.*)$", re.MULTILINE)
+
+#: pg_restore groups stderr into blocks starting with this prefix.
+_ERROR_BLOCK_RE = re.compile(r"(?=^pg_restore: (?:error|warning): )", re.MULTILINE)
+
+
+def _only_benign_guc_errors(stderr: str) -> bool:
+    """True when EVERY pg_restore error is a version-mismatched GUC SET.
+
+    A pg_dump 17+ archive restored into a PG16-or-older server fails
+    its preamble ``SET transaction_timeout = 0;`` (and, for future
+    pg_dump versions, any other SET for a parameter the old server
+    does not know). That failure is inherently harmless: the
+    parameter does not exist on the target server, so there is
+    nothing to set, and the restore continues past it. Any other
+    error — a failed CREATE, a missing role, a corrupt archive —
+    means the restore did NOT complete and must fail the drill.
+    """
+    blocks = [b for b in _ERROR_BLOCK_RE.split(stderr) if b.strip()]
+    errors = [b for b in blocks if b.startswith("pg_restore: error:")]
+    if not errors:
+        return False
+    for block in errors:
+        if "unrecognized configuration parameter" not in block:
+            return False
+        command_match = _COMMAND_WAS_RE.search(block)
+        if command_match is not None:
+            command = command_match.group("command").strip()
+            if not command.upper().startswith("SET "):
+                return False
+    return True
 
 #: pg_dump/pg_restore write their version to stdout.
 _VERSION_TIMEOUT_SECONDS = 30
@@ -232,8 +279,14 @@ class PgDumpRestoreRunner:
         parts: _DsnParts,
         *,
         tool: str,
+        tolerate_errors: Callable[[str], bool] | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        """Run one pg tool; translate failures into ``BackupToolError``."""
+        """Run one pg tool; translate failures into ``BackupToolError``.
+
+        ``tolerate_errors`` (restore only) receives the scrubbed
+        stderr of a failed run and returns True when the failure is
+        benign — the result is returned instead of raising.
+        """
         try:
             result = self._runner(
                 args,
@@ -256,6 +309,8 @@ class PgDumpRestoreRunner:
             raise BackupToolError(f"Could not run {tool}: {exc}") from exc
         if result.returncode != 0:
             stderr = self._redact((result.stderr or "").strip(), parts)
+            if tolerate_errors is not None and tolerate_errors(stderr):
+                return result
             raise BackupToolError(
                 f"{tool} failed (exit {result.returncode}) for database "
                 f"{parts.database!r}: {stderr}"
@@ -281,19 +336,31 @@ class PgDumpRestoreRunner:
         )
 
     def restore(self, database_url: str, data: bytes, *, no_owner: bool) -> None:
-        """Restore a dump into an (empty) database with pg_restore."""
+        """Restore a dump into an (empty) database with pg_restore.
+
+        Deliberately WITHOUT ``--exit-on-error``: a pg_dump 17+
+        archive's preamble SETs a parameter (``transaction_timeout``)
+        a PG16-or-older server does not know, and ``--exit-on-error``
+        would abort the restore at that first, harmless statement
+        (CI run #32). Instead pg_restore runs to completion and the
+        stderr is inspected: the restore succeeds only when every
+        error is a version-mismatched GUC SET — any real error
+        still raises.
+        """
         parts = parse_database_url(database_url)
         self.check_tools()
         # pg_restore requires -d/--dbname (or -f/--file): the PGDATABASE
         # env var alone does not substitute, and without -d it exits 1.
-        args = [self._pg_restore_path, "--exit-on-error", "-d", parts.database]
+        args = [self._pg_restore_path, "-d", parts.database]
         if no_owner:
             args += ["--no-owner", "--no-privileges"]
         with tempfile.TemporaryDirectory(prefix="hesabyar-restore-") as tmpdir:
             dump_path = Path(tmpdir) / "dump.fc"
             dump_path.write_bytes(data)
             args.append(str(dump_path))
-            self._run_tool(args, parts, tool="pg_restore")
+            self._run_tool(
+                args, parts, tool="pg_restore", tolerate_errors=_only_benign_guc_errors
+            )
 
     # -- scratch-database administration ---------------------------------------
 

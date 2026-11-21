@@ -25,9 +25,17 @@ The Tryton checks run against the SAME trytond that serves
 production, pointed at the scratch database by name (the adapter's
 ``database`` setting) — no second trytond is needed, and the
 restored database already contains the REST application key, so the
-same API key works. When no engine factory is wired, the Tryton
-checks are SKIPPED (reported, never silent) — the drill still
-verifies the HesabYar side.
+same API key works. One wrinkle: trytond CACHES its database list
+(``Database.list``, TTL = the ``session.timeout`` setting, default
+300s), so a scratch database created after trytond started is
+invisible to it — every REST call 404s — until the cache expires.
+The drill therefore WAITS for the scratch database to become
+visible (bounded, default 360s) before running the Tryton checks;
+if it never becomes visible (an operator raised ``session.timeout``
+far above the default), the Tryton checks are SKIPPED with that
+reason, never silently passed. When no engine factory is wired,
+the Tryton checks are SKIPPED (reported, never silent) — the drill
+still verifies the HesabYar side.
 
 Scratch databases are dropped in a ``finally`` (``--keep-scratch``
 keeps them for debugging). Their names always contain ``_drill_``
@@ -40,6 +48,7 @@ import datetime
 import logging
 import os
 import secrets
+import time
 from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager
 from pathlib import Path
@@ -67,6 +76,7 @@ from hesabyar.domain.backup.ports import (
     DatabaseDumperPort,
     ObjectStorePort,
 )
+from hesabyar.domain.common.errors import HesabYarError
 from hesabyar.infrastructure.operations.backup_service import BackupService
 from hesabyar.infrastructure.operations.pg_tools import with_database_name
 from hesabyar.infrastructure.persistence.postgres.models import (
@@ -93,6 +103,50 @@ _MAX_ORPHAN_DETAILS = 10
 #: External-id-map target types the drill can resolve through the
 #: engine port (anything else is reported as unchecked, not failed).
 _READABLE_TARGET_TYPES = ("account.invoice", "account.move", "account.payment")
+
+#: The engine error code for "trytond does not serve this database"
+#: (HTTP 404 — the adapter's ENGINE_NOT_FOUND taxonomy code, see
+#: docs/adapter.md). The drill matches on the domain error's code,
+#: not on the Tryton-specific error type, so the wait stays
+#: engine-agnostic.
+_ENGINE_NOT_FOUND_CODE = "ENGINE_NOT_FOUND"
+
+#: Default bound for the scratch-visibility wait: trytond's
+#: database-list cache TTL is its session.timeout (default 300s), so
+#: 360s covers the worst case (cache refreshed a moment before the
+#: scratch DB was created) plus one poll interval.
+DEFAULT_SCRATCH_VISIBILITY_TIMEOUT_SECONDS = 360.0
+DEFAULT_SCRATCH_VISIBILITY_POLL_SECONDS = 20.0
+
+
+def _wait_for_scratch_database(
+    engine: AccountingEnginePort,
+    *,
+    timeout_seconds: float,
+    poll_seconds: float,
+    sleep: Callable[[float], None],
+    monotonic: Callable[[], float],
+) -> bool:
+    """True once trytond serves the scratch database (list_companies answers).
+
+    trytond caches its database list (``Database.list`` in trytond
+    8.2.3, TTL = the ``session.timeout`` setting, default 300s), so
+    a database created after trytond started is invisible until the
+    cache expires — every call 404s until then (CI run #32). Only a
+    not-found error is retried: any other failure (auth, transport,
+    a 500) raises immediately, because waiting cannot fix it.
+    """
+    deadline = monotonic() + timeout_seconds
+    while True:
+        try:
+            engine.list_companies()
+            return True
+        except HesabYarError as exc:
+            if exc.code != _ENGINE_NOT_FOUND_CODE:
+                raise
+        if monotonic() >= deadline:
+            return False
+        sleep(poll_seconds)
 
 
 def _pass(name: str, detail: str = "") -> DrillCheckResult:
@@ -466,6 +520,14 @@ class RestoreDrillService:
         migrations_dir: Path | None = None,
         max_external_refs_checked: int = 200,
         clock: Callable[[], datetime.datetime] | None = None,
+        scratch_visibility_timeout_seconds: float = (
+            DEFAULT_SCRATCH_VISIBILITY_TIMEOUT_SECONDS
+        ),
+        scratch_visibility_poll_seconds: float = (
+            DEFAULT_SCRATCH_VISIBILITY_POLL_SECONDS
+        ),
+        sleep: Callable[[float], None] | None = None,
+        monotonic: Callable[[], float] | None = None,
     ) -> None:
         # An admin URL may be None (that database is not configured
         # for drilling): the target's restore check FAILS at run time
@@ -480,6 +542,14 @@ class RestoreDrillService:
         self._migrations_dir = migrations_dir or resolve_migrations_dir()
         self._max_external_refs_checked = max_external_refs_checked
         self._clock = clock or (lambda: datetime.datetime.now(datetime.UTC))
+        self._scratch_visibility_timeout_seconds = scratch_visibility_timeout_seconds
+        self._scratch_visibility_poll_seconds = scratch_visibility_poll_seconds
+        # Injectable for tests (a real 6-minute wait has no place in a
+        # unit test); the monotonic clock is separate from ``clock``
+        # (wall time for the report) on purpose — a fixed test clock
+        # must never freeze the wait loop.
+        self._sleep = sleep or time.sleep
+        self._monotonic = monotonic or time.monotonic
 
     def latest_manifest(self, target: BackupTarget) -> BackupManifest | None:
         """The newest backup manifest for a target (the drill's input)."""
@@ -693,6 +763,30 @@ class RestoreDrillService:
             return
         try:
             with self._engine_factory(restored[BackupTarget.TRYTON_DB]) as engine:
+                # trytond caches its database list (session.timeout,
+                # default 300s): a scratch DB created after trytond
+                # started 404s until the cache expires. Wait for it
+                # to become visible; if it never does, SKIP the
+                # Tryton checks with the reason — the restore itself
+                # succeeded, only the verification could not run.
+                if not _wait_for_scratch_database(
+                    engine,
+                    timeout_seconds=self._scratch_visibility_timeout_seconds,
+                    poll_seconds=self._scratch_visibility_poll_seconds,
+                    sleep=self._sleep,
+                    monotonic=self._monotonic,
+                ):
+                    reason = (
+                        "trytond does not serve the scratch database yet: "
+                        "its database-list cache (session.timeout) did not "
+                        f"expire within {self._scratch_visibility_timeout_seconds:.0f}s. "
+                        "Restart trytond after the restore (or lower "
+                        "session.timeout) and re-run the drill — see "
+                        "docs/backup-restore.md."
+                    )
+                    checks.append(_skip(CHECK_TRIAL_BALANCE, reason))
+                    checks.append(_skip(CHECK_EXTERNAL_REFS, reason))
+                    return
                 checks.append(
                     self._run_check(CHECK_TRIAL_BALANCE, check_trial_balance, engine)
                 )

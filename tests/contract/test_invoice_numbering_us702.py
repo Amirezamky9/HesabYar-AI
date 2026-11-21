@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import datetime
 import os
+import random
 import time
 import uuid
 from collections.abc import Generator
@@ -51,7 +52,10 @@ from hesabyar.domain.common.dates import FiscalDate
 from hesabyar.domain.common.money import MoneyIRR
 from hesabyar.infrastructure.accounting.tryton.adapter import TrytonAccountingAdapter
 from hesabyar.infrastructure.accounting.tryton.client import TrytonRestClient
-from hesabyar.infrastructure.accounting.tryton.errors import TrytonAdapterError
+from hesabyar.infrastructure.accounting.tryton.errors import (
+    ENGINE_ERROR,
+    TrytonAdapterError,
+)
 from tests.load_support import LatencyRecorder, run_threads
 
 BASE_URL = os.environ.get("TRYTON_BASE_URL", "http://localhost:8000")
@@ -162,7 +166,30 @@ def _invoice_command(company: CompanyRef, party: PartyRef, accounts) -> CreateIn
 
 
 #: Bounded retries for one concurrent post (see _post_one_with_retry).
-_MAX_POST_ATTEMPTS = 3
+#: 8 threads contend on ONE invoice-sequence row: each round at most
+#: one simultaneous attempter wins, so a post needs several
+#: desynchronized chances. 6 attempts with jittered backoff (base
+#: 0.3s, doubling, capped at ~5s: worst case ~9s per invoice,
+#: expected half that, parallel across threads).
+_MAX_POST_ATTEMPTS = 6
+_BACKOFF_BASE_SECONDS = 0.3
+_BACKOFF_CAP_SECONDS = 5.0
+
+
+def _is_transient_contention(exc: TrytonAdapterError) -> bool:
+    """Retryable engine errors plus 500s — the contention surface.
+
+    trytond never returns 502/503/504 (verified in the trytond 8.2.3
+    source: no 503 anywhere), so round 1's retryable-only filter
+    never engaged: under contention trytond surfaces serialization
+    failures as HTTP 500 (ENGINE_ERROR, non-retryable by the
+    client's taxonomy) once its own internal retries exhaust
+    ([database] retry=5, and only for errors raised inside the
+    operation — a failure at COMMIT is never retried by trytond).
+    Validation/auth/not-found errors are NOT transient and still
+    raise immediately.
+    """
+    return exc.retryable or exc.code == ENGINE_ERROR
 
 
 def _post_one_with_retry(
@@ -170,18 +197,26 @@ def _post_one_with_retry(
 ) -> InvoiceView:
     """Create -> validate -> post one invoice, retrying transient engine errors.
 
-    trytond runs every connection at REPEATABLE READ, so 8 threads posting
-    against one invoice sequence contend on the sequence row: serialization
-    failures (40001) and deadlocks surface as HTTP 503, which the adapter
-    translates to a retryable ENGINE_UNAVAILABLE error (CI run #31). This
-    is expected contention under load, not an engine outage — the
-    sequential test in this file posts fine. Production retries at the
-    event-pipeline level (``is_retryable``); this contract test calls the
-    adapter directly, so it retries at the call level instead, catching
-    ONLY retryable adapter errors. Retrying the whole sequence is safe:
-    drafts carry no number, so an orphaned draft from a failed attempt
-    cannot duplicate a number (and the module docstring already accepts
-    residue).
+    trytond runs every connection at REPEATABLE READ, so 8 threads
+    posting against one invoice sequence contend on the sequence
+    row: all but one simultaneous attempter lose (serialization
+    failure), and trytond surfaces the loss as HTTP 500 once its
+    internal retries exhaust. This is expected contention under
+    load, not an engine outage — the sequential test in this file
+    posts fine. Production retries at the event-pipeline level
+    (``is_retryable``); this contract test calls the adapter
+    directly, so it retries at the call level instead.
+
+    The backoff is JITTERED on purpose: round 1's fixed 0.2s/0.4s
+    sleeps re-synchronized the herd — every loser retried at the
+    same instant and collided again (CI run #32 still failed after
+    3 attempts). A uniform-random sleep spreads the retries across
+    the window, so each attempt has a real chance of finding the
+    sequence row free. Retrying the whole sequence is safe: drafts
+    carry no number, so an orphaned draft from a failed attempt
+    cannot duplicate a number (and the module docstring already
+    accepts residue). The final attempt still raises, so a genuine
+    failure still fails the test.
     """
     for attempt in range(1, _MAX_POST_ATTEMPTS + 1):
         try:
@@ -189,9 +224,12 @@ def _post_one_with_retry(
             adapter.validate_invoice(ref)
             return adapter.post_invoice(ref)
         except TrytonAdapterError as exc:
-            if not exc.retryable or attempt == _MAX_POST_ATTEMPTS:
+            if not _is_transient_contention(exc) or attempt == _MAX_POST_ATTEMPTS:
                 raise
-            time.sleep(0.2 * attempt)
+            cap = min(
+                _BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)), _BACKOFF_CAP_SECONDS
+            )
+            time.sleep(random.uniform(0, cap))
     raise AssertionError("unreachable: the loop always returns or raises")
 
 

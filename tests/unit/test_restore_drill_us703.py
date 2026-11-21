@@ -43,6 +43,7 @@ from hesabyar.domain.backup.models import (
 )
 from hesabyar.domain.backup.ports import DumpResult, PgToolsInfo
 from hesabyar.domain.common.dates import FiscalDate
+from hesabyar.domain.common.errors import HesabYarError
 from hesabyar.domain.common.money import MoneyIRR
 from hesabyar.infrastructure.auth.credential_vault import generate_encryption_key
 from hesabyar.infrastructure.operations.backup_cipher import FernetBackupCipher
@@ -54,6 +55,7 @@ from hesabyar.infrastructure.operations.restore_drill import (
     CHECK_TRANCHES,
     CHECK_TRIAL_BALANCE,
     RestoreDrillService,
+    _wait_for_scratch_database,
     check_alembic,
     check_external_references,
     check_orphaned_documents,
@@ -801,3 +803,206 @@ def test_drill_runs_the_tryton_checks_through_the_engine_factory() -> None:
     # HesabYar engine object exists) and failed: there is no real
     # scratch database behind the fake dumper, so the connect fails.
     assert checks["cross_database.external_references"] is DrillCheckStatus.FAIL
+
+
+# ---------------------------------------------------------------------------
+# Scratch-database visibility wait (trytond's database-list cache)
+# ---------------------------------------------------------------------------
+
+
+class _FlakyListEngine(FakeEngine):
+    """list_companies 404s N times, then answers (the cache expiring)."""
+
+    def __init__(self, *, failures: int, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._failures_left = failures
+        self.list_calls = 0
+
+    def list_companies(self) -> list[CompanyView]:
+        self.list_calls += 1
+        if self._failures_left > 0:
+            self._failures_left -= 1
+            raise HesabYarError(
+                "Tryton resource not found during search company.company.",
+                code="ENGINE_NOT_FOUND",
+            )
+        return super().list_companies()
+
+
+class _FakeClock:
+    """A monotonic clock the test advances by hand (no real waiting)."""
+
+    def __init__(self) -> None:
+        self.now = 1000.0
+        self.sleeps: list[float] = []
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
+def test_visibility_wait_returns_at_once_when_the_database_is_served() -> None:
+    clock = _FakeClock()
+    engine = FakeEngine(companies=[_company()])
+    assert (
+        _wait_for_scratch_database(
+            engine,  # type: ignore[arg-type]
+            timeout_seconds=360.0,
+            poll_seconds=20.0,
+            sleep=clock.sleep,
+            monotonic=clock.monotonic,
+        )
+        is True
+    )
+    assert clock.sleeps == []
+
+
+def test_visibility_wait_retries_not_found_until_the_cache_expires() -> None:
+    clock = _FakeClock()
+    engine = _FlakyListEngine(failures=2, companies=[_company()])
+    assert (
+        _wait_for_scratch_database(
+            engine,  # type: ignore[arg-type]
+            timeout_seconds=360.0,
+            poll_seconds=20.0,
+            sleep=clock.sleep,
+            monotonic=clock.monotonic,
+        )
+        is True
+    )
+    assert engine.list_calls == 3
+    assert clock.sleeps == [20.0, 20.0]
+
+
+def test_visibility_wait_gives_up_after_the_timeout() -> None:
+    clock = _FakeClock()
+    engine = _FlakyListEngine(failures=100, companies=[_company()])
+    assert (
+        _wait_for_scratch_database(
+            engine,  # type: ignore[arg-type]
+            timeout_seconds=30.0,
+            poll_seconds=10.0,
+            sleep=clock.sleep,
+            monotonic=clock.monotonic,
+        )
+        is False
+    )
+    # 4 probes (t=0, 10, 20, 30), 3 sleeps: the probe at the deadline
+    # fails and the wait ends instead of sleeping past it.
+    assert engine.list_calls == 4
+    assert clock.sleeps == [10.0, 10.0, 10.0]
+
+
+def test_visibility_wait_reraises_non_not_found_errors_immediately() -> None:
+    clock = _FakeClock()
+
+    class _ExplodingEngine(FakeEngine):
+        def list_companies(self) -> list[CompanyView]:
+            raise HesabYarError("Tryton engine error.", code="ENGINE_ERROR")
+
+    with pytest.raises(HesabYarError, match="engine error"):
+        _wait_for_scratch_database(
+            _ExplodingEngine(),  # type: ignore[arg-type]
+            timeout_seconds=360.0,
+            poll_seconds=20.0,
+            sleep=clock.sleep,
+            monotonic=clock.monotonic,
+        )
+    assert clock.sleeps == []
+
+    class _BoomEngine(FakeEngine):
+        def list_companies(self) -> list[CompanyView]:
+            raise RuntimeError("connection reset")
+
+    with pytest.raises(RuntimeError, match="connection reset"):
+        _wait_for_scratch_database(
+            _BoomEngine(),  # type: ignore[arg-type]
+            timeout_seconds=360.0,
+            poll_seconds=20.0,
+            sleep=clock.sleep,
+            monotonic=clock.monotonic,
+        )
+
+
+def test_drill_skips_tryton_checks_when_the_scratch_db_never_becomes_visible() -> None:
+    """A trytond that never serves the scratch DB skips (never fails) the checks.
+
+    The restore itself succeeded — only the verification could not
+    run — so the checks are SKIPPED with the cache reason, and the
+    drill does not call a good backup bad.
+    """
+    store = _FakeStore()
+    dumper = _FakeDumper()
+    cipher = FernetBackupCipher(generate_encryption_key())
+    manifests = _seed_with_cipher(store, dumper, cipher)
+    fake_engine = _FlakyListEngine(failures=100, companies=[_company()])
+
+    @contextmanager
+    def factory(database: str) -> Iterator[FakeEngine]:
+        yield fake_engine  # type: ignore[misc]
+
+    clock = _FakeClock()
+    service = RestoreDrillService(
+        store=store,  # type: ignore[arg-type]
+        cipher=cipher,
+        dumper=dumper,  # type: ignore[arg-type]
+        hesabyar_admin_url="postgresql://u:p@127.0.0.1:1/postgres",
+        tryton_admin_url="postgresql://u:p@127.0.0.1:1/postgres",
+        engine_factory=factory,  # type: ignore[arg-type]
+        clock=lambda: NOW,
+        scratch_visibility_timeout_seconds=0.0,
+        scratch_visibility_poll_seconds=20.0,
+        sleep=clock.sleep,
+        monotonic=clock.monotonic,
+    )
+    report = service.run(manifests)
+    checks = {c.name: c for c in report.checks}
+    assert checks["tryton.trial_balance"].status is DrillCheckStatus.SKIPPED
+    assert checks["cross_database.external_references"].status is DrillCheckStatus.SKIPPED
+    assert "database-list cache" in checks["tryton.trial_balance"].detail
+    assert "Restart trytond" in checks["tryton.trial_balance"].detail
+    # The wait gave up at once (timeout 0): one probe, no sleep.
+    assert fake_engine.list_calls == 1
+    assert clock.sleeps == []
+
+
+def test_drill_runs_tryton_checks_once_the_scratch_db_becomes_visible() -> None:
+    """The wait bridges the cache: 404s first, then the checks run and pass."""
+    store = _FakeStore()
+    dumper = _FakeDumper()
+    cipher = FernetBackupCipher(generate_encryption_key())
+    manifests = _seed_with_cipher(store, dumper, cipher)
+    fake_engine = _FlakyListEngine(
+        failures=2,
+        companies=[_company()],
+        fiscal_years={1: [_fiscal_year()]},
+        trial_balances={1: _trial_balance(debit=5, credit=5)},
+    )
+
+    @contextmanager
+    def factory(database: str) -> Iterator[FakeEngine]:
+        yield fake_engine  # type: ignore[misc]
+
+    clock = _FakeClock()
+    service = RestoreDrillService(
+        store=store,  # type: ignore[arg-type]
+        cipher=cipher,
+        dumper=dumper,  # type: ignore[arg-type]
+        hesabyar_admin_url="postgresql://u:p@127.0.0.1:1/postgres",
+        tryton_admin_url="postgresql://u:p@127.0.0.1:1/postgres",
+        engine_factory=factory,  # type: ignore[arg-type]
+        clock=lambda: NOW,
+        scratch_visibility_timeout_seconds=360.0,
+        scratch_visibility_poll_seconds=20.0,
+        sleep=clock.sleep,
+        monotonic=clock.monotonic,
+    )
+    report = service.run(manifests)
+    checks = {c.name: c.status for c in report.checks}
+    assert checks["tryton.trial_balance"] is DrillCheckStatus.PASS
+    # 2 failed probes + the probe's success + the check's own read.
+    assert fake_engine.list_calls == 4
+    assert clock.sleeps == [20.0, 20.0]

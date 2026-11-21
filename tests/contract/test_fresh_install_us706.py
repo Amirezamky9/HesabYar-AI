@@ -481,29 +481,41 @@ def fresh_company(
         pytest.skip(f"Chart accounts missing from the fresh company: {missing}.")
     accounts = {code: chart[code].ref for code in REQUIRED_CODES}
 
-    # -- 5. Move sequence + fiscal years (this year AND next year:
+    # -- 5. Move sequences + fiscal years (this year AND next year:
     #    the settlement due date lands in the next Jalali month, which
     #    can cross the Gregorian year boundary) + invoice sequences
     #    for the current year (both invoices are dated today).
+    #    ONE sequence per fiscal year: Tryton puts a SQL UNIQUE
+    #    constraint on account.fiscalyear.move_sequence
+    #    (msg_fiscalyear_move_sequence_unique — "The move sequence of
+    #    fiscal years must be unique"), so sharing one sequence
+    #    across the two years fails the second create (CI run #32).
     move_seq_type = _sequence_type_id(client, "account", "sequence_type_account_move")
-    move_sequence = client.create(
-        "ir.sequence.strict",
-        {
-            "name": f"{company_name} Move Sequence",
-            "sequence_type": move_seq_type,
-            "company": company_id,
-            "type": "incremental",
-            "number_next": 1,
-            "number_increment": 1,
-            "padding": 4,
-        },
-        fields=["id"],
-        context=context,
-    )
-    move_sequence_id = int(move_sequence["id"])
     this_year = TODAY.year
-    fy_this = _create_fiscal_year(client, company_id, move_sequence_id, this_year)
-    fy_next = _create_fiscal_year(client, company_id, move_sequence_id, this_year + 1)
+
+    def _move_sequence(year: int) -> int:
+        record = client.create(
+            "ir.sequence.strict",
+            {
+                "name": f"{company_name} Move Sequence {year}",
+                "sequence_type": move_seq_type,
+                "company": company_id,
+                "type": "incremental",
+                "number_next": 1,
+                "number_increment": 1,
+                "padding": 4,
+            },
+            fields=["id"],
+            context=context,
+        )
+        return int(record["id"])
+
+    fy_this = _create_fiscal_year(
+        client, company_id, _move_sequence(this_year), this_year
+    )
+    fy_next = _create_fiscal_year(
+        client, company_id, _move_sequence(this_year + 1), this_year + 1
+    )
     _create_invoice_sequences(client, company_id, fy_this, company_name)
 
     # -- 6. Journals: one general journal (explicitly passed everywhere
