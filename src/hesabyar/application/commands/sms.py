@@ -118,6 +118,75 @@ def _encode_credentials(
     return vault.encrypt(plaintext), vault.key_id
 
 
+def build_provider_client(
+    repository: SmsRepositoryPort,
+    client_factory: SmsClientFactory,
+    vault: CredentialVaultPort | None,
+    provider: SmsProvider,
+) -> SmsProviderClient:
+    """Build a provider's client from its decrypted credentials.
+
+    Shared by the US-544 reminder service and the US-564 reminder
+    service (both send through the same registry): ONE definition
+    of "build the client", so the vault/decrypt/require-fields
+    fail-closed path cannot drift between the two senders.
+
+    Fail-closed: a live provider without stored credentials, a
+    ciphertext the vault cannot decrypt, or a payload missing its
+    required fields all refuse here — no live call is ever
+    attempted down a path that cannot succeed.
+    """
+    credentials: dict[str, str] = {}
+    if provider.has_credentials:
+        if vault is None:
+            raise SmsVaultUnavailableError()
+        ciphertext = repository.load_provider_credentials(
+            provider.id, installation_id=provider.installation_id
+        )
+        if ciphertext is None:
+            raise SmsProviderNotConfiguredError(
+                provider.provider_key,
+                reason="the provider reports stored credentials but none were found; "
+                "rotate the credentials.",
+            )
+        try:
+            plaintext = vault.decrypt(ciphertext)
+        except ValueError as exc:
+            raise SmsProviderNotConfiguredError(
+                provider.provider_key,
+                reason="the stored credentials cannot be decrypted; rotate them.",
+            ) from exc
+        payload = parse_sms_credentials(plaintext, provider_key=provider.provider_key)
+        credentials = require_credential_fields(
+            payload,
+            provider_kind=provider.provider_kind,
+            provider_key=provider.provider_key,
+        )
+    return client_factory.client_for(
+        provider_kind=provider.provider_kind,
+        provider_key=provider.provider_key,
+        credentials=credentials,
+        line_number=provider.line_number,
+    )
+
+
+def provider_sendable_reason(provider: SmsProvider) -> str | None:
+    """Why this provider cannot send right now, or None when it can.
+
+    Shared by the US-544 daily job's pre-flight check and the
+    US-564 reminder service: a live kind needs stored credentials,
+    and a custom kind has no client at all. The simulator is always
+    sendable.
+    """
+    if provider.provider_kind == PROVIDER_KIND_CUSTOM:
+        return "no SMS client exists for custom providers yet."
+    if provider.provider_kind == PROVIDER_KIND_SIMULATOR:
+        return None
+    if not provider.has_credentials:
+        return "no credentials are stored for this provider."
+    return None
+
+
 class SmsRegistryService:
     """Provider registry writes + reminder policy + contract opt-ins."""
 
@@ -944,61 +1013,14 @@ class SmsReminderService:
         raise raise_error
 
     def _build_client(self, provider: SmsProvider) -> SmsProviderClient:
-        """Build the provider's client from its decrypted credentials.
-
-        Fail-closed: a live provider without stored credentials, a
-        ciphertext the vault cannot decrypt, or a payload missing
-        its required fields all refuse here — no live call is ever
-        attempted down a path that cannot succeed.
-        """
-        credentials: dict[str, str] = {}
-        if provider.has_credentials:
-            if self._vault is None:
-                raise SmsVaultUnavailableError()
-            ciphertext = self._repository.load_provider_credentials(
-                provider.id, installation_id=provider.installation_id
-            )
-            if ciphertext is None:
-                raise SmsProviderNotConfiguredError(
-                    provider.provider_key,
-                    reason="the provider reports stored credentials but none were found; "
-                    "rotate the credentials.",
-                )
-            try:
-                plaintext = self._vault.decrypt(ciphertext)
-            except ValueError as exc:
-                raise SmsProviderNotConfiguredError(
-                    provider.provider_key,
-                    reason="the stored credentials cannot be decrypted; rotate them.",
-                ) from exc
-            payload = parse_sms_credentials(plaintext, provider_key=provider.provider_key)
-            credentials = require_credential_fields(
-                payload,
-                provider_kind=provider.provider_kind,
-                provider_key=provider.provider_key,
-            )
-        return self._clients.client_for(
-            provider_kind=provider.provider_kind,
-            provider_key=provider.provider_key,
-            credentials=credentials,
-            line_number=provider.line_number,
+        """Build the provider's client (shared helper — see module level)."""
+        return build_provider_client(
+            self._repository, self._clients, self._vault, provider
         )
 
     def _provider_sendable_reason(self, provider: SmsProvider) -> str | None:
-        """Why this provider cannot send right now, or None when it can.
-
-        The daily job's pre-flight check (one review item per
-        installation, not one per leg): a live kind needs stored
-        credentials, and a custom kind has no client at all. The
-        simulator is always sendable.
-        """
-        if provider.provider_kind == PROVIDER_KIND_CUSTOM:
-            return "no SMS client exists for custom providers yet."
-        if provider.provider_kind == PROVIDER_KIND_SIMULATOR:
-            return None
-        if not provider.has_credentials:
-            return "no credentials are stored for this provider."
-        return None
+        """Why this provider cannot send right now (shared helper — see module level)."""
+        return provider_sendable_reason(provider)
 
     def _file_review(
         self,

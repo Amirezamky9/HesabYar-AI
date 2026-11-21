@@ -23,6 +23,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    Time,
     UniqueConstraint,
     text,
 )
@@ -4276,7 +4277,7 @@ class ReviewItemModel(Base):
             "item_type IN ('mapping', 'settlement_variance', 'cheque_exception', "
             "'bank_unmatched', 'packaging_reorder', 'installment_overdue', "
             "'manual_import_review', 'cashbox_variance', 'inbox_dead_letter', "
-            "'sms_delivery_failed')",
+            "'sms_delivery_failed', 'reminder')",
             name="ck_review_items_item_type",
         ),
         CheckConstraint(
@@ -4375,6 +4376,12 @@ class ReviewItemModel(Base):
         String(128),
         nullable=True,
         comment="Actor id/name assigned to the item (default assignee: accountant)",
+    )
+    tags: Mapped[list] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=list,
+        comment="Tags applied by rules (US-561 'tag' action) or operators — a JSON list of strings",
     )
     resolution: Mapped[str | None] = mapped_column(
         String(16),
@@ -5170,6 +5177,271 @@ class BankMatchRuleModel(Base):
             f"BankMatchRuleModel(id={self.id!r}, pattern={self.pattern!r}, "
             f"mode={self.mode!r}, confirmations={self.confirmations!r})"
         )
+
+
+class BankRuleModel(Base):
+    """One user-defined bank auto-coding rule (US-565, W3).
+
+    Maps to the 'bank_rules' table. The Xero-style rule: ``when
+    <statement-line pattern> → suggest <account + mapping>``. The
+    pattern is an AND of optional conditions (description substring,
+    counterparty name, amount range in whole Rial, direction); the
+    check constraint requires at least one condition — a rule with
+    no condition would match every line. Rules are born in SUGGEST
+    mode with zero confirmations and become AUTO only through a
+    human promotion at the threshold (``RULE_AUTO_MIN_CONFIRMATIONS``
+    = 3, the same floor as the B2 learned rules and the US-552
+    mapping-learning promotion). ``bank_key`` empty means every bank.
+    """
+
+    __tablename__ = "bank_rules"
+    __table_args__ = (
+        CheckConstraint(
+            "direction IN ('in', 'out', 'any')",
+            name="ck_bank_rules_direction",
+        ),
+        CheckConstraint("mode IN ('suggest', 'auto')", name="ck_bank_rules_mode"),
+        CheckConstraint("confirmations >= 0", name="ck_bank_rules_confirmations"),
+        CheckConstraint(
+            "amount_min_irr IS NULL OR amount_min_irr >= 0",
+            name="ck_bank_rules_amount_min_nonneg",
+        ),
+        CheckConstraint(
+            "amount_max_irr IS NULL OR amount_max_irr >= 0",
+            name="ck_bank_rules_amount_max_nonneg",
+        ),
+        CheckConstraint(
+            "amount_min_irr IS NULL OR amount_max_irr IS NULL OR amount_min_irr <= amount_max_irr",
+            name="ck_bank_rules_amount_range",
+        ),
+        CheckConstraint(
+            "description_contains IS NOT NULL OR counterparty_contains IS NOT NULL "
+            "OR amount_min_irr IS NOT NULL OR amount_max_irr IS NOT NULL",
+            name="ck_bank_rules_has_pattern",
+        ),
+        CheckConstraint(
+            "target_account_id > 0",
+            name="ck_bank_rules_target_account",
+        ),
+        Index("ix_bank_rules_tenant_company", "tenant_id", "company_id"),
+        Index("ix_bank_rules_tenant_mode", "tenant_id", "mode"),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+        comment="UUID primary key (bank rule id)",
+    )
+    tenant_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+        comment="Owning tenant FK (CASCADE delete)",
+    )
+    company_id: Mapped[str] = mapped_column(
+        String(128),
+        nullable=False,
+        comment="HesabYar company row id (plain external reference, no FK)",
+    )
+    bank_key: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        default="",
+        comment="Bank key the rule applies to; empty = every bank",
+    )
+    name: Mapped[str] = mapped_column(
+        String(200),
+        nullable=False,
+        comment="Operator-facing rule name",
+    )
+    description_contains: Mapped[str | None] = mapped_column(
+        String(256),
+        nullable=True,
+        comment="Normalised description substring (NULL = no description condition)",
+    )
+    counterparty_contains: Mapped[str | None] = mapped_column(
+        String(256),
+        nullable=True,
+        comment="Normalised counterparty name substring (NULL = no counterparty condition)",
+    )
+    amount_min_irr: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="Minimum line magnitude in whole Rial, inclusive (NULL = no lower bound)",
+    )
+    amount_max_irr: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="Maximum line magnitude in whole Rial, inclusive (NULL = no upper bound)",
+    )
+    direction: Mapped[str] = mapped_column(
+        String(8),
+        nullable=False,
+        default="any",
+        comment="in | out | any — money direction the rule applies to",
+    )
+    target_account_id: Mapped[int] = mapped_column(
+        Integer, nullable=False, comment="Engine account id the rule codes to"
+    )
+    target_party_id: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, comment="Engine party id the rule codes to, when known"
+    )
+    target_kind: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="account",
+        comment="account | misc_income — what the target means",
+    )
+    mode: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="suggest",
+        comment="suggest | auto — Suggest first, Auto only after human promotion at threshold",
+    )
+    confirmations: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        comment="How many of this rule's suggestions a human confirmed",
+    )
+    priority: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=100,
+        comment="Firing order inside one company's set (lower runs first; first match wins)",
+    )
+    enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        comment="A disabled rule never fires (live or suggested)",
+    )
+    created_by: Mapped[str | None] = mapped_column(
+        String(128),
+        nullable=True,
+        comment="API client id that created the rule (NULL = system)",
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Creation timestamp (UTC)",
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Last update timestamp (UTC)",
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"BankRuleModel(id={self.id!r}, name={self.name!r}, "
+            f"mode={self.mode!r}, confirmations={self.confirmations!r})"
+        )
+
+
+class BankRuleSuggestionModel(Base):
+    """One suggestion a bank rule made for one statement line (US-565, W3).
+
+    Maps to the 'bank_rule_suggestions' table. Recorded when a
+    reconcile run matches a line against a SUGGEST-mode bank rule.
+    ``rule_id`` is NULL when the rule was deleted (the audit row
+    survives — ON DELETE SET NULL); ``rule_name`` and the target
+    snapshot keep the row readable afterwards. The partial unique
+    index is the dedup backstop: at most one pending suggestion per
+    (rule, statement, line) — a reconcile re-run must not record a
+    second pending row for the same decision.
+    """
+
+    __tablename__ = "bank_rule_suggestions"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'confirmed', 'rejected')",
+            name="ck_bank_rule_suggestions_status",
+        ),
+        CheckConstraint(
+            "target_account_id > 0",
+            name="ck_bank_rule_suggestions_target_account",
+        ),
+        Index("ix_bank_rule_suggestions_tenant_rule", "tenant_id", "rule_id"),
+        Index("ix_bank_rule_suggestions_tenant_status", "tenant_id", "status"),
+        Index(
+            "uq_bank_rule_suggestions_pending",
+            "rule_id",
+            "statement_id",
+            "statement_line_id",
+            unique=True,
+            postgresql_where=text("status = 'pending'"),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+        comment="UUID primary key (suggestion id)",
+    )
+    tenant_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+        comment="Owning tenant FK (CASCADE delete)",
+    )
+    rule_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("bank_rules.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="Bank rule that suggested this coding (NULL when the rule was deleted)",
+    )
+    rule_name: Mapped[str] = mapped_column(
+        String(200),
+        nullable=False,
+        comment="Rule name snapshot (readable after the rule is deleted)",
+    )
+    company_id: Mapped[str] = mapped_column(
+        String(128),
+        nullable=False,
+        comment="HesabYar company row id (plain external reference, no FK)",
+    )
+    statement_id: Mapped[int] = mapped_column(
+        Integer, nullable=False, comment="Engine statement id of the suggested line"
+    )
+    statement_line_id: Mapped[int] = mapped_column(Integer, nullable=False, comment="Engine statement line id")
+    line_description: Mapped[str] = mapped_column(Text, nullable=False, comment="Statement line description snapshot")
+    line_amount_irr: Mapped[int] = mapped_column(Integer, nullable=False, comment="Signed line amount in whole Rial")
+    target_account_id: Mapped[int] = mapped_column(
+        Integer, nullable=False, comment="Engine account id the rule suggested"
+    )
+    target_party_id: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, comment="Engine party id the rule suggested, when known"
+    )
+    status: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="pending",
+        comment="pending | confirmed | rejected",
+    )
+    confirmed_by: Mapped[str | None] = mapped_column(
+        String(128),
+        nullable=True,
+        comment="Actor that confirmed/rejected the suggestion",
+    )
+    confirmed_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="When the suggestion was confirmed/rejected (UTC)",
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Creation timestamp (UTC)",
+    )
+
+    def __repr__(self) -> str:
+        return f"BankRuleSuggestionModel(id={self.id!r}, rule_id={self.rule_id!r}, status={self.status!r})"
 
 
 class BankStatementMatchModel(Base):
@@ -9946,4 +10218,959 @@ class SettlementColumnMappingModel(Base):
         return (
             f"SettlementColumnMappingModel(id={self.id!r}, channel_key={self.channel_key!r}, "
             f"name={self.name!r}, status={self.status!r})"
+        )
+
+
+class ScheduledJobModel(Base):
+    """One registered periodic job (US-560, Phase 5-7 ۵خ W1).
+
+    Maps to the 'scheduled_jobs' table. The id IS the Procrastinate
+    task name, so the registry can never name a job that does not
+    exist. ``schedule`` is the JSONB schedule spec (see
+    ``hesabyar.domain.scheduler.schedules.JobSchedule``); ``next_run``
+    is computed in-app from the schedule + last run, never stored.
+    The table is tenantless by design: jobs run across all
+    installations (the registry is an operator surface, guarded by
+    the ``jobs:manage`` scope, not a tenant surface).
+    """
+
+    __tablename__ = "scheduled_jobs"
+
+    id: Mapped[str] = mapped_column(
+        String(128),
+        primary_key=True,
+        comment="Job id == Procrastinate task name (e.g. 'settlement.tick')",
+    )
+    queue: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        comment="Procrastinate queue the job runs on",
+    )
+    schedule: Mapped[dict] = mapped_column(
+        JSONB,
+        nullable=False,
+        comment="Schedule spec (kind + interval/time/Jalali day + skip_friday)",
+    )
+    enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        comment="False stops the schedule (manual triggers still work)",
+    )
+    description: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="",
+        comment="Operator-facing description of what the job does",
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Row creation timestamp (UTC)",
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        onupdate=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Last-modified timestamp (UTC)",
+    )
+
+    def __repr__(self) -> str:
+        return f"ScheduledJobModel(id={self.id!r}, enabled={self.enabled!r})"
+
+
+class ScheduledJobRunModel(Base):
+    """One recorded run of a scheduled job (US-560, Phase 5-7 ۵خ W1).
+
+    Maps to the 'scheduled_job_runs' table. A failed run is the job's
+    dead-letter record: the DLQ view for scheduler failures, next to
+    the review-queue item. ``summary`` is a small JSON object (counts
+    + ids, never secrets); ``error`` carries the failure text when
+    the outcome is 'failed'. Runs are append-only; retention purging
+    is a later maintenance job (see docs/scheduler.md).
+    """
+
+    __tablename__ = "scheduled_job_runs"
+    __table_args__ = (
+        CheckConstraint(
+            "outcome IN ('success', 'failed', 'skipped')",
+            name="ck_scheduled_job_runs_outcome",
+        ),
+        CheckConstraint(
+            "triggered_by IN ('scheduled', 'manual')",
+            name="ck_scheduled_job_runs_triggered_by",
+        ),
+        Index("ix_scheduled_job_runs_job_started", "job_id", "started_at"),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+        comment="UUID primary key",
+    )
+    job_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("scheduled_jobs.id", ondelete="CASCADE"),
+        nullable=False,
+        comment="Owning job FK (CASCADE delete)",
+    )
+    started_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        comment="Run start timestamp (UTC)",
+    )
+    finished_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Run finish timestamp (UTC); NULL while running",
+    )
+    outcome: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        comment="success | failed | skipped",
+    )
+    summary: Mapped[dict] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        comment="Run outcome summary (counts + ids, never secrets)",
+    )
+    error: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="Failure text when outcome is 'failed'",
+    )
+    triggered_by: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        comment="scheduled | manual",
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"ScheduledJobRunModel(id={self.id!r}, job_id={self.job_id!r}, "
+            f"outcome={self.outcome!r})"
+        )
+
+
+class RuleModel(Base):
+    """One user rule: ``when <event> + <conditions> → do <action>`` (US-561, Phase 5-7 ۵خ W2).
+
+    Maps to the 'rules' table. ``event_type`` is one of the twelve
+    canonical event types; ``conditions`` is the validated DSL tree
+    (JSONLogic-style, no user code); ``action`` is ``{"kind",
+    "params"}`` from the closed safe set. ``priority`` orders rules
+    inside a rule set (lower runs first). A NULL ``installation_id``
+    means the rule is tenant-wide (it fires for every installation
+    of the tenant); otherwise the rule belongs to one installation.
+    """
+
+    __tablename__ = "rules"
+    __table_args__ = (
+        CheckConstraint("priority >= 0", name="ck_rules_priority_non_negative"),
+        Index("ix_rules_tenant_installation_event", "tenant_id", "installation_id", "event_type"),
+        Index("ix_rules_tenant_event_priority", "tenant_id", "event_type", "priority"),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+        comment="UUID primary key (rule id)",
+    )
+    tenant_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+        comment="Owning tenant FK (CASCADE delete)",
+    )
+    installation_id: Mapped[str | None] = mapped_column(
+        String(36),
+        nullable=True,
+        comment="Owning installation (NULL = tenant-wide rule, fires for every installation)",
+    )
+    name: Mapped[str] = mapped_column(
+        String(200),
+        nullable=False,
+        comment="Operator-facing rule name",
+    )
+    description: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="",
+        comment="Operator-facing description of what the rule does",
+    )
+    event_type: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        comment="Canonical event type that triggers the rule",
+    )
+    conditions: Mapped[dict] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        comment="Validated condition DSL tree ({} = no conditions)",
+    )
+    action: Mapped[dict] = mapped_column(
+        JSONB,
+        nullable=False,
+        comment='Action from the closed set: {"kind": ..., "params": {...}}',
+    )
+    priority: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=100,
+        comment="Order inside a rule set (lower runs first)",
+    )
+    enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        comment="False stops the rule from firing live (dry-run still works)",
+    )
+    created_by: Mapped[str | None] = mapped_column(
+        String(128),
+        nullable=True,
+        comment="Actor (API client id) that created the rule",
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Row creation timestamp (UTC)",
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        onupdate=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Last-modified timestamp (UTC)",
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"RuleModel(id={self.id!r}, event_type={self.event_type!r}, "
+            f"enabled={self.enabled!r})"
+        )
+
+
+class RuleExecutionModel(Base):
+    """One audit-logged rule evaluation (US-561, Phase 5-7 ۵خ W2; §6.7).
+
+    Maps to the 'rule_executions' table — the automation decision
+    audit log for rules. Every dry-run and every live execution of
+    a matched rule appends a row: rule id, event id, decision,
+    outcome, plus the evidence (gate verdicts, created draft ids,
+    posted refs, notification channel results) in ``details``.
+    Append-only: rows are never updated or deleted. ``rule_id`` is
+    NULL for dry-runs of unsaved definitions and for executions
+    whose rule was deleted (the audit row survives the rule).
+    """
+
+    __tablename__ = "rule_executions"
+    __table_args__ = (
+        CheckConstraint(
+            "mode IN ('live', 'dry_run')",
+            name="ck_rule_executions_mode",
+        ),
+        CheckConstraint(
+            "decision IN ('not_matched', 'would_execute', 'executed', "
+            "'blocked_by_policy_gate', 'skipped', 'failed')",
+            name="ck_rule_executions_decision",
+        ),
+        Index("ix_rule_executions_tenant_rule_executed", "tenant_id", "rule_id", "executed_at"),
+        Index("ix_rule_executions_tenant_event", "tenant_id", "event_id"),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+        comment="UUID primary key (execution id)",
+    )
+    tenant_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+        comment="Owning tenant FK (CASCADE delete)",
+    )
+    rule_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("rules.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="Rule FK (SET NULL on delete — the audit row survives the rule)",
+    )
+    event_id: Mapped[str | None] = mapped_column(
+        String(36),
+        nullable=True,
+        comment="Inbox event id (NULL for sample-payload dry-runs)",
+    )
+    event_type: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        comment="Canonical event type that was evaluated",
+    )
+    mode: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        comment="live | dry_run",
+    )
+    decision: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        comment="not_matched | would_execute | executed | blocked_by_policy_gate | skipped | failed",
+    )
+    outcome: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        comment="Machine-readable outcome code (draft_created, posted, draft_kept, ...)",
+    )
+    action_kind: Mapped[str | None] = mapped_column(
+        String(32),
+        nullable=True,
+        comment="Action kind that ran (NULL when the rule did not match)",
+    )
+    details: Mapped[dict] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        comment="Evidence: gate verdicts, draft/posted refs, channel results",
+    )
+    error: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="Failure text when the decision is 'failed'",
+    )
+    executed_by: Mapped[str] = mapped_column(
+        String(128),
+        nullable=False,
+        default="system",
+        comment="Actor (API client id) that triggered the evaluation",
+    )
+    executed_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Execution timestamp (UTC)",
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"RuleExecutionModel(id={self.id!r}, rule_id={self.rule_id!r}, "
+            f"decision={self.decision!r}, outcome={self.outcome!r})"
+        )
+
+
+class RuleSetConfigModel(Base):
+    """One rule set's match mode (US-561, Phase 5-7 ۵خ W2; §6.4).
+
+    Maps to the 'rule_set_configs' table. A rule set is one tenant's
+    rules for one event type; the mode decides whether evaluation
+    stops at the first match (the Xero pattern) or runs every
+    matching rule. No row means the default (``first_match``).
+    """
+
+    __tablename__ = "rule_set_configs"
+    __table_args__ = (
+        CheckConstraint(
+            "match_mode IN ('first_match', 'all_matches')",
+            name="ck_rule_set_configs_match_mode",
+        ),
+    )
+
+    tenant_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        primary_key=True,
+        comment="Owning tenant FK (CASCADE delete)",
+    )
+    event_type: Mapped[str] = mapped_column(
+        String(64),
+        primary_key=True,
+        comment="Canonical event type the set covers",
+    )
+    match_mode: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        comment="first_match | all_matches",
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        onupdate=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Last-modified timestamp (UTC)",
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"RuleSetConfigModel(tenant_id={self.tenant_id!r}, "
+            f"event_type={self.event_type!r}, match_mode={self.match_mode!r})"
+        )
+
+
+class ReminderPreferencesModel(Base):
+    """One installation's reminder policy (one row per installation).
+
+    Maps to the 'reminder_preferences' table. ``enabled`` is the
+    master opt-in for AUTOMATIC reminders (the daily job sends
+    nothing for an installation with no row, or a disabled row).
+    The per-type flags switch individual reminder types; the
+    channel flags switch channels globally; the lead lists are
+    JSON arrays of day counts; quiet hours are Tehran wall times.
+    ``enmad_expiry_date`` is the store's eNamad expiry (NULL = no
+    eNamad reminders) — it lives here until a store-profile model
+    exists (phased design: settings → store profile).
+    """
+
+    __tablename__ = "reminder_preferences"
+    __table_args__ = (
+        Index("ix_reminder_preferences_enabled", "installation_id", "enabled"),
+    )
+
+    installation_id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        comment="Installation id (one policy row per installation)",
+    )
+    tenant_id: Mapped[str] = mapped_column(
+        String(36),
+        nullable=False,
+        comment="Tenant id (lets the daily job scan without a key)",
+    )
+    enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment="Master opt-in for automatic reminders (default: off)",
+    )
+    cheque_due_soon_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        comment="Cheque due-soon reminders on (master switch still applies)",
+    )
+    installment_overdue_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        comment="Overdue-installment reminders on (master switch still applies)",
+    )
+    cashbox_uncounted_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        comment="Uncounted-cashbox reminders on (master switch still applies)",
+    )
+    enmad_expiry_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        comment="eNamad-expiry reminders on (master switch still applies)",
+    )
+    channel_in_app: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        comment="In-app channel (review-queue item) on",
+    )
+    channel_email: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        comment="Email channel on (no email provider exists yet — attempts are logged as skipped)",
+    )
+    channel_sms: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        comment="SMS channel on (via the US-544 provider registry)",
+    )
+    cheque_lead_days: Mapped[list] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=list,
+        comment="Cheque due-soon leads in days before the due date (e.g. [7, 3])",
+    )
+    installment_overdue_days: Mapped[list] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=list,
+        comment="Installment-overdue offsets in days past the due date (e.g. [1, 7])",
+    )
+    cashbox_uncounted_days: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=7,
+        comment="Uncounted-cashbox threshold: remind when a box went this many days without a count",
+    )
+    enmad_lead_days: Mapped[list] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=list,
+        comment="eNamad-expiry leads in days before expiry (0 = the expiry day)",
+    )
+    quiet_hours_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        comment="Quiet hours on (no SMS or email inside the window; in-app may still record)",
+    )
+    quiet_hours_start: Mapped[datetime.time] = mapped_column(
+        Time,
+        nullable=False,
+        comment="Quiet-hours start (Tehran wall time)",
+    )
+    quiet_hours_end: Mapped[datetime.time] = mapped_column(
+        Time,
+        nullable=False,
+        comment="Quiet-hours end (Tehran wall time)",
+    )
+    enmad_expiry_date: Mapped[datetime.date | None] = mapped_column(
+        Date,
+        nullable=True,
+        comment="The store's eNamad expiry date (NULL = no eNamad reminders)",
+    )
+    notification_email: Mapped[str | None] = mapped_column(
+        String(254),
+        nullable=True,
+        comment="Operator address for email reminders (NULL = no email recipient configured)",
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Row creation timestamp (UTC)",
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        onupdate=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Last-modified timestamp (UTC)",
+    )
+
+    def __repr__(self) -> str:
+        return f"ReminderPreferencesModel(installation_id={self.installation_id!r}, enabled={self.enabled!r})"
+
+
+class ReminderLogModel(Base):
+    """One reminder attempt in the log (the DLQ + the audit trail).
+
+    Maps to the 'reminder_log' table. Every attempt is logged —
+    sent, failed, or skipped — with its channel, cost, and reason.
+    The partial unique index on (installation, idempotency_key)
+    over the sent statuses (``queued`` / ``sent`` / ``delivered``)
+    is the dedup backstop: one reminder per event per lead-time
+    per channel. ``provider_key`` is denormalized (the provider
+    row may later be deleted; the log keeps the key).
+    """
+
+    __tablename__ = "reminder_log"
+    __table_args__ = (
+        CheckConstraint(
+            "reminder_type IN ('cheque_due_soon', 'installment_overdue', "
+            "'cashbox_uncounted', 'enmad_expiry')",
+            name="ck_reminder_log_reminder_type",
+        ),
+        CheckConstraint(
+            "channel IN ('in_app', 'email', 'sms')",
+            name="ck_reminder_log_channel",
+        ),
+        CheckConstraint(
+            "status IN ('queued', 'sent', 'delivered', 'failed', 'skipped')",
+            name="ck_reminder_log_status",
+        ),
+        Index(
+            "uq_reminder_log_installation_key_sent",
+            "installation_id",
+            "idempotency_key",
+            unique=True,
+            postgresql_where=text("status IN ('queued', 'sent', 'delivered')"),
+        ),
+        Index("ix_reminder_log_installation_created", "installation_id", "created_at"),
+        Index(
+            "ix_reminder_log_installation_type_status",
+            "installation_id",
+            "reminder_type",
+            "status",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+        comment="UUID primary key",
+    )
+    tenant_id: Mapped[str] = mapped_column(
+        String(36),
+        nullable=False,
+        comment="Tenant id (from the authenticated API key)",
+    )
+    installation_id: Mapped[str] = mapped_column(
+        String(36),
+        nullable=False,
+        comment="Installation id (from the authenticated API key)",
+    )
+    reminder_type: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        comment="cheque_due_soon | installment_overdue | cashbox_uncounted | enmad_expiry",
+    )
+    subject_type: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        comment="What the reminder is about: cheque | installment_leg | cashbox | installation",
+    )
+    subject_id: Mapped[str] = mapped_column(
+        String(36),
+        nullable=False,
+        comment="Id of the subject (cheque / leg / cash box / installation)",
+    )
+    lead_days: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        comment="Lead/offset that fired (days before due, days overdue, or the cash-box N threshold)",
+    )
+    channel: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        comment="in_app | email | sms",
+    )
+    status: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        comment="queued | sent | delivered | failed | skipped",
+    )
+    idempotency_key: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        comment="Dedup key: {type}:{subject_id}:{event_ref}:{channel}",
+    )
+    message_text: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        comment="The message as sent (Persian)",
+    )
+    recipient: Mapped[str | None] = mapped_column(
+        String(254),
+        nullable=True,
+        comment="Where it went: mobile for SMS, email for email, NULL for in-app",
+    )
+    provider_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("sms_providers.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="SMS provider row (NULL when the provider was deleted; provider_key survives)",
+    )
+    provider_key: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        comment="Denormalized SMS provider key (survives a provider delete)",
+    )
+    provider_message_id: Mapped[str | None] = mapped_column(
+        String(128),
+        nullable=True,
+        comment="Provider's id for the sent message",
+    )
+    provider_status_raw: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="Provider's verbatim delivery status",
+    )
+    cost_toman: Mapped[str | None] = mapped_column(
+        String(32),
+        nullable=True,
+        comment="Informational SMS cost in Toman — only when the provider reports "
+        "a cost in a KNOWN unit (the US-544 rule)",
+    )
+    provider_cost_raw: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        comment="Provider's verbatim cost figure",
+    )
+    provider_cost_unit: Mapped[str | None] = mapped_column(
+        String(32),
+        nullable=True,
+        comment="Unit of the verbatim cost ('IRR' for Kavenegar, 'unverified' for sms.ir)",
+    )
+    error_code: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        comment="Machine-readable reason for a failed/skipped attempt",
+    )
+    error_detail: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="Human-readable detail for a failed/skipped attempt",
+    )
+    sent_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="When the reminder went out (NULL unless sent)",
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Row creation timestamp (UTC)",
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"ReminderLogModel(id={self.id!r}, reminder_type={self.reminder_type!r}, "
+            f"channel={self.channel!r}, status={self.status!r})"
+        )
+
+
+class RecurringTemplateModel(Base):
+    """One recurring template (US-563, Phase 5-7 ۵خ W3).
+
+    Maps to the 'recurring_templates' table. A template is a standing
+    instruction: "for this company, on this Jalali schedule, create
+    this invoice / journal". ``company_id`` is the HesabYar
+    ``engine_companies`` row id (the API-facing id);
+    ``company_engine_id`` is the Tryton company id the generator
+    drafts into. ``schedule`` / ``payload`` are JSONB specs (see
+    ``hesabyar.domain.recurring``); ``auto_post`` is the explicit
+    opt-in (draft by default — ADR 0003 decision 1 — and the policy
+    gate still decides).
+    """
+
+    __tablename__ = "recurring_templates"
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('invoice', 'journal')",
+            name="ck_recurring_templates_kind",
+        ),
+        CheckConstraint(
+            "status IN ('active', 'paused', 'completed')",
+            name="ck_recurring_templates_status",
+        ),
+        Index("ix_recurring_templates_tenant_company", "tenant_id", "company_id"),
+        Index("ix_recurring_templates_status", "status"),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+        comment="UUID primary key",
+    )
+    tenant_id: Mapped[str] = mapped_column(
+        String(36),
+        nullable=False,
+        comment="Tenant id (from the authenticated API key)",
+    )
+    installation_id: Mapped[str] = mapped_column(
+        String(36),
+        nullable=False,
+        comment=(
+            "Installation id (from the authenticated API key; "
+            "the policy gate evaluates auto-post against its registry policy)"
+        ),
+    )
+    company_id: Mapped[str] = mapped_column(
+        String(36),
+        nullable=False,
+        comment="HesabYar engine_companies row id (the API-facing company id)",
+    )
+    company_engine_id: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        comment="Engine company id the generator drafts into",
+    )
+    kind: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        comment="invoice | journal",
+    )
+    name: Mapped[str] = mapped_column(
+        String(256),
+        nullable=False,
+        comment="Operator-facing template name",
+    )
+    status: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        comment="active | paused | completed",
+    )
+    schedule: Mapped[dict] = mapped_column(
+        JSONB,
+        nullable=False,
+        comment="Jalali schedule spec (kind + day/month/interval + start/end + max occurrences)",
+    )
+    payload: Mapped[dict] = mapped_column(
+        JSONB,
+        nullable=False,
+        comment="The document the template generates (invoice or journal payload)",
+    )
+    auto_post: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment="Explicit auto-post opt-in (draft by default; the policy gate still decides)",
+    )
+    total_amount_irr: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+        comment="Payload total in Rial (the preview amount)",
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Row creation timestamp (UTC)",
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        onupdate=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Last-modified timestamp (UTC)",
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"RecurringTemplateModel(id={self.id!r}, kind={self.kind!r}, "
+            f"status={self.status!r})"
+        )
+
+
+class RecurringOccurrenceModel(Base):
+    """One generated (or failed) occurrence (US-563, Phase 5-7 ۵خ W3).
+
+    Maps to the 'recurring_occurrences' table. The occurrence row
+    links a generated engine document to its template + occurrence
+    number. ``snapshot`` is the payload + schedule the occurrence
+    was generated from — an edit never rewrites it. The (template,
+    scheduled date) unique constraint is the generator's
+    idempotency backstop: two runs racing on the same due date
+    cannot create the same occurrence twice.
+    """
+
+    __tablename__ = "recurring_occurrences"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'draft', 'posted', 'failed')",
+            name="ck_recurring_occurrences_status",
+        ),
+        UniqueConstraint(
+            "template_id",
+            "occurrence_number",
+            name="uq_recurring_occurrences_template_number",
+        ),
+        UniqueConstraint(
+            "template_id",
+            "scheduled_date",
+            name="uq_recurring_occurrences_template_date",
+        ),
+        Index(
+            "ix_recurring_occurrences_template_number",
+            "template_id",
+            "occurrence_number",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+        comment="UUID primary key",
+    )
+    template_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("recurring_templates.id", ondelete="CASCADE"),
+        nullable=False,
+        comment="Owning template FK (CASCADE delete)",
+    )
+    occurrence_number: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        comment="Position in the schedule's sequence from the start date (1-based)",
+    )
+    scheduled_date: Mapped[datetime.date] = mapped_column(
+        Date,
+        nullable=False,
+        comment="Scheduled (Gregorian) date of the occurrence",
+    )
+    jalali_date: Mapped[str] = mapped_column(
+        String(10),
+        nullable=False,
+        comment="The same date as an ISO-like Jalali string (1405-08-15)",
+    )
+    clamped: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment="True when the Jalali day was clamped to the month's length",
+    )
+    requested_jalali_day: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        comment="The Jalali day the schedule asked for",
+    )
+    actual_jalali_day: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        comment="The Jalali day the occurrence actually fires on",
+    )
+    status: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        comment="pending | draft | posted | failed",
+    )
+    total_amount_irr: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+        comment="Occurrence total in Rial (from the snapshot)",
+    )
+    snapshot: Mapped[dict] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        comment="Payload + schedule the occurrence was generated from (an edit never rewrites it)",
+    )
+    engine_document_id: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="Engine id of the generated invoice / journal (NULL until generated)",
+    )
+    gate_decision: Mapped[dict | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        comment="Policy-gate verdict when auto-post was attempted (NULL when never opted in)",
+    )
+    error: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="Draft-creation failure (status failed) or post failure after the draft landed (status draft)",
+    )
+    generated_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="When the document was generated (UTC); NULL until generated",
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Row creation timestamp (UTC)",
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        onupdate=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Last-modified timestamp (UTC)",
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"RecurringOccurrenceModel(id={self.id!r}, template_id={self.template_id!r}, "
+            f"occurrence_number={self.occurrence_number!r}, status={self.status!r})"
         )

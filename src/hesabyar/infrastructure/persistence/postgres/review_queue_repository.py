@@ -64,6 +64,7 @@ def _item_from_row(row: ReviewItemModel) -> ReviewItem:
         source_event_ref=row.source_event_ref,
         amount_irr=row.amount_irr,
         assignee=row.assignee,
+        tags=tuple(str(tag) for tag in (row.tags or [])),
         resolution=ReviewResolution(row.resolution) if row.resolution is not None else None,
         resolved_by=row.resolved_by,
         resolved_at=row.resolved_at,
@@ -148,6 +149,7 @@ class SqlAlchemyReviewQueueRepository(ReviewQueuePort, ReviewAuditPort):
             suggested_action=item.suggested_action,
             amount_irr=item.amount_irr,
             assignee=item.assignee,
+            tags=list(item.tags),
             resolution=item.resolution.value if item.resolution is not None else None,
             resolved_by=item.resolved_by,
             resolved_at=item.resolved_at,
@@ -171,6 +173,7 @@ class SqlAlchemyReviewQueueRepository(ReviewQueuePort, ReviewAuditPort):
             raise ValueError(f"Review item {item.id!r} does not exist.")
         row.status = item.status.value
         row.assignee = item.assignee
+        row.tags = list(item.tags)
         row.resolution = item.resolution.value if item.resolution is not None else None
         row.resolved_by = item.resolved_by
         row.resolved_at = item.resolved_at

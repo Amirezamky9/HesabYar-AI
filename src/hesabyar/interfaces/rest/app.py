@@ -29,6 +29,7 @@ from hesabyar.interfaces.rest.middleware import RequestIdMiddleware
 from hesabyar.interfaces.rest.routers.accounting import router as accounting_router
 from hesabyar.interfaces.rest.routers.audit import router as audit_router
 from hesabyar.interfaces.rest.routers.bank import router as bank_router
+from hesabyar.interfaces.rest.routers.bank_rules import router as bank_rules_router
 from hesabyar.interfaces.rest.routers.cashbox import router as cashbox_router
 from hesabyar.interfaces.rest.routers.cheques import router as cheques_router
 from hesabyar.interfaces.rest.routers.companies import router as companies_router
@@ -38,13 +39,17 @@ from hesabyar.interfaces.rest.routers.imports import router as imports_router
 from hesabyar.interfaces.rest.routers.installments import router as installments_router
 from hesabyar.interfaces.rest.routers.integrations import router as integrations_router
 from hesabyar.interfaces.rest.routers.invoices import router as invoices_router
+from hesabyar.interfaces.rest.routers.jobs import router as jobs_router
 from hesabyar.interfaces.rest.routers.journals import router as journals_router
 from hesabyar.interfaces.rest.routers.manual_entries import router as manual_entries_router
 from hesabyar.interfaces.rest.routers.moadian import router as moadian_router
 from hesabyar.interfaces.rest.routers.packaging import router as packaging_router
 from hesabyar.interfaces.rest.routers.payments import router as payments_router
+from hesabyar.interfaces.rest.routers.recurring import router as recurring_router
+from hesabyar.interfaces.rest.routers.reminders import router as reminders_router
 from hesabyar.interfaces.rest.routers.reports import router as reports_router
 from hesabyar.interfaces.rest.routers.review_queue import router as review_queue_router
+from hesabyar.interfaces.rest.routers.rules import router as rules_router
 from hesabyar.interfaces.rest.routers.settlement import router as settlement_router
 from hesabyar.interfaces.rest.routers.sms import router as sms_router
 from hesabyar.interfaces.rest.routers.standards import router as standards_router
@@ -78,6 +83,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     app.include_router(invoices_router, prefix="/api/v1")
     app.include_router(payments_router, prefix="/api/v1")
     app.include_router(bank_router, prefix="/api/v1")
+    app.include_router(bank_rules_router, prefix="/api/v1")
     app.include_router(audit_router, prefix="/api/v1")
     app.include_router(standards_router, prefix="/api/v1")
     app.include_router(reports_router, prefix="/api/v1")
@@ -94,6 +100,10 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     app.include_router(cheques_router, prefix="/api/v1")
     app.include_router(installments_router, prefix="/api/v1")
     app.include_router(sms_router, prefix="/api/v1")
+    app.include_router(reminders_router, prefix="/api/v1")
+    app.include_router(jobs_router, prefix="/api/v1")
+    app.include_router(rules_router, prefix="/api/v1")
+    app.include_router(recurring_router, prefix="/api/v1")
     if settings is not None:
         app.dependency_overrides[get_settings_dep] = lambda: settings
     return app

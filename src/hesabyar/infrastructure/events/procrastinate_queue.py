@@ -14,6 +14,15 @@ only decides *when* the worker runs:
   has come and events whose trigger fired before the ingest
   transaction committed) + pending outbox events.
 
+US-560 registers three more periodic jobs on the same app (the
+``scheduler`` queue): the dunning sweep, the store sync, and the
+inbox staleness alert — see
+``hesabyar.infrastructure.events.scheduler_queue``. US-563 adds a
+fourth on the same queue: the recurring generator. Every periodic
+job is also a registry row (``scheduled_jobs``) with a Jalali-aware
+schedule; the recorder gates each run (enabled? scheduled today?)
+and records its outcome — see ``docs/scheduler.md``.
+
 Deferring is best-effort: if the Procrastinate schema is not
 applied yet (or the queue is down), the defer is logged and the
 ingest still succeeds — the sweep is the backstop that guarantees
@@ -31,12 +40,14 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 import procrastinate
 from procrastinate import PsycopgConnector
 from procrastinate.connector import BaseAsyncConnector, BaseConnector
 
 from hesabyar.application.commands.events import EventWorker
+from hesabyar.domain.scheduler.schedules import tehran_today
 from hesabyar.infrastructure.events.cheque_queue import (
     DAILY_CRON,
     ChequeWorkerFactory,
@@ -46,6 +57,23 @@ from hesabyar.infrastructure.events.packaging_queue import (
     SUPPLY_CHECK_CRON,
     PackagingWorkerFactory,
     register_packaging_tasks,
+)
+from hesabyar.infrastructure.events.reminders_queue import (
+    DAILY_CRON as REMINDERS_DAILY_CRON,
+)
+from hesabyar.infrastructure.events.reminders_queue import (
+    RemindersWorkerFactory,
+    register_reminders_tasks,
+)
+from hesabyar.infrastructure.events.scheduler_queue import (
+    DUNNING_SWEEP_CRON,
+    INBOX_STALENESS_CRON,
+    RECURRING_GENERATION_CRON,
+    STORE_SYNC_CRON,
+    JobRunRecorder,
+    SchedulerWorkerFactory,
+    register_scheduler_tasks,
+    run_recorded,
 )
 from hesabyar.infrastructure.events.settlement_queue import (
     TICK_CRON,
@@ -106,6 +134,14 @@ def create_event_app(
     cheque_daily_cron: str = DAILY_CRON,
     sms_factory: SmsWorkerFactory | None = None,
     sms_daily_reminders_cron: str = DAILY_REMINDERS_CRON,
+    reminders_factory: RemindersWorkerFactory | None = None,
+    reminders_daily_cron: str = REMINDERS_DAILY_CRON,
+    scheduler_factory: SchedulerWorkerFactory | None = None,
+    dunning_sweep_cron: str = DUNNING_SWEEP_CRON,
+    store_sync_cron: str = STORE_SYNC_CRON,
+    staleness_cron: str = INBOX_STALENESS_CRON,
+    recurring_generation_cron: str = RECURRING_GENERATION_CRON,
+    recorder: JobRunRecorder | None = None,
 ) -> procrastinate.App:
     """Build the Procrastinate app with the event-platform tasks.
 
@@ -118,8 +154,16 @@ def create_event_app(
     registered too; when ``cheque_factory`` is given, the daily
     cheque job (reminders + expiry) is registered too; when
     ``sms_factory`` is given, the daily SMS reminder job is
-    registered too. The API process (``create_defer_app``) passes
-    none of them.
+    registered too; when ``reminders_factory`` is given, the daily
+    reminder job (US-564) is registered too; when
+    ``scheduler_factory`` is given, the four scheduled jobs
+    (dunning sweep, store sync, inbox staleness, recurring
+    generation) are registered too. The API process
+    (``create_defer_app``) passes none of them.
+
+    When ``recorder`` is given (the worker process), every periodic
+    task is gated (enabled? scheduled today?) and recorded in the
+    job registry; without it, tasks run exactly as before.
     """
     app = procrastinate.App(connector=connector)
 
@@ -136,25 +180,91 @@ def create_event_app(
     @app.task(queue=EVENTS_QUEUE, name=SWEEP_TASK, retry=False)
     def sweep(timestamp: int = 0) -> None:  # noqa: ARG001 - periodic passes the schedule timestamp
         handle = worker_factory()
+        day = tehran_today(timestamp)
         try:
-            handle.worker.poll_once()
+
+            def _do() -> dict[str, Any]:
+                report = handle.worker.poll_once()
+                logger.info(
+                    "Sweep done: claimed=%d draft=%d posted=%d review=%d "
+                    "dead_lettered=%d retries=%d outbox_published=%d "
+                    "outbox_failed=%d errors=%d",
+                    report.claimed,
+                    report.processed_draft,
+                    report.processed_posted,
+                    report.needs_review,
+                    report.dead_lettered,
+                    report.retries_scheduled,
+                    report.outbox_published,
+                    report.outbox_failed,
+                    len(report.errors),
+                )
+                for error in report.errors:
+                    logger.error("Sweep error: %s", error)
+                return {
+                    "claimed": report.claimed,
+                    "processed_draft": report.processed_draft,
+                    "processed_posted": report.processed_posted,
+                    "needs_review": report.needs_review,
+                    "dead_lettered": report.dead_lettered,
+                    "retries_scheduled": report.retries_scheduled,
+                    "outbox_published": report.outbox_published,
+                    "outbox_failed": report.outbox_failed,
+                    "errors": list(report.errors),
+                }
+
+            run_recorded(recorder, SWEEP_TASK, _do, today=day)
             handle.commit()
         finally:
             handle.close()
 
     if packaging_factory is not None:
         register_packaging_tasks(
-            app, packaging_factory, supply_check_cron=supply_check_cron
+            app,
+            packaging_factory,
+            supply_check_cron=supply_check_cron,
+            recorder=recorder,
         )
 
     if settlement_factory is not None:
-        register_settlement_tasks(app, settlement_factory, tick_cron=settlement_tick_cron)
+        register_settlement_tasks(
+            app,
+            settlement_factory,
+            tick_cron=settlement_tick_cron,
+            recorder=recorder,
+        )
 
     if cheque_factory is not None:
-        register_cheque_tasks(app, cheque_factory, daily_cron=cheque_daily_cron)
+        register_cheque_tasks(
+            app, cheque_factory, daily_cron=cheque_daily_cron, recorder=recorder
+        )
 
     if sms_factory is not None:
-        register_sms_tasks(app, sms_factory, daily_reminders_cron=sms_daily_reminders_cron)
+        register_sms_tasks(
+            app,
+            sms_factory,
+            daily_reminders_cron=sms_daily_reminders_cron,
+            recorder=recorder,
+        )
+
+    if reminders_factory is not None:
+        register_reminders_tasks(
+            app,
+            reminders_factory,
+            daily_cron=reminders_daily_cron,
+            recorder=recorder,
+        )
+
+    if scheduler_factory is not None:
+        register_scheduler_tasks(
+            app,
+            scheduler_factory,
+            recorder=recorder,
+            dunning_sweep_cron=dunning_sweep_cron,
+            store_sync_cron=store_sync_cron,
+            staleness_cron=staleness_cron,
+            recurring_generation_cron=recurring_generation_cron,
+        )
 
     return app
 

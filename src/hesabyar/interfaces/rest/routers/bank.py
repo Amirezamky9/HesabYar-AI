@@ -32,6 +32,7 @@ from sqlalchemy.orm import Session
 
 from hesabyar.application.commands.bank_import import BankImportService
 from hesabyar.application.commands.bank_reconcile import BankReconcileService
+from hesabyar.application.commands.bank_rules import BankRulesService
 from hesabyar.application.commands.cheque_clearing import ChequeClearingService
 from hesabyar.application.commands.review_queue import ReviewQueueCommandService
 from hesabyar.application.errors import ReviewInvalidStateError
@@ -53,6 +54,7 @@ from hesabyar.interfaces.rest.dependencies import (
     get_bank_import_service,
     get_bank_query_service,
     get_bank_reconcile_service,
+    get_bank_rules_service,
     get_bank_statement_query_service,
     get_cheque_clearing_service,
     get_db_session,
@@ -90,6 +92,10 @@ from hesabyar.interfaces.rest.schemas.bank import (
     ReconciliationStatusResponse,
     RuleModeRequest,
     StatementJournalResponse,
+)
+from hesabyar.interfaces.rest.schemas.bank_rules import (
+    UndoAutoCodeRequest,
+    UndoAutoCodeResponse,
 )
 from hesabyar.interfaces.rest.schemas.cheques import (
     ChequeClearingResponse,
@@ -195,23 +201,14 @@ def list_bank_statements(
     request: Request,
     state: str | None = Query(
         default=None,
-        description=(
-            "Filter on engine state: 'draft', 'validated', 'posted' or 'cancelled'"
-        ),
+        description=("Filter on engine state: 'draft', 'validated', 'posted' or 'cancelled'"),
     ),
     sort: str | None = Query(
         default=None,
-        description=(
-            "Sort field: 'date' (default, newest first) or 'id'; "
-            "prefix '-' for descending"
-        ),
+        description=("Sort field: 'date' (default, newest first) or 'id'; prefix '-' for descending"),
     ),
-    limit: int = Query(
-        default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE, description="Page size (1-100)"
-    ),
-    cursor: str | None = Query(
-        default=None, description="Opaque cursor from a previous page's 'next_cursor'"
-    ),
+    limit: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE, description="Page size (1-100)"),
+    cursor: str | None = Query(default=None, description="Opaque cursor from a previous page's 'next_cursor'"),
     _client: AuthenticatedClient = Depends(require_scopes("banking:read")),
     row: EngineCompanyModel = Depends(resolve_accounts_company),
     service: BankStatementQueryService = Depends(get_bank_statement_query_service),
@@ -871,6 +868,64 @@ def apply_manual_match(
             pass
     session.commit()
     return BankStatementMatchResponse.from_match(match)
+
+
+@router.post(
+    "/bank/statements/{statement_id}/lines/{line_id}/undo-auto-code",
+    response_model=UndoAutoCodeResponse,
+    summary="Undo a wrong auto-code (reject it, apply the corrected coding)",
+)
+def undo_auto_code(
+    statement_id: int,
+    line_id: int,
+    body: UndoAutoCodeRequest,
+    idempotency_key: str | None = Header(
+        default=None,
+        alias=IDEMPOTENCY_KEY_HEADER,
+        description="Unique key for this mutation; retries replay the original response",
+    ),
+    client: AuthenticatedClient = Depends(require_scopes("banking:reconcile")),
+    session: Session = Depends(get_db_session),
+    query_service: BankStatementQueryService = Depends(get_bank_statement_query_service),
+    service: BankRulesService = Depends(get_bank_rules_service),
+) -> UndoAutoCodeResponse:
+    """Undo a wrong auto-code on one draft statement line (US-565).
+
+    Only a live AUTO_APPLIED match whose target is a rule can be
+    undone (409 ``BANK_RULE_NOTHING_TO_UNDO`` otherwise), and only
+    while the statement is a draft. The auto match is rejected and
+    the corrected coding is written to the line and recorded as a
+    CONFIRMED manual match; the statement stays a draft until the
+    accountant approves it. The response names the undone rule so
+    the operator can demote or disable it.
+    """
+    require_idempotency_key(idempotency_key)
+    with translate_errors():
+        view = query_service.get_bank_statement(BankStatementRef(statement_id))
+    row = require_visible_company(
+        session,
+        client,
+        view.company,
+        statement_id,
+        resource_kind="Bank statement",
+        error_code="LEDGER_STATEMENT_NOT_FOUND",
+    )
+    with translate_errors():
+        result = service.undo_auto_code(
+            tenant_id=client.tenant_id,
+            company_id=row.id,
+            statement_id=statement_id,
+            line_id=line_id,
+            corrected_account_id=body.corrected_account_id,
+            corrected_party_id=body.corrected_party_id,
+            actor=client.client_name,
+        )
+    session.commit()
+    return UndoAutoCodeResponse(
+        match=BankStatementMatchResponse.from_match(result.match),
+        undone_rule_id=result.undone_rule_id,
+        undone_match_id=result.undone_match_id,
+    )
 
 
 # -- learned match rules (US-514 B2) ------------------------------------------------

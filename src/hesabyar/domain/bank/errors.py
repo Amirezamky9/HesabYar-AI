@@ -78,6 +78,68 @@ class BankMatchRuleNotFoundError(BankError):
         super().__init__(message, code="BANK_MATCH_RULE_NOT_FOUND", details=details)
 
 
+class BankRuleNotFoundError(BankError):
+    """Raised when a user-defined bank-rule id does not exist for the tenant.
+
+    Distinct from :class:`BankMatchRuleNotFoundError`: that code is
+    the B2 learned rule (``bank_match_rules``); this one is the W3
+    user-defined rule (``bank_rules``, US-565).
+    """
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__(message, code="BANK_RULE_NOT_FOUND", details=details)
+
+
+class BankRuleInvalidError(BankError):
+    """Raised when a bank-rule definition fails validation.
+
+    A rule needs at least one pattern condition (description,
+    counterparty, or amount bound), a sane amount range, a known
+    direction, and a positive target account.
+    """
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__(message, code="BANK_RULE_INVALID", details=details)
+
+
+class BankRuleNotPromotableError(BankError):
+    """Raised when a bank rule cannot be promoted (or demoted).
+
+    Promotion needs SUGGEST mode and at least
+    ``RULE_AUTO_MIN_CONFIRMATIONS`` confirmed suggestions; demotion
+    needs AUTO mode. Both are human decisions — nothing auto-promotes.
+    """
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__(message, code="BANK_RULE_NOT_PROMOTABLE", details=details)
+
+
+class BankRuleSuggestionNotFoundError(BankError):
+    """Raised when a bank-rule suggestion id does not exist for the tenant."""
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__(message, code="BANK_RULE_SUGGESTION_NOT_FOUND", details=details)
+
+
+class BankRuleSuggestionNotPendingError(BankError):
+    """Raised when a suggestion is confirmed/rejected twice (no longer pending)."""
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__(message, code="BANK_RULE_SUGGESTION_NOT_PENDING", details=details)
+
+
+class BankRuleNothingToUndoError(BankError):
+    """Raised when undo targets a line with no live auto-coded match.
+
+    Only an AUTO_APPLIED match whose target is a rule can be undone —
+    an invoice/payment/manual match is a different decision, corrected
+    through the manual-match flow, not the undo path.
+    """
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__(message, code="BANK_RULE_NOTHING_TO_UNDO", details=details)
+
+
 class BankStatementNotDraftError(BankError):
     """Raised when reconcile/manual-match targets a non-draft statement.
 

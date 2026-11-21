@@ -272,6 +272,117 @@ class BankMatchRule:
     updated_at: datetime.datetime | None = None
 
 
+@unique
+class BankRuleSuggestionStatus(StrEnum):
+    """Lifecycle of one bank-rule suggestion (US-565, W3).
+
+    A suggestion is born ``pending`` when a reconcile run matches a
+    line against a SUGGEST-mode bank rule; the operator confirms it
+    (the coding is applied) or rejects it (the line never re-suggests
+    from that rule). Only confirmed suggestions count toward the
+    rule's promotion threshold.
+    """
+
+    PENDING = "pending"
+    CONFIRMED = "confirmed"
+    REJECTED = "rejected"
+
+
+@dataclass(frozen=True)
+class BankRule:
+    """One user-defined bank auto-coding rule (US-565, W3).
+
+    The Xero-style rule: ``when <statement-line pattern> → suggest
+    <account + mapping>``. Unlike a B2 learned rule (one description
+    substring), the pattern is a small AND of conditions — a
+    description substring, a counterparty name, an amount range
+    (whole Rial, on the line's magnitude), and a money direction —
+    and at least one condition must be set (a rule with no condition
+    would match every line and is rejected at creation).
+
+    Rules are born in SUGGEST mode with zero confirmations; a rule
+    becomes AUTO only through a human promotion, and only once
+    ``RULE_AUTO_MIN_CONFIRMATIONS`` suggestions from it have been
+    confirmed (the same threshold as the US-552 mapping-learning
+    promotion). Editing the pattern or the target resets the
+    confirmations and drops an AUTO rule back to SUGGEST — the trust
+    was earned for the old definition, not the new one.
+
+    ``bank_key`` empty means the rule applies to every bank (the
+    matcher does not filter on it — reconcile cannot reliably know a
+    statement's bank key, the same as the B2 learned rules; the key
+    is recorded for scoping and display). ``priority`` orders rules
+    inside one company's set (lower runs first; first match wins —
+    the Xero pattern).
+    """
+
+    id: str
+    tenant_id: str
+    company_id: str
+    bank_key: str
+    name: str
+    target_account_id: int
+    description_contains: str | None = None
+    counterparty_contains: str | None = None
+    amount_min_irr: int | None = None
+    amount_max_irr: int | None = None
+    direction: str = "any"
+    target_party_id: int | None = None
+    target_kind: str = "account"
+    mode: SuggestionMode = SuggestionMode.SUGGEST
+    confirmations: int = 0
+    priority: int = 100
+    enabled: bool = True
+    created_by: str | None = None
+    created_at: datetime.datetime | None = None
+    updated_at: datetime.datetime | None = None
+
+    @property
+    def auto_eligible(self) -> bool:
+        """True when a human may promote this rule to AUTO (threshold met)."""
+        return self.mode == SuggestionMode.SUGGEST and self.confirmations >= RULE_AUTO_MIN_CONFIRMATIONS
+
+    @property
+    def has_pattern(self) -> bool:
+        """True when at least one pattern condition is set."""
+        return (
+            self.description_contains is not None
+            or self.counterparty_contains is not None
+            or self.amount_min_irr is not None
+            or self.amount_max_irr is not None
+        )
+
+
+@dataclass(frozen=True)
+class BankRuleSuggestion:
+    """One suggestion a bank rule made for one statement line (US-565, W3).
+
+    Recorded when a reconcile run matches a line against a SUGGEST-mode
+    bank rule (the reconcile's SUGGESTED match record is the same
+    decision from the statement's side; this row is the rule's side —
+    the one the operator confirms or rejects on the bank-rules page).
+    ``rule_id`` is NULL when the rule was deleted (the audit row
+    survives — ``ON DELETE SET NULL``); ``rule_name`` and the target
+    snapshot keep the row readable afterwards.
+    """
+
+    id: str
+    tenant_id: str
+    rule_id: str | None
+    rule_name: str
+    company_id: str
+    statement_id: int
+    statement_line_id: int
+    line_description: str
+    line_amount_irr: int
+    target_account_id: int
+    target_party_id: int | None = None
+    status: BankRuleSuggestionStatus = BankRuleSuggestionStatus.PENDING
+    confirmed_by: str | None = None
+    confirmed_at: datetime.datetime | None = None
+    created_at: datetime.datetime | None = None
+
+
 @dataclass(frozen=True)
 class BankStatementMatch:
     """One recorded reconciliation match for a statement line.

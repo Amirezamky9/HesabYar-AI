@@ -23,6 +23,9 @@ from hesabyar.domain.bank.models import (
     BankImportBatch,
     BankImportRow,
     BankMatchRule,
+    BankRule,
+    BankRuleSuggestion,
+    BankRuleSuggestionStatus,
     BankStatementMatch,
     StatementFileFormat,
 )
@@ -189,4 +192,92 @@ class BankRepositoryPort(ABC):
     @abstractmethod
     def update_match(self, match: BankStatementMatch) -> BankStatementMatch:
         """Persist a changed match (status/review item); returns it."""
+        ...
+
+
+class BankRulesRepositoryPort(ABC):
+    """Abstract port for user-defined bank auto-coding rules (US-565, W3).
+
+    A separate port from :class:`BankRepositoryPort` on purpose: the
+    W3 rules (``bank_rules`` / ``bank_rule_suggestions``) are a
+    different store from the B2 learned rules (``bank_match_rules``),
+    and the existing bank fakes stay untouched. The reconcile service
+    takes this port as an optional dependency — without it, no W3
+    rule fires and US-514 behaviour is unchanged.
+    """
+
+    # -- bank rules ----------------------------------------------------------
+
+    @abstractmethod
+    def list_bank_rules(
+        self,
+        tenant_id: str,
+        company_id: str | None = None,
+        enabled: bool | None = None,
+        mode: str | None = None,
+    ) -> Sequence[BankRule]:
+        """Bank rules of one tenant, in firing order (priority, created, id)."""
+        ...
+
+    @abstractmethod
+    def get_bank_rule(self, rule_id: str, tenant_id: str) -> BankRule | None:
+        """One bank rule for the owning tenant, or None."""
+        ...
+
+    @abstractmethod
+    def save_bank_rule(self, rule: BankRule) -> BankRule:
+        """Insert a new bank rule; returns it with timestamps set."""
+        ...
+
+    @abstractmethod
+    def update_bank_rule(self, rule: BankRule) -> BankRule:
+        """Persist a changed bank rule (pattern/target/mode/enabled); returns it."""
+        ...
+
+    @abstractmethod
+    def delete_bank_rule(self, rule_id: str, tenant_id: str) -> bool:
+        """Delete a bank rule; its suggestions survive with rule_id NULL.
+
+        Returns True when a row was deleted, False when the id did not
+        exist for the tenant.
+        """
+        ...
+
+    # -- bank-rule suggestions -------------------------------------------------
+
+    @abstractmethod
+    def list_suggestions(
+        self,
+        tenant_id: str,
+        rule_id: str | None = None,
+        status: BankRuleSuggestionStatus | None = None,
+        company_id: str | None = None,
+    ) -> Sequence[BankRuleSuggestion]:
+        """Suggestions of one tenant, newest first."""
+        ...
+
+    @abstractmethod
+    def get_suggestion(self, suggestion_id: str, tenant_id: str) -> BankRuleSuggestion | None:
+        """One suggestion for the owning tenant, or None."""
+        ...
+
+    @abstractmethod
+    def find_pending_suggestion(
+        self, rule_id: str, tenant_id: str, statement_id: int, statement_line_id: int
+    ) -> BankRuleSuggestion | None:
+        """The pending suggestion for one (rule, statement, line), if any.
+
+        The reconcile dedup: a re-run that re-suggests the same line
+        from the same rule must not record a second pending row.
+        """
+        ...
+
+    @abstractmethod
+    def save_suggestion(self, suggestion: BankRuleSuggestion) -> BankRuleSuggestion:
+        """Insert a new suggestion; returns it with timestamps set."""
+        ...
+
+    @abstractmethod
+    def update_suggestion(self, suggestion: BankRuleSuggestion) -> BankRuleSuggestion:
+        """Persist a changed suggestion (status/confirmed_by); returns it."""
         ...

@@ -156,6 +156,22 @@ EXPECTED_TABLES = {
     # 0034 manual-import batches (US-554)
     "manual_import_batches",
     "settlement_column_mappings",
+    # 0035 job registry (US-560)
+    "scheduled_jobs",
+    "scheduled_job_runs",
+    # 0036 rules engine v1 (US-561)
+    "rules",
+    "rule_executions",
+    "rule_set_configs",
+    # 0038 reminder preferences + log (US-564)
+    "reminder_preferences",
+    "reminder_log",
+    # 0037 recurring templates + occurrences (US-563)
+    "recurring_templates",
+    "recurring_occurrences",
+    # 0039 bank auto-coding rules + suggestions (US-565)
+    "bank_rules",
+    "bank_rule_suggestions",
 }
 
 # Design-eng §10.4 unique constraints: (table, constraint name, columns).
@@ -221,6 +237,19 @@ SECTION_10_4_CONSTRAINTS = [
         "report_snapshots",
         "uq_report_snapshots_validation_run",
         ["validation_run_id"],
+    ),
+    # US-563 recurring occurrences (spec §10.4): one occurrence per
+    # template per scheduled date AND per occurrence number — the
+    # generator's idempotency backstop.
+    (
+        "recurring_occurrences",
+        "uq_recurring_occurrences_template_number",
+        ["template_id", "occurrence_number"],
+    ),
+    (
+        "recurring_occurrences",
+        "uq_recurring_occurrences_template_date",
+        ["template_id", "scheduled_date"],
     ),
     # US-501 store settings (ADR 0003 decision 4): one row per store.
     (
@@ -320,7 +349,7 @@ SECTION_10_4_CONSTRAINTS = [
     ),
 ]
 
-HEAD_REVISION = "0032"
+HEAD_REVISION = "0039"
 
 
 def _alembic_config() -> Config:

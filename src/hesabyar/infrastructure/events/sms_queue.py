@@ -17,18 +17,27 @@ The job never posts a journal and never touches the engine: it
 only reads installment schedules and sends SMS. The factory
 builds the reminder service like the other factories (fresh
 session per run, closed afterwards).
+
+US-560: the job is registered (``sms.daily_reminders``, daily 09:00
+Tehran, Friday skipped by default). When a recorder is wired, each
+run is gated and recorded.
 """
 
 from __future__ import annotations
 
-import datetime
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 import procrastinate
 
-from hesabyar.application.commands.sms import SmsDailyReport, SmsReminderService
+from hesabyar.application.commands.sms import SmsReminderService
+from hesabyar.domain.scheduler.schedules import tehran_today
+from hesabyar.infrastructure.events.scheduler_queue import (
+    JobRunRecorder,
+    run_recorded,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +75,7 @@ def register_sms_tasks(
     sms_factory: SmsWorkerFactory,
     *,
     daily_reminders_cron: str = DAILY_REMINDERS_CRON,
+    recorder: JobRunRecorder | None = None,
 ) -> None:
     """Register the daily SMS reminder task on a Procrastinate app."""
 
@@ -73,28 +83,44 @@ def register_sms_tasks(
     @app.task(queue=SMS_QUEUE, name=DAILY_REMINDERS_TASK, retry=False)
     def daily_reminders(timestamp: int = 0) -> None:  # noqa: ARG001 - periodic passes the schedule timestamp
         handle = sms_factory()
+        day = tehran_today(timestamp)
         try:
-            report: SmsDailyReport = handle.reminders.run_daily_reminder_job(
-                today=datetime.date.today()
-            )
+
+            def _do() -> dict[str, Any]:
+                report = handle.reminders.run_daily_reminder_job(today=day)
+                logger.info(
+                    "SMS daily reminders done: installations=%d plans=%d due=%d sent=%d "
+                    "failed=%d skipped_no_phone=%d skipped_not_opted_in=%d "
+                    "skipped_no_provider=%d skipped_pending_clearance=%d "
+                    "skipped_already_sent=%d",
+                    report.installations_scanned,
+                    report.plans_scanned,
+                    report.reminders_due,
+                    report.sent,
+                    report.failed,
+                    report.skipped_no_phone,
+                    report.skipped_not_opted_in,
+                    report.skipped_no_provider,
+                    report.skipped_pending_clearance,
+                    report.skipped_already_sent,
+                )
+                for error in report.errors:
+                    logger.warning("SMS daily reminders error: %s", error)
+                return {
+                    "installations_scanned": report.installations_scanned,
+                    "plans_scanned": report.plans_scanned,
+                    "reminders_due": report.reminders_due,
+                    "sent": report.sent,
+                    "failed": report.failed,
+                    "skipped_no_phone": report.skipped_no_phone,
+                    "skipped_not_opted_in": report.skipped_not_opted_in,
+                    "skipped_no_provider": report.skipped_no_provider,
+                    "skipped_pending_clearance": report.skipped_pending_clearance,
+                    "skipped_already_sent": report.skipped_already_sent,
+                    "errors": list(report.errors),
+                }
+
+            run_recorded(recorder, DAILY_REMINDERS_TASK, _do, today=day)
             handle.commit()
-            logger.info(
-                "SMS daily reminders done: installations=%d plans=%d due=%d sent=%d "
-                "failed=%d skipped_no_phone=%d skipped_not_opted_in=%d "
-                "skipped_no_provider=%d skipped_pending_clearance=%d "
-                "skipped_already_sent=%d",
-                report.installations_scanned,
-                report.plans_scanned,
-                report.reminders_due,
-                report.sent,
-                report.failed,
-                report.skipped_no_phone,
-                report.skipped_not_opted_in,
-                report.skipped_no_provider,
-                report.skipped_pending_clearance,
-                report.skipped_already_sent,
-            )
-            for error in report.errors:
-                logger.warning("SMS daily reminders error: %s", error)
         finally:
             handle.close()

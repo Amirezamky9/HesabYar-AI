@@ -13,18 +13,27 @@ transaction), so the factory builds a Tryton client like the other
 factories. The job is idempotent (a reminder is filed once per
 cheque per milestone; expiry is a one-way transition), so a missed
 or duplicated run is harmless.
+
+US-560: the job is registered (``cheque.daily``, daily 10:00 Tehran,
+Friday skipped by default — a Friday deadline expires on Saturday's
+run). When a recorder is wired, each run is gated and recorded.
 """
 
 from __future__ import annotations
 
-import datetime
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 import procrastinate
 
-from hesabyar.application.commands.cheques import ChequeCommandService, ChequeDailyReport
+from hesabyar.application.commands.cheques import ChequeCommandService
+from hesabyar.domain.scheduler.schedules import tehran_today
+from hesabyar.infrastructure.events.scheduler_queue import (
+    JobRunRecorder,
+    run_recorded,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +70,7 @@ def register_cheque_tasks(
     cheque_factory: ChequeWorkerFactory,
     *,
     daily_cron: str = DAILY_CRON,
+    recorder: JobRunRecorder | None = None,
 ) -> None:
     """Register the daily cheque task on a Procrastinate app."""
 
@@ -68,16 +78,24 @@ def register_cheque_tasks(
     @app.task(queue=CHEQUE_QUEUE, name=DAILY_TASK, retry=False)
     def daily(timestamp: int = 0) -> None:  # noqa: ARG001 - periodic passes the schedule timestamp
         handle = cheque_factory()
+        day = tehran_today(timestamp)
         try:
-            report: ChequeDailyReport = handle.commands.run_daily_cheque_job(
-                datetime.date.today()
-            )
+
+            def _do() -> dict[str, Any]:
+                report = handle.commands.run_daily_cheque_job(day)
+                logger.info(
+                    "Cheque daily job done: reminders_sent=%d expired=%d skipped=%d",
+                    report.reminders_sent,
+                    report.expired,
+                    report.skipped,
+                )
+                return {
+                    "reminders_sent": report.reminders_sent,
+                    "expired": report.expired,
+                    "skipped": report.skipped,
+                }
+
+            run_recorded(recorder, DAILY_TASK, _do, today=day)
             handle.commit()
-            logger.info(
-                "Cheque daily job done: reminders_sent=%d expired=%d skipped=%d",
-                report.reminders_sent,
-                report.expired,
-                report.skipped,
-            )
         finally:
             handle.close()

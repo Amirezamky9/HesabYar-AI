@@ -276,9 +276,12 @@ def test_scope_catalog_matches_spec() -> None:
     # US-521 adds 2 (settlement:read/settlement:manage); Phase 5-4
     # US-531 adds 3 (cheques:read/cheques:write/cheques:transition);
     # Phase 5-5 US-540 adds 2 (installments:read/installments:write)
-    # and US-544 adds 1 (sms:manage).
+    # and US-544 adds 1 (sms:manage); Phase 5-7 US-560 adds 1
+    # (jobs:manage); Phase 5-7 US-561 adds 2
+    # (rules:read/rules:manage); Phase 5-7 US-564 adds 1
+    # (reminders:manage).
     # No wildcard, no admin.
-    assert len(KNOWN_SCOPES) == 46
+    assert len(KNOWN_SCOPES) == 50
     assert "company:read" in KNOWN_SCOPES
     assert "account:read" in KNOWN_SCOPES
     assert "ledger:post" in KNOWN_SCOPES
@@ -298,6 +301,10 @@ def test_scope_catalog_matches_spec() -> None:
     assert "settlement:manage" in KNOWN_SCOPES
     assert "installments:read" in KNOWN_SCOPES
     assert "installments:write" in KNOWN_SCOPES
+    assert "jobs:manage" in KNOWN_SCOPES
+    assert "rules:read" in KNOWN_SCOPES
+    assert "rules:manage" in KNOWN_SCOPES
+    assert "reminders:manage" in KNOWN_SCOPES
     assert "sms:manage" in KNOWN_SCOPES
     assert "admin" not in KNOWN_SCOPES
     assert "*" not in KNOWN_SCOPES

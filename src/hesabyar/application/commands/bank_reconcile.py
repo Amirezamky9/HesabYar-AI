@@ -19,6 +19,17 @@ Boundaries, documented in docs/bank-import.md:
   5پ/5ث follow-up.
 - Unmatched deposits NEVER auto-post to revenue. They wait in the
   review queue with mapping suggestions.
+- US-565 (W3 bank rules): user-defined bank rules run at the head of
+  priority 3 (before the B2 learned rules). A SUGGEST-mode rule's
+  suggestion is recorded as a ``BankRuleSuggestion`` (pending) so
+  the operator can confirm it toward the rule's promotion
+  threshold. An AUTO rule never auto-codes a line on a statement
+  that does not tie out: when the statement carries start/end
+  balances and ``start + Σ lines != end``, every RULE-target AUTO
+  decision degrades to a suggestion (a human decides). Statements
+  without balances cannot be tie-out-checked — the guard only fires
+  where the data exists, and the statement stays a draft for a
+  human to validate in the engine either way.
 """
 
 from __future__ import annotations
@@ -52,15 +63,20 @@ from hesabyar.domain.bank.errors import (
 from hesabyar.domain.bank.matching import LineToMatch, MatchCandidate, match_statement_line
 from hesabyar.domain.bank.models import (
     BankMatchRule,
+    BankRule,
+    BankRuleSuggestion,
+    BankRuleSuggestionStatus,
     BankStatementMatch,
     MatchStatus,
+    MatchSuggestion,
     MatchTargetType,
     ReconcileLineResult,
     ReconcileOutcome,
     ReconcileResult,
 )
-from hesabyar.domain.bank.ports import BankRepositoryPort
+from hesabyar.domain.bank.ports import BankRepositoryPort, BankRulesRepositoryPort
 from hesabyar.domain.common.errors import BankStatementNotFoundError
+from hesabyar.domain.integrations.models import SuggestionMode
 from hesabyar.domain.integrations.ports import IntegrationsRegistryPort
 from hesabyar.domain.review_queue.models import ReviewItemType, ReviewSeverity
 from hesabyar.domain.review_queue.ports import ReviewQueuePort
@@ -75,6 +91,21 @@ MATCHABLE_INVOICE_STATES = ("posted", "paid")
 DEFAULT_MATCH_WINDOW_DAYS = 2
 
 
+def _statement_tieout_failed(view: BankStatementView) -> bool:
+    """True when the statement carries balances and does not tie out (US-565).
+
+    ``start + Σ lines == end`` is the statement's own tie-out (the
+    same check Tryton runs at validation for balance journals). A
+    statement without balances cannot be checked — the guard returns
+    False and reconcile behaves exactly as before (the statement
+    stays a draft for a human to validate in the engine either way).
+    """
+    if view.start_balance is None or view.end_balance is None:
+        return False
+    total = sum(line.amount.amount for line in view.lines)
+    return view.start_balance.amount + total != view.end_balance.amount
+
+
 class BankReconcileService:
     """Three-priority statement reconciliation over the engine port."""
 
@@ -86,6 +117,7 @@ class BankReconcileService:
         queue: ReviewQueuePort,
         registry: IntegrationsRegistryPort,
         *,
+        bank_rules: BankRulesRepositoryPort | None = None,
         now: datetime.datetime | None = None,
     ) -> None:
         self._engine = engine
@@ -93,6 +125,9 @@ class BankReconcileService:
         self._review = review
         self._queue = queue
         self._registry = registry
+        # W3 user-defined bank rules (US-565): None means no W3 rules
+        # fire and US-514 behaviour is unchanged.
+        self._bank_rules = bank_rules
         self._now = now
 
     def _clock(self) -> datetime.datetime:
@@ -127,20 +162,23 @@ class BankReconcileService:
             )
         if view.state != "draft":
             raise BankStatementNotDraftError(
-                f"Bank statement {statement_id} is {view.state}, not a draft; "
-                "only draft statements can be reconciled.",
+                f"Bank statement {statement_id} is {view.state}, not a draft; only draft statements can be reconciled.",
                 details={"statement_id": statement_id, "state": view.state},
             )
         window = window_days
         if window is None:
             settings = self._registry.get_installation_settings(installation_id)
-            window = (
-                settings.matching_window_days if settings is not None else DEFAULT_MATCH_WINDOW_DAYS
-            )
+            window = settings.matching_window_days if settings is not None else DEFAULT_MATCH_WINDOW_DAYS
         journals = {journal.id: journal for journal in self._engine.list_statement_journals(company)}
         journal = journals.get(view.journal_id)
         candidates = self._load_candidates(company)
         rules = list(self._bank.list_rules(tenant_id, company_id))
+        bank_rules: list[BankRule] = []
+        if self._bank_rules is not None:
+            bank_rules = list(self._bank_rules.list_bank_rules(tenant_id, company_id=company_id, enabled=True))
+        # The tie-out guard (US-565): an AUTO rule never auto-codes a
+        # line on a statement whose balances do not tie out.
+        tieout_failed = _statement_tieout_failed(view)
         prior = {
             match.statement_line_id: match
             for match in self._bank.list_matches_for_statement(tenant_id, statement_id)
@@ -177,13 +215,13 @@ class BankReconcileService:
                     amount_irr=line.amount.amount,
                     description=line.description,
                     number=line.number,
-                    related_invoice_id=(
-                        line.related_invoice.engine_id if line.related_invoice else None
-                    ),
+                    related_invoice_id=(line.related_invoice.engine_id if line.related_invoice else None),
+                    counterparty=line.party_name,
                 ),
                 candidates,
                 rules,
                 window,
+                bank_rules=bank_rules,
             )
             result, filed = self._apply_outcome(
                 tenant_id=tenant_id,
@@ -196,6 +234,8 @@ class BankReconcileService:
                 prior=live,
                 candidates=candidates,
                 rules=rules,
+                bank_rules=bank_rules,
+                tieout_failed=tieout_failed,
                 actor=actor,
             )
             results.append(result)
@@ -297,12 +337,49 @@ class BankReconcileService:
         prior: BankStatementMatch | None,
         candidates: Sequence[MatchCandidate],
         rules: Sequence[BankMatchRule],
+        bank_rules: Sequence[BankRule] = (),
+        tieout_failed: bool = False,
         actor: str,
     ) -> tuple[ReconcileLineResult, int]:
         if outcome.outcome in (ReconcileOutcome.ALREADY_MATCHED, ReconcileOutcome.SKIPPED_ZERO):
             return outcome, 0
+        if (
+            outcome.outcome == ReconcileOutcome.MATCHED
+            and outcome.target_type == MatchTargetType.RULE
+            and tieout_failed
+        ):
+            # The tie-out guard (US-565): the statement's balances do
+            # not tie out, so no rule auto-codes this line — it waits
+            # for a human, like any other suggestion.
+            return self._apply_needs_human(
+                tenant_id=tenant_id,
+                company_id=company_id,
+                statement_id=statement_id,
+                statement=statement,
+                line=line,
+                journal=journal,
+                outcome=dataclasses.replace(
+                    outcome,
+                    outcome=ReconcileOutcome.SUGGESTED,
+                    suggestions=(
+                        MatchSuggestion(
+                            target_type=MatchTargetType.RULE,
+                            target_id=str(outcome.target_id),
+                            target_label=outcome.target_label or "",
+                            confidence=outcome.confidence or 0,
+                            reason=(
+                                "صورت‌حساب تراز نیست (ماندهٔ اول + ردیف‌ها با ماندهٔ آخر "
+                                "هم‌خوانی ندارد)؛ کدینگ خودکار انجام نشد و ردیف منتظر بررسی است"
+                            ),
+                        ),
+                    ),
+                ),
+                prior=prior,
+                bank_rules=bank_rules,
+                actor=actor,
+            )
         if outcome.outcome == ReconcileOutcome.MATCHED:
-            self._apply_match(statement_id, line, outcome, candidates, rules)
+            self._apply_match(statement_id, line, outcome, candidates, rules, bank_rules)
             if prior is not None:
                 self._supersede_prior(tenant_id, prior, actor, note="در اجرای تازهٔ تطبیق، خودکار تطبیق خورد")
             match = self._bank.save_match(
@@ -328,6 +405,7 @@ class BankReconcileService:
                 journal=journal,
                 outcome=outcome,
                 prior=prior,
+                bank_rules=bank_rules,
                 actor=actor,
             )
         # UNMATCHED — record that we looked, so a re-run does not re-file.
@@ -382,6 +460,7 @@ class BankReconcileService:
         journal: StatementJournalView | None,
         outcome: ReconcileLineResult,
         prior: BankStatementMatch | None,
+        bank_rules: Sequence[BankRule] = (),
         actor: str,
     ) -> tuple[ReconcileLineResult, int]:
         if not outcome.suggestions:
@@ -451,7 +530,61 @@ class BankReconcileService:
             actor=actor,
         )
         self._bank.update_match(dataclasses.replace(match, review_item_id=item.id))
+        self._record_bank_rule_suggestion(
+            tenant_id=tenant_id,
+            company_id=company_id,
+            statement_id=statement_id,
+            line=line,
+            top=top,
+            bank_rules=bank_rules,
+        )
         return dataclasses.replace(outcome, review_item_id=item.id), 1
+
+    def _record_bank_rule_suggestion(
+        self,
+        *,
+        tenant_id: str,
+        company_id: str,
+        statement_id: int,
+        line: BankStatementLineView,
+        top: MatchSuggestion,
+        bank_rules: Sequence[BankRule],
+    ) -> None:
+        """Record a pending suggestion for a SUGGEST-mode W3 rule (US-565).
+
+        The suggestion is the rule's side of the reconcile's SUGGESTED
+        match: the operator confirms it on the bank-rules page toward
+        the rule's promotion threshold. AUTO rules never record one
+        (they have nothing left to earn — a tie-out-degraded AUTO
+        decision still waits on the reconcile page, via its match
+        record + review item). A re-run that re-suggests the same
+        line from the same rule records nothing (the partial unique
+        index is the backstop).
+        """
+        if self._bank_rules is None or top.target_type != MatchTargetType.RULE:
+            return
+        rule = next((r for r in bank_rules if r.id == str(top.target_id)), None)
+        if rule is None or rule.mode != SuggestionMode.SUGGEST:
+            return
+        if self._bank_rules.find_pending_suggestion(rule.id, tenant_id, statement_id, line.id) is not None:
+            return
+        self._bank_rules.save_suggestion(
+            BankRuleSuggestion(
+                id=str(uuid.uuid4()),
+                tenant_id=tenant_id,
+                rule_id=rule.id,
+                rule_name=rule.name,
+                company_id=company_id,
+                statement_id=statement_id,
+                statement_line_id=line.id,
+                line_description=line.description,
+                line_amount_irr=line.amount.amount,
+                target_account_id=rule.target_account_id,
+                target_party_id=rule.target_party_id,
+                status=BankRuleSuggestionStatus.PENDING,
+                created_at=self._clock(),
+            )
+        )
 
     # -- engine writes ---------------------------------------------------------------
 
@@ -462,9 +595,22 @@ class BankReconcileService:
         outcome: ReconcileLineResult,
         candidates: Sequence[MatchCandidate],
         rules: Sequence[BankMatchRule],
+        bank_rules: Sequence[BankRule] = (),
     ) -> None:
         """Write one auto decision onto the engine line (no validate/post)."""
         if outcome.target_type == MatchTargetType.RULE:
+            # W3 user-defined rules first (the matcher prefers them),
+            # then the B2 learned rules.
+            bank_rule = next((r for r in bank_rules if r.id == str(outcome.target_id)), None)
+            if bank_rule is not None:
+                update = UpdateBankStatementLine(
+                    statement=BankStatementRef(statement_id),
+                    line=BankStatementLineRef(line.id),
+                    account=AccountRef(bank_rule.target_account_id),
+                    party=PartyRef(bank_rule.target_party_id) if bank_rule.target_party_id else None,
+                )
+                self._engine.update_bank_statement_line(update)
+                return
             rule = next((r for r in rules if r.id == str(outcome.target_id)), None)
             if rule is None:
                 raise BankStatementLineNotFoundError(

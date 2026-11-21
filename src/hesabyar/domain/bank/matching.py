@@ -21,6 +21,13 @@ Priorities (phased design §4 §2.3):
    suggestion except an AUTO-mode learned rule coding the line to its
    account (the rule's mode IS the operator's trust decision).
 
+   US-565 adds the W3 user-defined bank rules at the head of P3: a
+   user-defined rule beats a learned one (first match wins, in
+   priority order), an AUTO W3 rule auto-codes at confidence 90, a
+   SUGGEST W3 rule suggests at 90. The pattern is richer than the
+   learned substring — description contains, counterparty, an amount
+   range, and a direction, all ANDed. See ``bank_rule_matches``.
+
 Destination: every decision records the statement journal's bank
 account (the destination the money went to). Invoices and payments
 carry no destination Shaba in Tryton 8.2, so no per-candidate
@@ -34,11 +41,14 @@ yields a ``bank_unmatched`` review item with its mapping suggestions.
 
 from __future__ import annotations
 
+import datetime
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 
 from hesabyar.domain.bank.models import (
     BankMatchRule,
+    BankRule,
     MatchSuggestion,
     MatchTargetType,
     ReconcileLineResult,
@@ -56,6 +66,11 @@ MIN_REFERENCE_TOKEN_LENGTH = 6
 #: P3 suggestion threshold: a candidate scoring below this is not
 #: suggested at all (noise, not help).
 SUGGESTION_MIN_SCORE = 50
+
+#: Confidence of a W3 user-defined bank rule's hit (US-565): above the
+#: B2 learned rule's 85 — an explicit user definition outranks a
+#: learned mapping — below the P1/P2 exact matches (100/95).
+BANK_RULE_CONFIDENCE = 90
 
 #: P3 score weights (sum to 100; a perfect P3 scores 95, never 100 —
 #: only an exact reference earns 100).
@@ -84,7 +99,14 @@ class MatchCandidate:
 
 @dataclass(frozen=True)
 class LineToMatch:
-    """One statement line presented to the matcher."""
+    """One statement line presented to the matcher.
+
+    ``counterparty`` is the line's party name when the engine already
+    carries one (a pre-coded line); most lines arrive without it, and
+    the W3 counterparty condition then matches against the description
+    only (descriptions carry the counterparty's name — «اسنپ‌پی»,
+    «زرین‌پال» — far more often than a coded party does).
+    """
 
     line_id: int
     date: FiscalDate
@@ -92,6 +114,7 @@ class LineToMatch:
     description: str
     number: str | None = None
     related_invoice_id: int | None = None
+    counterparty: str | None = None
 
     @property
     def direction(self) -> str:
@@ -208,11 +231,73 @@ def _rule_hit(
     return best
 
 
+def bank_rule_matches(rule: BankRule, line: LineToMatch) -> bool:
+    """True when a W3 bank rule's pattern matches a statement line (US-565).
+
+    Every set condition must hold (AND): the direction, the
+    description substring, the counterparty name (against the
+    description, or the line's party name when the engine carries
+    one), and the amount range (inclusive, on the line's magnitude —
+    the direction condition carries the sign). A rule with no
+    condition at all matches NOTHING — a fail-closed guard for rows
+    written outside the service, which rejects condition-less rules
+    at creation. ``enabled`` is not checked here: the caller passes
+    only enabled rules (and ``_bank_rule_hit`` skips disabled ones
+    anyway, defense in depth).
+    """
+    if not rule.has_pattern:
+        return False
+    if rule.direction not in ("any", line.direction):
+        return False
+    description = normalize_persian_text(line.description)
+    if rule.description_contains is not None:
+        pattern = normalize_persian_text(rule.description_contains)
+        if not pattern or pattern not in description:
+            return False
+    if rule.counterparty_contains is not None:
+        name = normalize_persian_text(rule.counterparty_contains)
+        if not name:
+            return False
+        party = normalize_persian_text(line.counterparty or "")
+        if name not in description and name not in party:
+            return False
+    magnitude = abs(line.amount_irr)
+    if rule.amount_min_irr is not None and magnitude < rule.amount_min_irr:
+        return False
+    if rule.amount_max_irr is not None and magnitude > rule.amount_max_irr:
+        return False
+    return True
+
+
+def _bank_rule_hit(line: LineToMatch, bank_rules: Sequence[BankRule]) -> BankRule | None:
+    """First matching W3 bank rule, in firing order (priority, created, id).
+
+    The Xero first-match pattern: a user-defined rule is an explicit
+    instruction, so the first one that matches wins outright — no
+    longest-pattern tie-break like the learned rules. Disabled rules
+    never hit (the service passes enabled rules only; this is the
+    second layer).
+    """
+    ordered = sorted(
+        (rule for rule in bank_rules if rule.enabled),
+        key=lambda rule: (
+            rule.priority,
+            rule.created_at or datetime.datetime.min.replace(tzinfo=datetime.UTC),
+            rule.id,
+        ),
+    )
+    for rule in ordered:
+        if bank_rule_matches(rule, line):
+            return rule
+    return None
+
+
 def match_statement_line(
     line: LineToMatch,
     candidates: list[MatchCandidate],
     rules: list[BankMatchRule],
     window_days: int = 2,
+    bank_rules: Sequence[BankRule] = (),
 ) -> ReconcileLineResult:
     """Decide one statement line's reconcile outcome (pure).
 
@@ -220,6 +305,12 @@ def match_statement_line(
     ``related_to``/account/party through the engine port) and files
     review items for ``unmatched``/``ambiguous`` lines; ``suggested``
     decisions wait for a human on the reconcile page.
+
+    W3 user-defined bank rules (``bank_rules``, US-565) run at the
+    head of priority 3, before the B2 learned rules: an explicit
+    user definition outranks a learned mapping, and a SUGGEST-mode
+    W3 rule holds the line for review even when a learned AUTO rule
+    would have coded it.
     """
     base = ReconcileLineResult(
         line_id=line.line_id,
@@ -283,8 +374,36 @@ def match_statement_line(
             ),
         )
 
-    # Priority 3 — learned rules first (an AUTO rule codes the line),
-    # then scored suggestions from the candidates.
+    # Priority 3 — W3 user-defined bank rules first (an AUTO rule
+    # codes the line), then learned rules, then scored suggestions
+    # from the candidates.
+    bank_rule = _bank_rule_hit(line, bank_rules)
+    if bank_rule is not None:
+        if bank_rule.mode == SuggestionMode.AUTO:
+            return replace(
+                base,
+                outcome=ReconcileOutcome.MATCHED,
+                priority=3,
+                confidence=BANK_RULE_CONFIDENCE,
+                target_type=MatchTargetType.RULE,
+                target_id=bank_rule.id,
+                target_label=f"قاعدهٔ بانکی «{bank_rule.name}»",
+            )
+        return replace(
+            base,
+            outcome=ReconcileOutcome.SUGGESTED,
+            priority=3,
+            confidence=BANK_RULE_CONFIDENCE,
+            suggestions=(
+                MatchSuggestion(
+                    target_type=MatchTargetType.RULE,
+                    target_id=bank_rule.id,
+                    target_label=f"قاعدهٔ بانکی «{bank_rule.name}»",
+                    confidence=BANK_RULE_CONFIDENCE,
+                    reason="شرح و مبلغ با قاعدهٔ بانکی هم‌خوانی دارد؛ تأیید شما لازم است",
+                ),
+            ),
+        )
     rule = _rule_hit(line, rules)
     if rule is not None:
         matched_rule, confidence = rule

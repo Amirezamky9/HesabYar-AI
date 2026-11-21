@@ -144,14 +144,24 @@ minutes. Expired records are purged by maintenance
   tick (`settlement.tick`, queue `settlement`), the cheque daily
   job (`cheque.daily`, queue `cheques`), and the SMS reminder job
   (`sms.daily_reminders`, queue `sms`, daily 09:00 Tehran — see
-  `docs/sms-providers.md`). Deferring is best-effort: a queue
-  failure is logged at warning and never fails an ingest — the
-  sweep is the backstop. The Procrastinate schema is managed by
-  Procrastinate itself (`app.schema_manager.apply_schema()`), NOT by
-  Alembic. Run the worker with `scripts/run_event_worker.py`
-  (`--once` for a single sweep, `--skip-schema` when the schema is
-  already applied). The REST process uses a defer-only app whose
-  tasks raise if they somehow execute there.
+  `docs/sms-providers.md`). Since US-560 (Phase 5-7 ۵خ W1) the
+  scheduler lives on this same app: three more periodic tasks on
+  the `scheduler` queue — `scheduler.dunning_sweep` (daily 08:00
+  Tehran), `scheduler.store_sync` (every 15 minutes), and
+  `scheduler.inbox_staleness` (hourly) — and every periodic task
+  is wrapped by a run recorder that gates on the job registry
+  (enabled + Jalali scheduled day), records each run in
+  `scheduled_job_runs`, and files failed jobs to the review queue
+  as `inbox_dead_letter`. See [scheduler.md](scheduler.md) for the
+  registry, the Jalali rules, and the `/jobs` API. Deferring is
+  best-effort: a queue failure is logged at warning and never
+  fails an ingest — the sweep is the backstop. The Procrastinate
+  schema is managed by Procrastinate itself
+  (`app.schema_manager.apply_schema()`), NOT by Alembic. Run the
+  worker with `scripts/run_event_worker.py` (`--once` for a single
+  sweep, `--skip-schema` when the schema is already applied). The
+  REST process uses a defer-only app whose tasks raise if they
+  somehow execute there.
 - **Staleness**: an event stuck in `received`/`processing` longer
   than N hours (default 24) raises the alert
   (`GET /api/v1/integrations/inbox/stale`).
@@ -230,6 +240,7 @@ errors). Reads need `integrations:read`, mutations
 | `GET /integrations/audit-log` | List automation decisions |
 | `GET/PUT /integrations/stores/{source_system}/{source_store_id}/settings` | Per-store Toman setting |
 | `POST /integrations/worker/poll` | Run one worker sweep now (ops endpoint) |
+| `GET /api/v1/jobs` (+ `/{job_id}`, `/{job_id}/runs`, `/{job_id}/trigger|enable|disable`) | Scheduled-jobs registry (US-560, scope `jobs:manage`) — see [scheduler.md](scheduler.md) |
 
 ## 9. Seams for F2 / F3 / F4
 

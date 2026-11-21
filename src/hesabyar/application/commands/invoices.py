@@ -6,12 +6,13 @@ contract (design-eng spec §6.2/§6.3). The service owns the workflow —
 draft, validate — but no engine behaviour: every state change goes
 through the port, and Tryton remains the only posting authority.
 
-Finalizing an invoice in the engine (the Tryton ``validate_invoice``
-transition, draft -> validated) is deliberately NOT here: the port
-exposes only the read-only HesabYar validation check
-(``validate_invoice_draft``), mirroring how ``post_journal`` came in
-US-201 after ``validate_journal_draft`` in US-003. A finalize use case
-joins when its port method lands (see ``docs/adapter.md``).
+Finalizing an invoice (the Tryton ``validate_invoice`` transition,
+draft -> validated) and posting it (``post``) are exposed here for
+flows that own the policy-gate verdict — the event pipeline (US-501)
+and the recurring generator (US-563) — both of which only call them
+after the gate allowed auto-post. There is deliberately NO REST
+endpoint for either: finalizing/posting an invoice from the API is a
+later story, and a draft stays a draft unless a gated flow says so.
 """
 
 from __future__ import annotations
@@ -125,3 +126,26 @@ class InvoiceDraftService:
         """
         with translate_port_errors():
             return self._engine.validate_invoice_draft(invoice)
+
+    # -- finalize / post (gated flows only) ----------------------------------
+
+    def finalize_invoice(self, invoice: InvoiceRef) -> InvoiceView:
+        """Finalize a draft invoice (engine ``validate_invoice`` transition).
+
+        Draft -> validated: the engine assigns the invoice number (for
+        supplier invoices) and checks the invoice is postable. Only
+        gated flows call this (the event pipeline, the recurring
+        generator) — always after the policy gate allowed auto-post.
+        """
+        with translate_port_errors():
+            return self._engine.validate_invoice(invoice)
+
+    def post_invoice(self, invoice: InvoiceRef) -> InvoiceView:
+        """Post an invoice (engine ``post`` transition).
+
+        Draft/validated -> posted: the engine creates the accounting
+        move. Only gated flows call this — always after the policy
+        gate allowed auto-post (and after :meth:`finalize_invoice`).
+        """
+        with translate_port_errors():
+            return self._engine.post_invoice(invoice)

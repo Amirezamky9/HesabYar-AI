@@ -35,12 +35,17 @@ from enum import StrEnum, unique
 
 @unique
 class ReviewItemType(StrEnum):
-    """The ten exception types of phased design §7.2, in table order.
+    """The eleven exception types of phased design §7.2, in table order.
 
     The tenth type (``SMS_DELIVERY_FAILED``) arrived with US-544
-    (Phase 5-5 ۵ج): an SMS reminder whose send failed. The §7.2
-    table predates SMS; the type follows the same uniform shape as
-    the other nine.
+    (Phase 5-5 ۵ج): an SMS reminder whose send failed. The
+    eleventh type (``REMINDER``) arrived with US-564 (Phase 5-7
+    ۵خ W3): a reminder's in-app delivery — the review queue is
+    the operator's in-app notification surface, so a due cheque,
+    an overdue installment, an uncounted cash box, or an expiring
+    eNamad lands here as its own type (not shoehorned into the
+    exception types). The §7.2 table predates both; the types
+    follow the same uniform shape as the other nine.
     """
 
     MAPPING = "mapping"
@@ -53,6 +58,7 @@ class ReviewItemType(StrEnum):
     CASHBOX_VARIANCE = "cashbox_variance"
     INBOX_DEAD_LETTER = "inbox_dead_letter"
     SMS_DELIVERY_FAILED = "sms_delivery_failed"
+    REMINDER = "reminder"
 
 
 @unique
@@ -242,6 +248,7 @@ DEFAULT_SLA_POLICIES: dict[ReviewItemType, SlaPolicy] = {
     ReviewItemType.CASHBOX_VARIANCE: SlaPolicy(ReviewItemType.CASHBOX_VARIANCE, sla_hours=24, warn_hours=6),
     ReviewItemType.INBOX_DEAD_LETTER: SlaPolicy(ReviewItemType.INBOX_DEAD_LETTER, sla_hours=24, warn_hours=6),
     ReviewItemType.SMS_DELIVERY_FAILED: SlaPolicy(ReviewItemType.SMS_DELIVERY_FAILED, sla_hours=24, warn_hours=6),
+    ReviewItemType.REMINDER: SlaPolicy(ReviewItemType.REMINDER, sla_hours=24, warn_hours=6),
 }
 
 
@@ -291,6 +298,7 @@ class ReviewItem:
     source_event_ref: str | None = None
     amount_irr: int | None = None
     assignee: str | None = None
+    tags: tuple[str, ...] = ()
     resolution: ReviewResolution | None = None
     resolved_by: str | None = None
     resolved_at: datetime.datetime | None = None

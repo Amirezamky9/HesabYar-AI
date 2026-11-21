@@ -68,10 +68,26 @@ Matching priorities, per line:
    ±`match_window_days` (default 2, from the installation settings),
    same direction (money in/out). A unique candidate auto-matches (95);
    several candidates make the line `ambiguous` (70).
-3. **Smart suggestion** — learned rules first (AUTO rules auto-apply at
-   85; SUGGEST rules suggest), then a scored suggestion (amount 40 +
-   date 20 + party 25 + partial reference 15; threshold 50, capped 95,
-   top 3 kept). Wrong-direction candidates score 0.
+3. **Smart suggestion** — user-defined W3 bank rules first (US-565:
+   AUTO rules auto-apply at 90; SUGGEST rules suggest at 90 and a
+   pending suggestion row is recorded for the operator to confirm),
+   then learned rules (AUTO rules auto-apply at 85; SUGGEST rules
+   suggest), then a scored suggestion (amount 40 + date 20 + party
+   25 + partial reference 15; threshold 50, capped 95, top 3 kept).
+   Wrong-direction candidates score 0.
+
+**Tie-out guard (US-565).** When the statement carries start/end
+balances and `start + Σ lines ≠ end`, every rule-target AUTO
+decision (W3 and B2 alike) degrades to SUGGESTED with a Persian
+reason naming the tie-out failure — the line is not coded and waits
+for a human. When the balances tie out, auto-coding proceeds; when
+the statement carries no balances, the tie-out cannot be checked
+and reconcile behaves exactly as before (the statement stays a
+draft for a human to validate in the engine). A wrong auto-code can
+be undone while the statement is a draft
+(`POST /bank/statements/{id}/lines/{line_id}/undo-auto-code` — the
+auto match is rejected and the corrected coding is written; see
+`docs/bank-rules.md`).
 
 **P2 destination note.** The phased design calls for a destination-Shaba
 check at P2, but Tryton 8.2 core has no link from `account.payment.journal`
@@ -124,9 +140,13 @@ engine's `related_to` plus the latest non-rejected match record.
 | `POST /bank/statements/{id}/reconcile` | `banking:reconcile` | Idempotency-Key required |
 | `GET /bank/statements/{id}/matches` | `banking:read` | |
 | `POST /bank/statements/{id}/lines/{line_id}/match` | `banking:reconcile` | Idempotency-Key required |
+| `POST /bank/statements/{id}/lines/{line_id}/undo-auto-code` | `banking:reconcile` | Idempotency-Key required; US-565 |
 | `GET /bank/match-rules` | `banking:read` | `company`, `bank_key` |
 | `POST /bank/match-rules/{id}/mode` | `banking:reconcile` | Idempotency-Key required |
 | `GET /bank/reconciliation-status` | `banking:read` | `company`, `date_from`, `date_to` |
+
+The bank auto-coding rules endpoints (CRUD, enable/disable,
+promote/demote, suggestions) live in `docs/bank-rules.md`.
 
 Uploads are base64 JSON, not multipart: the BFF catch-all proxy parses
 bodies as JSON only.

@@ -33,14 +33,27 @@ from sqlalchemy.orm import sessionmaker
 
 from hesabyar.application.commands.cheque_intake import SiteChequeIntakeHandler
 from hesabyar.application.commands.cheques import ChequeCommandService
-from hesabyar.application.commands.events import EventPipelineService, EventWorker
-from hesabyar.application.commands.integrations import PolicyGateService
+from hesabyar.application.commands.events import (
+    EventIngestService,
+    EventPipelineService,
+    EventWorker,
+    StalenessService,
+)
+from hesabyar.application.commands.installments_finance import InstallmentFinanceService
+from hesabyar.application.commands.integrations import PolicyGateService, StoreService
+from hesabyar.application.commands.invoices import InvoiceDraftService
+from hesabyar.application.commands.journals import JournalDraftService
 from hesabyar.application.commands.packaging import PackagingCommandService
 from hesabyar.application.commands.policy_gate import RegistryPolicyGate
+from hesabyar.application.commands.recurring import RecurringGenerationService
+from hesabyar.application.commands.reminders import ReminderService
 from hesabyar.application.commands.review_queue import ReviewQueueCommandService
+from hesabyar.application.commands.scheduled_jobs import ScheduledJobsService
 from hesabyar.application.commands.settlement import SettlementCommandService
 from hesabyar.application.commands.sms import SmsReminderService
 from hesabyar.application.commands.store_events import StoreDraftBuilder, StoreMappingResolver
+from hesabyar.application.commands.sync import StoreSyncService
+from hesabyar.domain.events.ports import JobQueuePort
 from hesabyar.infrastructure.accounting.tryton.adapter import TrytonAccountingAdapter
 from hesabyar.infrastructure.accounting.tryton.client import TrytonRestClient
 from hesabyar.infrastructure.accounting.tryton.fiscal_period_checker import (
@@ -56,6 +69,7 @@ from hesabyar.infrastructure.events.cheque_queue import (
 from hesabyar.infrastructure.events.defaults import (
     InboxReviewQueueAdapter,
     InProcessOutboxPublisher,
+    NoWebhookSecretStore,
 )
 from hesabyar.infrastructure.events.packaging_queue import (
     PACKAGING_QUEUE,
@@ -63,12 +77,27 @@ from hesabyar.infrastructure.events.packaging_queue import (
     PackagingWorkerFactory,
     PackagingWorkerHandle,
 )
+from hesabyar.infrastructure.events.reminders_queue import (
+    REMINDERS_QUEUE,
+    RemindersWorkerFactory,
+    RemindersWorkerHandle,
+)
 from hesabyar.infrastructure.events.procrastinate_queue import (
     EVENTS_QUEUE,
+    ProcrastinateJobQueue,
     WorkerFactory,
     WorkerHandle,
     create_connector,
+    create_defer_app,
     create_event_app,
+)
+from hesabyar.infrastructure.events.scheduler_queue import (
+    SCHEDULER_QUEUE,
+    JobRunRecorder,
+    RecorderFactory,
+    RecorderHandle,
+    SchedulerWorkerFactory,
+    SchedulerWorkerHandle,
 )
 from hesabyar.infrastructure.events.settlement_queue import (
     SETTLEMENT_QUEUE,
@@ -81,31 +110,44 @@ from hesabyar.infrastructure.events.sms_queue import (
     SmsWorkerHandle,
 )
 from hesabyar.infrastructure.files.local_scan_store import LocalChequeScanStore
+from hesabyar.infrastructure.persistence.postgres.cashbox_repository import (
+    SqlAlchemyCashBoxRepository,
+)
 from hesabyar.infrastructure.persistence.postgres.cheques_repository import (
     SqlAlchemyChequeRepository,
 )
 from hesabyar.infrastructure.persistence.postgres.event_repositories import (
     SqlAlchemyDecisionAuditLogRepository,
+    SqlAlchemyEventIdempotencyStore,
     SqlAlchemyEventInboxRepository,
     SqlAlchemyEventOutboxRepository,
     SqlAlchemyExternalIdMapRepository,
     SqlAlchemyStoreSettingsRepository,
 )
-from hesabyar.infrastructure.persistence.postgres.integrations_repository import (
-    SqlAlchemyIntegrationsRepository,
-)
 from hesabyar.infrastructure.persistence.postgres.installments_repository import (
     SqlAlchemyInstallmentRepository,
+)
+from hesabyar.infrastructure.persistence.postgres.integrations_repository import (
+    SqlAlchemyIntegrationsRepository,
 )
 from hesabyar.infrastructure.persistence.postgres.models import EngineCompanyModel
 from hesabyar.infrastructure.persistence.postgres.packaging_repository import (
     SqlAlchemyPackagingRepository,
 )
+from hesabyar.infrastructure.persistence.postgres.recurring_repository import (
+    SqlAlchemyRecurringRepository,
+)
 from hesabyar.infrastructure.persistence.postgres.repositories import (
     SqlAlchemyInstallationTenantResolver,
 )
+from hesabyar.infrastructure.persistence.postgres.reminders_repository import (
+    SqlAlchemyReminderRepository,
+)
 from hesabyar.infrastructure.persistence.postgres.review_queue_repository import (
     SqlAlchemyReviewQueueRepository,
+)
+from hesabyar.infrastructure.persistence.postgres.scheduler_repository import (
+    SqlAlchemySchedulerRepository,
 )
 from hesabyar.infrastructure.persistence.postgres.settlement_repository import (
     SqlAlchemySettlementAudit,
@@ -115,6 +157,7 @@ from hesabyar.infrastructure.persistence.postgres.sms_repository import (
     SqlAlchemySmsRepository,
 )
 from hesabyar.infrastructure.sms.factory import DefaultSmsClientFactory
+from hesabyar.infrastructure.store_connectors.factory import StoreConnectorFactory
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("hesabyar.event_worker")
@@ -410,6 +453,210 @@ def build_sms_factory(settings: AppSettings) -> SmsWorkerFactory:
     return factory
 
 
+def build_reminders_factory(settings: AppSettings) -> RemindersWorkerFactory:
+    """Build a factory producing one reminders handle per daily-job run.
+
+    Shares the same pooled engine pattern as the other factories:
+    each job run gets a fresh session, closed afterwards. The daily
+    reminder job needs no Tryton client (it only reads cheque /
+    installment / cash-box schedules and sends reminders) but it
+    does need the credential vault (to decrypt SMS provider API
+    keys) and the review queue (in-app reminders + send failures
+    file items). A missing key means no vault: live SMS providers
+    fail closed per-send, and the simulator still works. A
+    malformed key is logged loudly and treated the same way.
+    No email sender is wired yet (the F3 email provider is not
+    built) — email attempts are logged as skipped.
+    """
+    engine = create_engine(
+        settings.database.sqlalchemy_url,
+        pool_size=settings.database.pool_size,
+        max_overflow=settings.database.max_overflow,
+        pool_timeout=settings.database.pool_timeout_seconds,
+    )
+    session_factory = sessionmaker(bind=engine)
+    key = settings.auth.credentials_encryption_key
+    vault: FernetCredentialVault | None = None
+    if key is not None:
+        try:
+            vault = FernetCredentialVault(key)
+        except ValueError:
+            logger.error(
+                "Invalid credential-encryption key: live SMS providers "
+                "will fail closed until it is fixed."
+            )
+
+    def factory() -> RemindersWorkerHandle:
+        session = session_factory()
+        review_repo = SqlAlchemyReviewQueueRepository(session)
+        reminders = ReminderService(
+            SqlAlchemyReminderRepository(session),
+            SqlAlchemyChequeRepository(session),
+            SqlAlchemyInstallmentRepository(session),
+            SqlAlchemyCashBoxRepository(session),
+            SqlAlchemySmsRepository(session),
+            client_factory=DefaultSmsClientFactory(),
+            vault=vault,
+            review=ReviewQueueCommandService(review_repo, review_repo),
+            queue=review_repo,
+            email=None,
+        )
+
+        def commit() -> None:
+            session.commit()
+
+        def close() -> None:
+            session.close()
+
+        return RemindersWorkerHandle(reminders=reminders, commit=commit, close=close)
+
+    return factory
+
+
+def build_scheduler_factory(
+    settings: AppSettings, *, job_queue: JobQueuePort
+) -> SchedulerWorkerFactory:
+    """Build a factory producing one scheduler handle per job run (US-560).
+
+    Shares the same pooled engine pattern as the other factories:
+    each job run gets a fresh session and a fresh Tryton client, both
+    closed afterwards. The dunning sweep journals late fees through
+    the engine (draft by default); the store sync ingests polled
+    events through the same ``EventIngestService`` the webhooks use
+    (secrets are the F1 no-secrets default — ``ingest_verified``
+    never consults them — and the job queue defers the one-shot
+    process-event jobs so synced events process within seconds
+    instead of waiting for the next sweep). The recurring generator
+    (US-563) drafts due occurrences through the engine and
+    auto-posts only through the registry policy gate (a missing or
+    malformed credential key does not affect it — it needs no
+    vault). A missing or malformed
+    credential key means no vault: the connector factory is None
+    and the store sync skips every store with a recorded reason
+    instead of failing.
+    """
+    engine = create_engine(
+        settings.database.sqlalchemy_url,
+        pool_size=settings.database.pool_size,
+        max_overflow=settings.database.max_overflow,
+        pool_timeout=settings.database.pool_timeout_seconds,
+    )
+    session_factory = sessionmaker(bind=engine)
+    tryton = settings.tryton
+    key = settings.auth.credentials_encryption_key
+    vault: FernetCredentialVault | None = None
+    if key is not None:
+        try:
+            vault = FernetCredentialVault(key)
+        except ValueError:
+            logger.error(
+                "Invalid credential-encryption key: store polling will "
+                "skip every store until it is fixed."
+            )
+
+    def factory() -> SchedulerWorkerHandle:
+        session = session_factory()
+        client = TrytonRestClient(
+            tryton.base_url,
+            tryton.database,
+            tryton.api_key,
+            timeout=tryton.timeout_seconds,
+        )
+        adapter = TrytonAccountingAdapter(client)
+        registry = SqlAlchemyIntegrationsRepository(session)
+        review_repo = SqlAlchemyReviewQueueRepository(session)
+        review = ReviewQueueCommandService(review_repo, review_repo)
+        scheduler_repo = SqlAlchemySchedulerRepository(session)
+        ingest = EventIngestService(
+            SqlAlchemyEventInboxRepository(session),
+            SqlAlchemyEventIdempotencyStore(session),
+            NoWebhookSecretStore(),
+            job_queue,
+        )
+        connector_factory = (
+            StoreConnectorFactory(registry, vault) if vault is not None else None
+        )
+        jobs = ScheduledJobsService(
+            finance=InstallmentFinanceService(
+                SqlAlchemyInstallmentRepository(session),
+                review=review,
+                queue=review_repo,
+                journals=JournalDraftService(adapter),
+                cheques=SqlAlchemyChequeRepository(session),
+            ),
+            inventory=scheduler_repo,
+            sync=StoreSyncService(ingest),
+            connector_factory=connector_factory,
+            store_service=StoreService(registry, vault),
+            staleness=StalenessService(SqlAlchemyEventInboxRepository(session)),
+            review=review,
+            queue=review_repo,
+            tenant_resolver=SqlAlchemyInstallationTenantResolver(session),
+            recurring=RecurringGenerationService(
+                SqlAlchemyRecurringRepository(session),
+                invoices=InvoiceDraftService(adapter),
+                journals=JournalDraftService(adapter),
+                gate=PolicyGateService(
+                    registry, TrytonFiscalPeriodChecker(adapter)
+                ),
+                review=review,
+                queue=review_repo,
+            ),
+        )
+
+        def commit() -> None:
+            session.commit()
+
+        def close() -> None:
+            try:
+                client.close()
+            finally:
+                session.close()
+
+        return SchedulerWorkerHandle(jobs=jobs, commit=commit, close=close)
+
+    return factory
+
+
+def build_job_run_recorder(settings: AppSettings) -> JobRunRecorder:
+    """Build the run recorder (US-560): one fresh session per registry op.
+
+    The recorder's sessions are separate from the job's session, so a
+    run record (and its failure review items) commits even when the
+    job's own transaction rolls back.
+    """
+    engine = create_engine(
+        settings.database.sqlalchemy_url,
+        pool_size=settings.database.pool_size,
+        max_overflow=settings.database.max_overflow,
+        pool_timeout=settings.database.pool_timeout_seconds,
+    )
+    session_factory = sessionmaker(bind=engine)
+
+    def recorder_factory() -> RecorderHandle:
+        session = session_factory()
+        review_repo = SqlAlchemyReviewQueueRepository(session)
+        scheduler_repo = SqlAlchemySchedulerRepository(session)
+
+        def commit() -> None:
+            session.commit()
+
+        def close() -> None:
+            session.close()
+
+        return RecorderHandle(
+            registry=scheduler_repo,
+            inventory=scheduler_repo,
+            review=ReviewQueueCommandService(review_repo, review_repo),
+            queue=review_repo,
+            commit=commit,
+            close=close,
+        )
+
+    factory: RecorderFactory = recorder_factory
+    return JobRunRecorder(factory)
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the worker (or one sweep with --once)."""
     parser = argparse.ArgumentParser(description="HesabYar event-platform worker (US-501).")
@@ -454,8 +701,15 @@ def main(argv: list[str] | None = None) -> int:
             logger.error("Sweep error: %s", error)
         return 0
 
+    connector = create_connector(settings.database.sqlalchemy_url)
+    # The defer app lets the scheduled store sync trigger one-shot
+    # process-event jobs for the events it ingests (opened below, next
+    # to the worker app — an unopened app cannot defer, and the defers
+    # would fail soft instead).
+    defer_app = create_defer_app(connector)
+    job_queue = ProcrastinateJobQueue(defer_app)
     app = create_event_app(
-        create_connector(settings.database.sqlalchemy_url),
+        connector,
         factory,
         sweep_cron=settings.events.worker_sweep_cron,
         packaging_factory=build_packaging_factory(settings),
@@ -464,20 +718,51 @@ def main(argv: list[str] | None = None) -> int:
         settlement_tick_cron=settings.settlement.tick_cron,
         cheque_factory=build_cheque_factory(settings),
         sms_factory=build_sms_factory(settings),
+        reminders_factory=build_reminders_factory(settings),
+        scheduler_factory=build_scheduler_factory(settings, job_queue=job_queue),
+        dunning_sweep_cron=settings.scheduler.dunning_sweep_cron,
+        store_sync_cron=settings.scheduler.store_sync_cron,
+        staleness_cron=settings.scheduler.staleness_cron,
+        recurring_generation_cron=settings.scheduler.recurring_generation_cron,
+        recorder=build_job_run_recorder(settings),
     )
     with app.open():
         if not args.skip_schema:
             logger.info("Applying Procrastinate schema (idempotent).")
             app.schema_manager.apply_schema()
+        try:
+            defer_app.open()
+        except Exception:
+            logger.warning(
+                "Could not open the Procrastinate defer app; synced events "
+                "will wait for the next sweep instead of processing at once.",
+                exc_info=True,
+            )
         logger.info(
             "Starting event worker (queues=%s, sweep=%s, supply_check=%s, settlement_tick=%s).",
-            [EVENTS_QUEUE, PACKAGING_QUEUE, SETTLEMENT_QUEUE, CHEQUE_QUEUE, SMS_QUEUE],
+            [
+                EVENTS_QUEUE,
+                PACKAGING_QUEUE,
+                SETTLEMENT_QUEUE,
+                CHEQUE_QUEUE,
+                SMS_QUEUE,
+                REMINDERS_QUEUE,
+                SCHEDULER_QUEUE,
+            ],
             settings.events.worker_sweep_cron,
             settings.packaging.supply_check_cron,
             settings.settlement.tick_cron,
         )
         app.run_worker(
-            queues=[EVENTS_QUEUE, PACKAGING_QUEUE, SETTLEMENT_QUEUE, CHEQUE_QUEUE, SMS_QUEUE]
+            queues=[
+                EVENTS_QUEUE,
+                PACKAGING_QUEUE,
+                SETTLEMENT_QUEUE,
+                CHEQUE_QUEUE,
+                SMS_QUEUE,
+                REMINDERS_QUEUE,
+                SCHEDULER_QUEUE,
+            ]
         )
     return 0
 

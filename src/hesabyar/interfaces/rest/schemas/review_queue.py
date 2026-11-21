@@ -84,6 +84,7 @@ class ReviewItemResponse(BaseModel):
     )
     amount_irr: int | None = Field(description="Amount at stake in IRR (null when the item carries no money)")
     assignee: str | None = Field(description="Actor assigned to the item")
+    tags: list[str] = Field(description="Tags applied by rules (US-561 'tag' action) or operators")
     resolution: str | None = Field(description="How the item was closed (null while open)")
     resolved_by: str | None = Field(description="Actor who closed the item")
     resolved_at: datetime | None = Field(description="When the item was closed (UTC)")
@@ -117,6 +118,7 @@ class ReviewItemResponse(BaseModel):
             suggested_reason_key=view.suggested_reason_key,
             amount_irr=item.amount_irr,
             assignee=item.assignee,
+            tags=list(item.tags),
             resolution=item.resolution.value if item.resolution is not None else None,
             resolved_by=item.resolved_by,
             resolved_at=item.resolved_at,

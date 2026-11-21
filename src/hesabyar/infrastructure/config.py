@@ -191,6 +191,45 @@ class SettlementSettings(BaseModel):
     )
 
 
+class SchedulerSettings(BaseModel):
+    """Scheduler + maintenance jobs (US-560) tunables.
+
+    Env overrides use the ``HESABYAR_SCHEDULER__`` prefix, e.g.
+    ``HESABYAR_SCHEDULER__STORE_SYNC_CRON="*/30 * * * *"``. Crons are
+    UTC (Procrastinate periodic tasks are UTC); the registry's
+    ``time_of_day`` values are Tehran wall time (UTC+3:30, no DST).
+    """
+
+    dunning_sweep_cron: str = Field(
+        default="30 4 * * *",
+        description=(
+            "Procrastinate cron for the daily dunning sweep "
+            "(08:00 Tehran; W1 puts the US-541 sweep on schedule)"
+        ),
+    )
+    store_sync_cron: str = Field(
+        default="*/15 * * * *",
+        description=(
+            "Procrastinate cron for reconciliation polling "
+            "(every 15 minutes; W1 puts the US-512/US-533 sync on schedule)"
+        ),
+    )
+    staleness_cron: str = Field(
+        default="0 * * * *",
+        description=(
+            "Procrastinate cron for the inbox staleness alert (hourly; "
+            "W1 puts the US-501 staleness check on schedule)"
+        ),
+    )
+    recurring_generation_cron: str = Field(
+        default="0 4 * * *",
+        description=(
+            "Procrastinate cron for the recurring generator "
+            "(daily 07:30 Tehran; W3 puts the US-563 generation on schedule)"
+        ),
+    )
+
+
 class FilestoreSettings(BaseModel):
     """Local filestore for uploaded/downloaded files (US-533).
 
@@ -228,6 +267,9 @@ class AppSettings(BaseSettings):
     )
     settlement: SettlementSettings = Field(
         default_factory=SettlementSettings, description="Settlement engine settings"
+    )
+    scheduler: SchedulerSettings = Field(
+        default_factory=SchedulerSettings, description="Scheduler + maintenance jobs settings"
     )
     filestore: FilestoreSettings = Field(
         default_factory=FilestoreSettings, description="Local filestore settings"

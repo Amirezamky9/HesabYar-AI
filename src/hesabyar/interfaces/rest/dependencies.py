@@ -41,6 +41,7 @@ from sqlalchemy.pool import NullPool
 
 from hesabyar.application.commands.bank_import import BankImportService
 from hesabyar.application.commands.bank_reconcile import BankReconcileService
+from hesabyar.application.commands.bank_rules import BankRulesService
 from hesabyar.application.commands.cashbox import CashBoxCommandService
 from hesabyar.application.commands.cheque_clearing import ChequeClearingService
 from hesabyar.application.commands.cheque_intake import SiteChequeIntakeHandler
@@ -81,9 +82,27 @@ from hesabyar.application.commands.moadian import (
 )
 from hesabyar.application.commands.packaging import PackagingCommandService
 from hesabyar.application.commands.policy_gate import RegistryPolicyGate
+from hesabyar.application.commands.recurring import (
+    RecurringGenerationService,
+    RecurringTemplateService,
+)
+from hesabyar.application.commands.reminders import ReminderService
 from hesabyar.application.commands.reports import ReportValidationService
 from hesabyar.application.commands.review_queue import ReviewQueueCommandService
+from hesabyar.application.commands.rules import (
+    EngineDraftAdapter,
+    LoggingNotificationAdapter,
+    PolicyGateServiceAdapter,
+    RuleActionExecutor,
+    RuleEngineService,
+)
 from hesabyar.application.commands.sayyad import SayyadInquiryService
+from hesabyar.application.commands.scheduled_jobs import (
+    ScheduledJobsService,
+    SupplyCheckCompany,
+    build_job_runners,
+)
+from hesabyar.application.commands.scheduler import SchedulerService
 from hesabyar.application.commands.settlement import SettlementCommandService
 from hesabyar.application.commands.settlement_import import SettlementImportService
 from hesabyar.application.commands.settlement_posting import SettlementPostingService
@@ -107,6 +126,7 @@ from hesabyar.application.queries.manual_entries import ManualEntryQueryService
 from hesabyar.application.queries.moadian import MoadianQueryService
 from hesabyar.application.queries.packaging import PackagingQueryService
 from hesabyar.application.queries.payments import PaymentQueryService
+from hesabyar.application.queries.reminders import ReminderQueryService
 from hesabyar.application.queries.reports import ReportQueryService
 from hesabyar.application.queries.review_queue import ReviewQueueQueryService
 from hesabyar.application.queries.settlement import SettlementQueryService
@@ -148,6 +168,9 @@ from hesabyar.infrastructure.moadian.simulator import DeterministicMoadianSimula
 from hesabyar.infrastructure.persistence.postgres.bank_repository import (
     SqlAlchemyBankRepository,
 )
+from hesabyar.infrastructure.persistence.postgres.bank_rules_repository import (
+    SqlAlchemyBankRulesRepository,
+)
 from hesabyar.infrastructure.persistence.postgres.cashbox_repository import SqlAlchemyCashBoxRepository
 from hesabyar.infrastructure.persistence.postgres.cheques_repository import (
     SqlAlchemyChequeRepository,
@@ -177,6 +200,12 @@ from hesabyar.infrastructure.persistence.postgres.models import EngineCompanyMod
 from hesabyar.infrastructure.persistence.postgres.packaging_repository import (
     SqlAlchemyPackagingRepository,
 )
+from hesabyar.infrastructure.persistence.postgres.recurring_repository import (
+    SqlAlchemyRecurringRepository,
+)
+from hesabyar.infrastructure.persistence.postgres.reminders_repository import (
+    SqlAlchemyReminderRepository,
+)
 from hesabyar.infrastructure.persistence.postgres.report_snapshot_repository import (
     SqlAlchemyReportSnapshotRepository,
 )
@@ -185,6 +214,12 @@ from hesabyar.infrastructure.persistence.postgres.repositories import (
 )
 from hesabyar.infrastructure.persistence.postgres.review_queue_repository import (
     SqlAlchemyReviewQueueRepository,
+)
+from hesabyar.infrastructure.persistence.postgres.rules_repository import (
+    SqlAlchemyRulesRepository,
+)
+from hesabyar.infrastructure.persistence.postgres.scheduler_repository import (
+    SqlAlchemySchedulerRepository,
 )
 from hesabyar.infrastructure.persistence.postgres.settlement_repository import (
     SqlAlchemySettlementAudit,
@@ -1179,6 +1214,13 @@ def get_bank_repository(
     return SqlAlchemyBankRepository(session)
 
 
+def get_bank_rules_repository(
+    session: Session = Depends(get_db_session),
+) -> SqlAlchemyBankRulesRepository:
+    """Build the SQLAlchemy bank-rules repository for this request (US-565, W3)."""
+    return SqlAlchemyBankRulesRepository(session)
+
+
 def get_bank_file_reader() -> StatementFileReader:
     """Build the statement file reader (stateless; override point for tests)."""
     return StatementFileReader()
@@ -1206,14 +1248,32 @@ def get_bank_reconcile_service(
     repository: SqlAlchemyBankRepository = Depends(get_bank_repository),
     review: ReviewQueueCommandService = Depends(get_review_queue_command_service),
     queue_repository: SqlAlchemyReviewQueueRepository = Depends(get_review_queue_repository),
-    integrations_repository: SqlAlchemyIntegrationsRepository = Depends(
-        get_integrations_repository
-    ),
+    integrations_repository: SqlAlchemyIntegrationsRepository = Depends(get_integrations_repository),
+    bank_rules_repository: SqlAlchemyBankRulesRepository = Depends(get_bank_rules_repository),
 ) -> BankReconcileService:
     """Build the bank-reconcile service for this request (override point for tests)."""
     return BankReconcileService(
-        adapter, repository, review, queue_repository, integrations_repository
+        adapter,
+        repository,
+        review,
+        queue_repository,
+        integrations_repository,
+        bank_rules=bank_rules_repository,
     )
+
+
+def get_bank_rules_service(
+    adapter: TrytonAccountingAdapter = Depends(get_engine_adapter),
+    repository: SqlAlchemyBankRepository = Depends(get_bank_repository),
+    bank_rules_repository: SqlAlchemyBankRulesRepository = Depends(get_bank_rules_repository),
+    review: ReviewQueueCommandService = Depends(get_review_queue_command_service),
+) -> BankRulesService:
+    """Build the bank-rules service for this request (override point for tests).
+
+    The review service is wired so confirming a suggestion resolves
+    the reconcile's ``bank_unmatched`` item for the line.
+    """
+    return BankRulesService(bank_rules_repository, repository, adapter, review=review)
 
 
 def get_bank_query_service(
@@ -1638,6 +1698,57 @@ def get_sms_reminder_service(
     )
 
 
+# -- Reminders (US-564) -------------------------------------------------------
+
+
+def get_reminder_repository(
+    session: Session = Depends(get_db_session),
+) -> SqlAlchemyReminderRepository:
+    """Build the SQLAlchemy reminder repository for this request."""
+    return SqlAlchemyReminderRepository(session)
+
+
+def get_reminder_query_service(
+    repository: SqlAlchemyReminderRepository = Depends(get_reminder_repository),
+) -> ReminderQueryService:
+    """Build the reminder query service for this request (override point for tests)."""
+    return ReminderQueryService(repository)
+
+
+def get_reminder_service(
+    repository: SqlAlchemyReminderRepository = Depends(get_reminder_repository),
+    cheques: SqlAlchemyChequeRepository = Depends(get_cheque_repository),
+    installments: SqlAlchemyInstallmentRepository = Depends(get_installment_repository),
+    cashbox: SqlAlchemyCashBoxRepository = Depends(get_cashbox_repository),
+    sms: SqlAlchemySmsRepository = Depends(get_sms_repository),
+    vault: CredentialVaultPort | None = Depends(get_credential_vault),
+    review: ReviewQueueCommandService = Depends(get_review_queue_command_service),
+    queue_repository: SqlAlchemyReviewQueueRepository = Depends(
+        get_review_queue_repository
+    ),
+) -> ReminderService:
+    """Build the reminder service for this request (override point for tests).
+
+    Live SMS sends go through the real HTTP clients; a provider
+    without credentials fails closed before any call is made, and
+    the simulator is the default in dev/test. No email sender is
+    wired (the F3 email provider is not built yet) — email
+    attempts are logged as skipped.
+    """
+    return ReminderService(
+        repository,
+        cheques,
+        installments,
+        cashbox,
+        sms,
+        client_factory=DefaultSmsClientFactory(),
+        vault=vault,
+        review=review,
+        queue=queue_repository,
+        email=None,
+    )
+
+
 def get_sayyad_inquiry_service(
     repository: SqlAlchemyChequeRepository = Depends(get_cheque_repository),
     review: ReviewQueueCommandService = Depends(get_review_queue_command_service),
@@ -1756,3 +1867,224 @@ def get_gateway_reconciliation_service(
     return GatewayReconciliationService(
         registry, settlement_repository, settlement_service, factory, vault
     )
+
+
+# -- Recurring templates + generator (US-563) ---------------------------------
+
+
+def get_recurring_repository(
+    session: Session = Depends(get_db_session),
+) -> SqlAlchemyRecurringRepository:
+    """Build the SQLAlchemy recurring repository for this request."""
+    return SqlAlchemyRecurringRepository(session)
+
+
+def get_recurring_template_service(
+    repository: SqlAlchemyRecurringRepository = Depends(get_recurring_repository),
+) -> RecurringTemplateService:
+    """Build the recurring-template service for this request (override point for tests)."""
+    return RecurringTemplateService(repository)
+
+
+def get_recurring_generation_service(
+    repository: SqlAlchemyRecurringRepository = Depends(get_recurring_repository),
+    invoices: InvoiceDraftService = Depends(get_invoice_draft_service),
+    journals: JournalDraftService = Depends(get_journal_draft_service),
+    gate: PolicyGateService = Depends(get_policy_gate_service),
+    review: ReviewQueueCommandService = Depends(get_review_queue_command_service),
+    queue_repository: SqlAlchemyReviewQueueRepository = Depends(
+        get_review_queue_repository
+    ),
+) -> RecurringGenerationService:
+    """Build the recurring-generation service for this request (override point for tests).
+
+    The API process wires the real policy gate, so a manual trigger of
+    ``scheduler.recurring_generation`` auto-posts exactly like the
+    worker's scheduled run — draft by default, gate decides otherwise.
+    """
+    return RecurringGenerationService(
+        repository,
+        invoices=invoices,
+        journals=journals,
+        gate=gate,
+        review=review,
+        queue=queue_repository,
+    )
+
+
+# -- Scheduler services (US-560) ------------------------------------------------
+
+
+def get_scheduler_repository(
+    session: Session = Depends(get_db_session),
+) -> SqlAlchemySchedulerRepository:
+    """Build the SQLAlchemy scheduler repository for this request."""
+    return SqlAlchemySchedulerRepository(session)
+
+
+def get_store_connector_factory_optional(
+    repository: SqlAlchemyIntegrationsRepository = Depends(get_integrations_repository),
+    vault: CredentialVaultPort | None = Depends(get_credential_vault),
+) -> StoreConnectorFactory | None:
+    """Build the store-connector factory, or None when no vault exists.
+
+    Unlike :func:`get_store_connector_factory` (which 503s), the
+    scheduled sync must not fail the whole scheduler service when
+    the vault is missing: with no factory, the sync skips every
+    store with a recorded reason instead.
+    """
+    if vault is None:
+        return None
+    return StoreConnectorFactory(repository, vault)
+
+
+def get_scheduled_jobs_service(
+    finance: InstallmentFinanceService = Depends(get_installment_finance_service),
+    inventory: SqlAlchemySchedulerRepository = Depends(get_scheduler_repository),
+    sync: StoreSyncService = Depends(get_store_sync_service),
+    connector_factory: StoreConnectorFactory | None = Depends(
+        get_store_connector_factory_optional
+    ),
+    store_service: StoreService = Depends(get_store_service),
+    staleness: StalenessService = Depends(get_staleness_service),
+    review: ReviewQueueCommandService = Depends(get_review_queue_command_service),
+    queue_repository: SqlAlchemyReviewQueueRepository = Depends(
+        get_review_queue_repository
+    ),
+    tenant_resolver: SqlAlchemyInstallationTenantResolver = Depends(
+        get_installation_tenant_resolver
+    ),
+    recurring: RecurringGenerationService = Depends(get_recurring_generation_service),
+) -> ScheduledJobsService:
+    """Build the scheduled-jobs service for this request (override point for tests)."""
+    return ScheduledJobsService(
+        finance=finance,
+        inventory=inventory,
+        sync=sync,
+        connector_factory=connector_factory,
+        store_service=store_service,
+        staleness=staleness,
+        review=review,
+        queue=queue_repository,
+        tenant_resolver=tenant_resolver,
+        recurring=recurring,
+    )
+
+
+def _list_packaging_companies(
+    session: Session,
+    packaging_repository: SqlAlchemyPackagingRepository,
+) -> list[SupplyCheckCompany]:
+    """Companies in scope for the supply check (mirrors the worker script).
+
+    A stale settings row (unknown company, non-integer engine id) is
+    skipped with a warning, never fatal.
+    """
+    found: list[SupplyCheckCompany] = []
+    for tenant_id, company_id in packaging_repository.list_configured_companies():
+        row = session.get(EngineCompanyModel, company_id)
+        if row is None:
+            logger.warning(
+                "Packaging settings exist for unknown company row %s; skipping.",
+                company_id,
+            )
+            continue
+        try:
+            engine_id = int(row.external_company_id)
+        except ValueError:
+            logger.warning(
+                "Company row %s has a non-integer engine id %r; skipping.",
+                company_id,
+                row.external_company_id,
+            )
+            continue
+        found.append(
+            SupplyCheckCompany(
+                tenant_id=tenant_id, company_id=company_id, engine_id=engine_id
+            )
+        )
+    return found
+
+
+def get_scheduler_service(
+    registry: SqlAlchemySchedulerRepository = Depends(get_scheduler_repository),
+    review: ReviewQueueCommandService = Depends(get_review_queue_command_service),
+    queue_repository: SqlAlchemyReviewQueueRepository = Depends(
+        get_review_queue_repository
+    ),
+    worker: EventWorker = Depends(get_event_worker),
+    settlement: SettlementCommandService = Depends(get_settlement_command_service),
+    packaging: PackagingCommandService = Depends(get_packaging_command_service),
+    packaging_repository: SqlAlchemyPackagingRepository = Depends(
+        get_packaging_repository
+    ),
+    cheques: ChequeCommandService = Depends(get_cheque_command_service),
+    sms: SmsReminderService = Depends(get_sms_reminder_service),
+    reminders: ReminderService = Depends(get_reminder_service),
+    scheduled_jobs: ScheduledJobsService = Depends(get_scheduled_jobs_service),
+    session: Session = Depends(get_db_session),
+) -> SchedulerService:
+    """Build the scheduler service for this request (override point for tests).
+
+    All nine jobs get runners in the API process, so every job is
+    triggerable on demand. The runners share the request's session —
+    the router's commit covers the trigger's writes.
+    """
+    return SchedulerService(
+        registry,
+        runners=build_job_runners(
+            worker=worker,
+            settlement=settlement,
+            packaging=packaging,
+            packaging_companies=lambda: _list_packaging_companies(
+                session, packaging_repository
+            ),
+            cheques=cheques,
+            sms=sms,
+            reminders=reminders,
+            scheduled_jobs=scheduled_jobs,
+        ),
+        inventory=registry,
+        review=review,
+        queue=queue_repository,
+    )
+
+
+# -- Rules engine services (US-561) ------------------------------------------
+
+
+def get_rules_repository(
+    session: Session = Depends(get_db_session),
+) -> SqlAlchemyRulesRepository:
+    """Build the SQLAlchemy rules repository for this request."""
+    return SqlAlchemyRulesRepository(session)
+
+
+def get_rule_engine_service(
+    repository: SqlAlchemyRulesRepository = Depends(get_rules_repository),
+    queue_repository: SqlAlchemyReviewQueueRepository = Depends(
+        get_review_queue_repository
+    ),
+    gate: PolicyGateService = Depends(get_policy_gate_service),
+    journals: JournalDraftService = Depends(get_journal_draft_service),
+    accounts: AccountQueryService = Depends(get_account_query_service),
+) -> RuleEngineService:
+    """Build the rules-engine service for this request (override point for tests).
+
+    All action ports are wired: the policy gate (the only path to a
+    post), the engine drafts (create + post), the review queue
+    (assign/tag/set_field), and the v1 notification adapter (in-app
+    recorded; email skipped until an SMTP backend exists; SMS with
+    US-564). The repositories share the request's session, so the
+    router's commit covers the service's flushed writes.
+    """
+    drafts = EngineDraftAdapter(journals, accounts)
+    executor = RuleActionExecutor(
+        gate=PolicyGateServiceAdapter(gate),
+        drafts=drafts,
+        posting=drafts,
+        notifications=LoggingNotificationAdapter(),
+        review_queue=queue_repository,
+        review_audit=queue_repository,
+    )
+    return RuleEngineService(repository, executor=executor)

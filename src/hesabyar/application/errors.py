@@ -85,6 +85,13 @@ ENGINE_NOT_FOUND = "ENGINE_NOT_FOUND"
 ENGINE_VALIDATION_FAILED = "ENGINE_VALIDATION_FAILED"
 ENGINE_ERROR = "ENGINE_ERROR"
 NOT_IMPLEMENTED = "NOT_IMPLEMENTED"
+SCHEDULED_JOB_NOT_FOUND = "SCHEDULED_JOB_NOT_FOUND"
+SCHEDULED_JOB_NOT_RUNNABLE = "SCHEDULED_JOB_NOT_RUNNABLE"
+RULE_NOT_FOUND = "RULE_NOT_FOUND"
+RULE_INVALID = "RULE_INVALID"
+RULE_EXECUTION_NOT_FOUND = "RULE_EXECUTION_NOT_FOUND"
+RECURRING_TEMPLATE_NOT_FOUND = "RECURRING_TEMPLATE_NOT_FOUND"
+RECURRING_TEMPLATE_IN_USE = "RECURRING_TEMPLATE_IN_USE"
 
 
 class ApplicationError(HesabYarError):
@@ -610,6 +617,25 @@ class EngineError(ApplicationError):
         super().__init__(message, code=ENGINE_ERROR, details=details)
 
 
+class ScheduledJobNotFoundError(ApplicationError):
+    """Raised when a job id is not in the registry (US-560)."""
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__(message, code=SCHEDULED_JOB_NOT_FOUND, details=details)
+
+
+class ScheduledJobNotRunnableError(ApplicationError):
+    """Raised when a job has no runner wired in this process (US-560).
+
+    The registry knows the job, but this process cannot run it (e.g.
+    a trigger in a process without the job's services). The REST
+    layer maps this to 503: a deployment gap, not a client error.
+    """
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__(message, code=SCHEDULED_JOB_NOT_RUNNABLE, details=details)
+
+
 class OperationNotSupportedError(ApplicationError):
     """Raised when a use case has no engine-port operation to call.
 
@@ -621,6 +647,52 @@ class OperationNotSupportedError(ApplicationError):
 
     def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
         super().__init__(message, code=NOT_IMPLEMENTED, details=details)
+
+
+class RuleNotFoundError(ApplicationError):
+    """Raised when a rule id is not in the tenant's registry (US-561)."""
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__(message, code=RULE_NOT_FOUND, details=details)
+
+
+class RuleInvalidError(ApplicationError):
+    """Raised when a rule definition fails validation (US-561).
+
+    Covers the closed action set (an unknown action kind), the
+    condition DSL (an unknown operator, a malformed tree), an
+    unknown event type, and invalid per-action parameters. The
+    REST layer maps this to 422.
+    """
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__(message, code=RULE_INVALID, details=details)
+
+
+class RuleExecutionNotFoundError(ApplicationError):
+    """Raised when an execution id is not in the tenant's audit log (US-561)."""
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__(message, code=RULE_EXECUTION_NOT_FOUND, details=details)
+
+
+class RecurringTemplateNotFoundError(ApplicationError):
+    """Raised when a recurring template does not exist (or belongs to another tenant)."""
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__(message, code=RECURRING_TEMPLATE_NOT_FOUND, details=details)
+
+
+class RecurringTemplateInUseError(ApplicationError):
+    """Raised when a template with occurrences cannot be deleted (US-563).
+
+    Generated documents keep their link to the template + occurrence
+    number, so a template that already fired is never deleted — pause
+    it instead. The REST layer maps this to 409.
+    """
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__(message, code=RECURRING_TEMPLATE_IN_USE, details=details)
 
 
 _ENGINE_ERROR_TYPES: dict[str, type[ApplicationError]] = {

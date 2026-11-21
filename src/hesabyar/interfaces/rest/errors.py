@@ -70,12 +70,19 @@ from hesabyar.application.errors import (
     MoadianProfileSlugConflictError,
     MoadianSubmissionNotFoundError,
     OperationNotSupportedError,
+    RecurringTemplateInUseError,
+    RecurringTemplateNotFoundError,
     ReportValidationRunNotFoundError,
     ReviewActionNotPermittedError,
     ReviewInvalidSlaPolicyError,
     ReviewInvalidStateError,
     ReviewItemNotFoundError,
     ReviewReplayNotPossibleError,
+    RuleExecutionNotFoundError,
+    RuleInvalidError,
+    RuleNotFoundError,
+    ScheduledJobNotFoundError,
+    ScheduledJobNotRunnableError,
     StandardNotFoundError,
     StandardSourceBlockedError,
     TaxDecisionNotFoundError,
@@ -94,6 +101,12 @@ from hesabyar.domain.bank.errors import (
     BankImportTooManyRowsError,
     BankLineAlreadyMatchedError,
     BankMatchRuleNotFoundError,
+    BankRuleInvalidError,
+    BankRuleNotFoundError,
+    BankRuleNothingToUndoError,
+    BankRuleNotPromotableError,
+    BankRuleSuggestionNotFoundError,
+    BankRuleSuggestionNotPendingError,
     BankStatementJournalNotFoundError,
     BankStatementLineNotFoundError,
     BankStatementNotDraftError,
@@ -218,6 +231,11 @@ from hesabyar.domain.packaging.errors import (
     InvalidShipmentCostError,
     MaterialNotFoundError,
     PackagingSetupError,
+)
+from hesabyar.domain.recurring.errors import InvalidRecurringTemplateError
+from hesabyar.domain.reminders.errors import (
+    ReminderAlreadySentError,
+    ReminderValidationError,
 )
 from hesabyar.domain.settlement.errors import (
     SettlementContractMissingError,
@@ -441,6 +459,22 @@ def api_error_from_hesabyar_error(exc: HesabYarError) -> ApiError:
         return ApiError(status_code=422, code="REVIEW_INVALID_SLA_POLICY", detail=exc.message)
     if isinstance(exc, ReviewReplayNotPossibleError):
         return ApiError(status_code=422, code="REVIEW_REPLAY_NOT_POSSIBLE", detail=exc.message)
+    if isinstance(exc, ScheduledJobNotFoundError):
+        return ApiError(status_code=404, code="SCHEDULED_JOB_NOT_FOUND", detail=exc.message)
+    if isinstance(exc, ScheduledJobNotRunnableError):
+        return ApiError(status_code=503, code="SCHEDULED_JOB_NOT_RUNNABLE", detail=exc.message)
+    if isinstance(exc, RuleNotFoundError):
+        return ApiError(status_code=404, code="RULE_NOT_FOUND", detail=exc.message)
+    if isinstance(exc, RuleInvalidError):
+        return ApiError(status_code=422, code="RULE_INVALID", detail=exc.message)
+    if isinstance(exc, RuleExecutionNotFoundError):
+        return ApiError(status_code=404, code="RULE_EXECUTION_NOT_FOUND", detail=exc.message)
+    if isinstance(exc, InvalidRecurringTemplateError):
+        return ApiError(status_code=422, code="RECURRING_TEMPLATE_INVALID", detail=exc.message)
+    if isinstance(exc, RecurringTemplateNotFoundError):
+        return ApiError(status_code=404, code="RECURRING_TEMPLATE_NOT_FOUND", detail=exc.message)
+    if isinstance(exc, RecurringTemplateInUseError):
+        return ApiError(status_code=409, code="RECURRING_TEMPLATE_IN_USE", detail=exc.message)
     if isinstance(exc, MaterialNotFoundError):
         return ApiError(status_code=404, code="PACKAGING_MATERIAL_NOT_FOUND", detail=exc.message)
     if isinstance(exc, CountNotFoundError):
@@ -547,6 +581,18 @@ def api_error_from_hesabyar_error(exc: HesabYarError) -> ApiError:
         return ApiError(status_code=404, code="BANK_COLUMN_MAPPING_NOT_FOUND", detail=exc.message)
     if isinstance(exc, BankMatchRuleNotFoundError):
         return ApiError(status_code=404, code="BANK_MATCH_RULE_NOT_FOUND", detail=exc.message)
+    if isinstance(exc, BankRuleNotFoundError):
+        return ApiError(status_code=404, code="BANK_RULE_NOT_FOUND", detail=exc.message)
+    if isinstance(exc, BankRuleInvalidError):
+        return ApiError(status_code=422, code="BANK_RULE_INVALID", detail=exc.message)
+    if isinstance(exc, BankRuleNotPromotableError):
+        return ApiError(status_code=409, code="BANK_RULE_NOT_PROMOTABLE", detail=exc.message)
+    if isinstance(exc, BankRuleSuggestionNotFoundError):
+        return ApiError(status_code=404, code="BANK_RULE_SUGGESTION_NOT_FOUND", detail=exc.message)
+    if isinstance(exc, BankRuleSuggestionNotPendingError):
+        return ApiError(status_code=409, code="BANK_RULE_SUGGESTION_NOT_PENDING", detail=exc.message)
+    if isinstance(exc, BankRuleNothingToUndoError):
+        return ApiError(status_code=409, code="BANK_RULE_NOTHING_TO_UNDO", detail=exc.message)
     if isinstance(exc, BankStatementJournalNotFoundError):
         return ApiError(status_code=404, code="BANK_STATEMENT_JOURNAL_NOT_FOUND", detail=exc.message)
     if isinstance(exc, BankStatementLineNotFoundError):
@@ -793,6 +839,14 @@ def api_error_from_hesabyar_error(exc: HesabYarError) -> ApiError:
             problems = "; ".join(f"{name}: {problem}" for name, problem in sorted(exc.field_errors.items()))
             detail = f"{exc.message} Problems: {problems}"
         return ApiError(status_code=422, code="SMS_VALIDATION_FAILED", detail=detail)
+    if isinstance(exc, ReminderValidationError):
+        detail = exc.message
+        if exc.field_errors:
+            problems = "; ".join(f"{name}: {problem}" for name, problem in sorted(exc.field_errors.items()))
+            detail = f"{exc.message} Problems: {problems}"
+        return ApiError(status_code=422, code="REMINDER_VALIDATION_FAILED", detail=detail)
+    if isinstance(exc, ReminderAlreadySentError):
+        return ApiError(status_code=409, code="REMINDER_ALREADY_SENT", detail=exc.message)
     if isinstance(exc, SmsProviderNotFoundError):
         return ApiError(status_code=404, code="SMS_PROVIDER_NOT_FOUND", detail=exc.message)
     if isinstance(exc, SmsProviderKeyConflictError):
