@@ -59,6 +59,16 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 #: must agree — asserted in the conformance suite.
 MCP_SPEC_VERSION = "2026-07-28"
 
+#: The protocol revision the ``initialize`` handshake actually
+#: negotiates with the pinned SDK (mcp 2.3.0). The SDK's
+#: ``HANDSHAKE_PROTOCOL_VERSIONS`` tops out at 2025-11-25; 2026-07-28
+#: lives in ``MODERN_PROTOCOL_VERSIONS`` (the stateless per-request
+#: envelope) and is NOT reachable via ``initialize``
+#: (``mcp_types/version.py``). The spec target above stays 2026-07-28;
+#: raise this constant when a future SDK upgrades the handshake
+#: ceiling — never fake the negotiated version string.
+MCP_NEGOTIATED_VERSION = "2025-11-25"
+
 #: The stdio subprocess must finish well inside the CI per-test budget.
 STDIO_TIMEOUT_SECONDS = 60.0
 
@@ -169,7 +179,10 @@ EXPECTED_TOOL_REQUIRED: dict[str, frozenset[str]] = {
     "get_receivables_aging": frozenset({"company", "as_of"}),
     "get_payables_aging": frozenset({"company", "as_of"}),
     "get_bank_reconciliation_status": frozenset({"company", "date_from", "date_to"}),
-    "get_tax_compliance_status": frozenset({"company", "as_of"}),
+    # as_of has a default (None -> today) so the SDK omits it from the
+    # schema's required list — unlike the siblings, whose as_of/date
+    # params have no default.
+    "get_tax_compliance_status": frozenset({"company"}),
     "validate_financial_statement": frozenset({"company", "period_start", "period_end"}),
     "explain_accounting_rule": frozenset({"standard_code"}),
     "list_pending_review_items": frozenset({"company"}),

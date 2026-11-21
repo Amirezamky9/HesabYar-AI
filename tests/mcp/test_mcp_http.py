@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable, Coroutine
+from contextlib import asynccontextmanager
 from typing import Any
 
 import httpx2
@@ -23,7 +24,7 @@ from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.exceptions import MCPError
 from sqlalchemy.orm import Session
-from starlette.types import ASGIApp
+from starlette.types import ASGIApp, Message
 
 from hesabyar.infrastructure.config import AppSettings, McpSettings
 from hesabyar.interfaces.mcp import build_streamable_http_app
@@ -69,6 +70,57 @@ async def _raw_post(
         )
 
 
+@asynccontextmanager
+async def _running_lifespan(app: ASGIApp) -> AsyncIterator[None]:
+    """Drive the app's ASGI lifespan around one test's requests.
+
+    httpx2.ASGITransport never sends lifespan messages, so the SDK
+    session manager's task group — created by ``run()``, entered via
+    the Starlette app's lifespan (``streamable_http_app`` wires
+    ``lifespan=lambda app: session_manager.run()``) — is never
+    initialized, and every request reaching session handling raises
+    "Task group is not initialized". uvicorn runs the lifespan in
+    production, so this is a test-harness gap, not a product bug. A
+    manager's ``run()`` can be called only once per instance, so each
+    test builds a fresh app and runs its lifespan exactly once.
+    """
+    receive_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+    send_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+
+    async def receive() -> dict[str, Any]:
+        return await receive_queue.get()
+
+    async def send(message: Message) -> None:
+        await send_queue.put(dict(message))
+
+    async def _serve_lifespan() -> None:
+        await app({"type": "lifespan"}, receive, send)
+
+    task = asyncio.create_task(_serve_lifespan())
+    started = False
+    try:
+        await receive_queue.put({"type": "lifespan.startup"})
+        startup = await send_queue.get()
+        assert startup["type"] == "lifespan.startup.complete", startup
+        started = True
+        yield
+    finally:
+        if started:
+            await receive_queue.put({"type": "lifespan.shutdown"})
+            shutdown = await send_queue.get()
+            assert shutdown["type"] == "lifespan.shutdown.complete", shutdown
+            await task
+        elif not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+
+async def _with_lifespan[T](app: ASGIApp, coro: Coroutine[Any, Any, T]) -> T:
+    """Run ``coro`` with the app's lifespan active."""
+    async with _running_lifespan(app):
+        return await coro
+
+
 def test_http_app_builds(
     world: World, session_factory: Callable[[], Session], settings: AppSettings
 ) -> None:
@@ -83,7 +135,7 @@ def test_http_missing_auth_returns_401(
 ) -> None:
     server, _ = make_server(world, session_factory, settings, transport="streamable-http")
     app = build_streamable_http_app(server, settings)
-    response = asyncio.run(_raw_post(app))
+    response = asyncio.run(_with_lifespan(app, _raw_post(app)))
     assert response.status_code == 401
     assert response.json()["error"] == "invalid_token"
 
@@ -94,7 +146,9 @@ def test_http_invalid_key_returns_401(
     server, _ = make_server(world, session_factory, settings, transport="streamable-http")
     app = build_streamable_http_app(server, settings)
     response = asyncio.run(
-        _raw_post(app, headers=_auth_headers("hya_live_no-such-key-000000000000"))
+        _with_lifespan(
+            app, _raw_post(app, headers=_auth_headers("hya_live_no-such-key-000000000000"))
+        )
     )
     assert response.status_code == 401
 
@@ -104,7 +158,9 @@ def test_http_revoked_key_returns_401(
 ) -> None:
     server, _ = make_server(world, session_factory, settings, transport="streamable-http")
     app = build_streamable_http_app(server, settings)
-    response = asyncio.run(_raw_post(app, headers=_auth_headers(world.key_revoked_secret)))
+    response = asyncio.run(
+        _with_lifespan(app, _raw_post(app, headers=_auth_headers(world.key_revoked_secret)))
+    )
     assert response.status_code == 401
 
 
@@ -114,7 +170,9 @@ def test_http_key_without_mcp_connect_returns_403(
     """A valid key without mcp:connect is refused at the transport (403)."""
     server, _ = make_server(world, session_factory, settings, transport="streamable-http")
     app = build_streamable_http_app(server, settings)
-    response = asyncio.run(_raw_post(app, headers=_auth_headers(world.key_no_mcp_secret)))
+    response = asyncio.run(
+        _with_lifespan(app, _raw_post(app, headers=_auth_headers(world.key_no_mcp_secret)))
+    )
     assert response.status_code == 403
     assert response.json()["error"] == "insufficient_scope"
 
@@ -126,9 +184,12 @@ def test_http_bad_origin_returns_403(
     server, _ = make_server(world, session_factory, settings, transport="streamable-http")
     app = build_streamable_http_app(server, settings)
     response = asyncio.run(
-        _raw_post(
+        _with_lifespan(
             app,
-            headers={**_auth_headers(world.key_full_secret), "Origin": "http://evil.example"},
+            _raw_post(
+                app,
+                headers={**_auth_headers(world.key_full_secret), "Origin": "http://evil.example"},
+            ),
         )
     )
     assert response.status_code == 403
@@ -141,9 +202,12 @@ def test_http_bad_host_returns_421(
     server, _ = make_server(world, session_factory, settings, transport="streamable-http")
     app = build_streamable_http_app(server, settings)
     response = asyncio.run(
-        _raw_post(
+        _with_lifespan(
             app,
-            headers={**_auth_headers(world.key_full_secret), "Host": "evil.example"},
+            _raw_post(
+                app,
+                headers={**_auth_headers(world.key_full_secret), "Host": "evil.example"},
+            ),
         )
     )
     assert response.status_code == 421
@@ -161,7 +225,9 @@ def test_http_oversized_body_returns_413(
     body = dict(_INITIALIZE_BODY)
     body["params"] = {**_INITIALIZE_BODY["params"], "padding": "x" * 2048}
     response = asyncio.run(
-        _raw_post(app, headers=_auth_headers(world.key_full_secret), body=body)
+        _with_lifespan(
+            app, _raw_post(app, headers=_auth_headers(world.key_full_secret), body=body)
+        )
     )
     assert response.status_code == 413
 
@@ -189,7 +255,7 @@ def test_http_rate_limit_returns_429(
                 statuses.append(response.status_code)
             return statuses
 
-    statuses = asyncio.run(_run())
+    statuses = asyncio.run(_with_lifespan(app, _run()))
     assert statuses[0] == 401  # unauthenticated, but within the rate budget
     assert statuses[1] == 401
     assert statuses[2] == 429
@@ -200,11 +266,10 @@ def test_http_client_end_to_end(
 ) -> None:
     """The real SDK Streamable HTTP client talks to the app end to end."""
 
+    server, _ = make_server(world, session_factory, settings, transport="streamable-http")
+    app = build_streamable_http_app(server, settings)
+
     async def _run() -> None:
-        server, _ = make_server(
-            world, session_factory, settings, transport="streamable-http"
-        )
-        app = build_streamable_http_app(server, settings)
         transport = httpx2.ASGITransport(app=app)
         async with httpx2.AsyncClient(
             transport=transport,
@@ -234,7 +299,7 @@ def test_http_client_end_to_end(
                         == f"echo:ping:{world.company_a_id}:streamable-http"
                     )
 
-    asyncio.run(asyncio.wait_for(_run(), timeout=HTTP_TIMEOUT_SECONDS))
+    asyncio.run(asyncio.wait_for(_with_lifespan(app, _run()), timeout=HTTP_TIMEOUT_SECONDS))
     rows = audit_rows(session_factory, world.tool_name)
     assert len(rows) == 1
     assert rows[0].outcome == "allowed"
@@ -247,11 +312,10 @@ def test_http_company_restriction_enforced(
 ) -> None:
     """The company SAFETY property holds over Streamable HTTP too."""
 
+    server, _ = make_server(world, session_factory, settings, transport="streamable-http")
+    app = build_streamable_http_app(server, settings)
+
     async def _run() -> None:
-        server, _ = make_server(
-            world, session_factory, settings, transport="streamable-http"
-        )
-        app = build_streamable_http_app(server, settings)
         transport = httpx2.ASGITransport(app=app)
         async with httpx2.AsyncClient(
             transport=transport,
@@ -271,7 +335,7 @@ def test_http_company_restriction_enforced(
                     assert excinfo.value.code == MCP_ERROR_FORBIDDEN
                     assert "restricted to a different company" in str(excinfo.value)
 
-    asyncio.run(asyncio.wait_for(_run(), timeout=HTTP_TIMEOUT_SECONDS))
+    asyncio.run(asyncio.wait_for(_with_lifespan(app, _run()), timeout=HTTP_TIMEOUT_SECONDS))
     rows = audit_rows(session_factory, world.tool_name)
     assert len(rows) == 1
     assert rows[0].outcome == "denied"

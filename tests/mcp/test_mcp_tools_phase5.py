@@ -685,7 +685,7 @@ def _cheque(
         company_engine_id=int(world.company_a_external_id),
         kind=kind,
         purpose=purpose,
-        sayad_id=f"SAYAD-603-{uuid.uuid4().hex[:12]}",
+        sayad_id=f"603{uuid.uuid4().int % 10**13:013d}",  # 16 digits: the real Sayyad format, fits varchar(16)
         amount_irr=amount_irr,
         issue_date=FiscalDate(datetime.date(2026, 11, 1)),
         due_date=FiscalDate(due),
@@ -711,7 +711,7 @@ def _seed_cheques(session_factory: Callable[[], Session], world: World) -> Chequ
         repository = SqlAlchemyChequeRepository(session)
         received = _cheque(
             world,
-            cheque_id=f"ch-603-r-{uuid.uuid4().hex[:8]}",
+            cheque_id=f"ch-603-r-{uuid.uuid4().hex[:7]}",
             kind=ChequeKind.RECEIVED,
             purpose=ChequePurpose.PAYMENT,
             state=ChequeState.HELD,
@@ -720,7 +720,7 @@ def _seed_cheques(session_factory: Callable[[], Session], world: World) -> Chequ
         )
         issued = _cheque(
             world,
-            cheque_id=f"ch-603-i-{uuid.uuid4().hex[:8]}",
+            cheque_id=f"ch-603-i-{uuid.uuid4().hex[:7]}",
             kind=ChequeKind.ISSUED,
             purpose=ChequePurpose.PAYMENT,
             state=ChequeState.HELD,
@@ -729,7 +729,7 @@ def _seed_cheques(session_factory: Callable[[], Session], world: World) -> Chequ
         )
         collateral = _cheque(
             world,
-            cheque_id=f"ch-603-c-{uuid.uuid4().hex[:8]}",
+            cheque_id=f"ch-603-c-{uuid.uuid4().hex[:7]}",
             kind=ChequeKind.RECEIVED,
             purpose=ChequePurpose.COLLATERAL,
             state=ChequeState.HELD,
@@ -739,7 +739,7 @@ def _seed_cheques(session_factory: Callable[[], Session], world: World) -> Chequ
         )
         in_clearing = _cheque(
             world,
-            cheque_id=f"ch-603-x-{uuid.uuid4().hex[:8]}",
+            cheque_id=f"ch-603-x-{uuid.uuid4().hex[:7]}",
             kind=ChequeKind.RECEIVED,
             purpose=ChequePurpose.PAYMENT,
             state=ChequeState.IN_CLEARING,
@@ -1691,7 +1691,7 @@ def test_cash_forecast_mcp_equals_rest(
         mark_progress=False,
     )
     session = session_factory()
-    cheque_id = f"ch-603-f-{uuid.uuid4().hex[:8]}"
+    cheque_id = f"ch-603-f-{uuid.uuid4().hex[:7]}"
     try:
         repository = SqlAlchemyChequeRepository(session)
         cheque = _cheque(

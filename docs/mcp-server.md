@@ -34,6 +34,16 @@ the real tools.
 
 - Target: **MCP 2026-07-28**, on the official Python MCP SDK v2
   (`mcp` 2.x, locked to 2.3.0 in `uv.lock`; Python 3.12 baseline).
+- Negotiated version: the `initialize` handshake negotiates
+  **2025-11-25** with the pinned SDK — its
+  `HANDSHAKE_PROTOCOL_VERSIONS` tops out there, and 2026-07-28 lives
+  in `MODERN_PROTOCOL_VERSIONS` (the stateless per-request envelope),
+  which is not reachable via `initialize` (`mcp_types/version.py`).
+  The 2026-07-28 target above is the spec revision the SDK speaks
+  (`LATEST_PROTOCOL_VERSION`); the handshake ceiling rises when a
+  future SDK upgrades it. The conformance suite asserts the
+  negotiated version honestly (`MCP_NEGOTIATED_VERSION` in
+  `tests/mcp/conformance.py`) — the version string is never faked.
 - The server is the SDK's `MCPServer` (`mcp.server.mcpserver`) —
   `FastMCP` was renamed to `MCPServer` in SDK v2, and the server code
   follows the installed 2.3.0 API (verified from site-packages).
@@ -689,7 +699,9 @@ order):
   no figures), and harness tests for list, scope denial,
   cross-company denial, and end-to-end renders.
 - `test_mcp_conformance.py` + `conformance.py` (US-606) — the
-  full-surface conformance suite: protocol version 2026-07-28, the
+  full-surface conformance suite: negotiated protocol version
+  2025-11-25 (the pinned SDK's handshake ceiling; see
+  [Protocol and SDK](#protocol-and-sdk)), the
   exact production surface (23 tools, 6 resource templates, 6 prompts),
   narrow input schemas per tool, capabilities, a raw host-style
   JSON-RPC client (no SDK client) over memory streams and over the

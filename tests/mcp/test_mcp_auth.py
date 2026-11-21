@@ -305,15 +305,23 @@ def test_company_resolves_by_engine_id(
 def test_unknown_tool_call_audited_as_error(
     world: World, session_factory: Callable[[], Session], settings: AppSettings
 ) -> None:
-    """Calling a tool that does not exist fails and is audited as an error."""
+    """Calling a tool that does not exist fails and is audited as an error.
+
+    The SDK returns an unknown tool as a CallToolResult with
+    ``is_error=True`` — NOT a protocol error (only MCPError
+    propagates; ToolError becomes an isError result). The audit
+    requirement stands: the middleware audits the error result as
+    error/tool_error.
+    """
 
     async def _run() -> None:
         server, _ = make_server(
             world, session_factory, settings, bootstrap_secret=world.key_full_secret
         )
         async with connected_client(server) as session:
-            with pytest.raises(MCPError):
-                await session.call_tool("no_such_tool", {"message": "hi"})
+            result = await session.call_tool("no_such_tool", {"message": "hi"})
+            assert result.is_error
+            assert tool_text(result) == "Unknown tool: no_such_tool"
 
     asyncio.run(_run())
     rows = audit_rows(session_factory, "no_such_tool")

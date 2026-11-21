@@ -29,7 +29,10 @@ forgotten by a future tool:
    :class:`AiAccessAuditWriter`, with the company the call touched:
    the ``company`` argument for tools and prompts, the ``{company}``
    URI segment for resources (US-606 — resolved tenant-scoped for
-   the audit record only, never as authorization). List operations
+   the audit record only, never as authorization). A tool call whose
+   result carries ``is_error`` (unknown tool, invalid arguments —
+   the SDK returns these as normal results, not protocol errors) is
+   audited as an error, never as allowed. List operations
    (``tools/list``, ``resources/list``, ``prompts/list``) and
    ``initialize``/``ping`` are NOT audited: they access no company
    data. An audit-write failure fails the call closed
@@ -70,6 +73,22 @@ _PASSTHROUGH_METHODS = frozenset({"initialize", "ping"})
 
 #: Methods whose attempts are audit-logged (data access).
 _AUDITABLE_METHODS = frozenset({"tools/call", "resources/read", "prompts/get"})
+
+
+def _is_error_result(result: HandlerResult) -> bool:
+    """True when a tool-call result reports failure (``is_error``).
+
+    The SDK converts an unknown tool or invalid arguments into a
+    ``CallToolResult(is_error=True)`` returned NORMALLY — only
+    ``MCPError`` propagates as a protocol error — so a successful
+    return is not necessarily a success. ``HandlerResult`` is
+    ``BaseModel | dict | None``; the SDK returns a ``CallToolResult``
+    model, but read defensively so a dict-shaped result is handled
+    the same way.
+    """
+    if isinstance(result, dict):
+        return bool(result.get("is_error"))
+    return bool(getattr(result, "is_error", False))
 
 
 class HesabYarMcpMiddleware:
@@ -160,9 +179,18 @@ class HesabYarMcpMiddleware:
                 ctx, client, "tools/call", outcome="error", error_code="tool_error", company_id=company_id
             )
             raise
-        await self._audit(
-            ctx, client, "tools/call", outcome="allowed", company_id=company_id
-        )
+        # A returned result is not necessarily a success: the SDK turns
+        # an unknown tool or invalid arguments into a CallToolResult
+        # with is_error=True instead of raising, so audit such a result
+        # as an error — never record a failed call as "allowed".
+        if _is_error_result(result):
+            await self._audit(
+                ctx, client, "tools/call", outcome="error", error_code="tool_error", company_id=company_id
+            )
+        else:
+            await self._audit(
+                ctx, client, "tools/call", outcome="allowed", company_id=company_id
+            )
         return result
 
     async def _checked_company(

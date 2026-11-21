@@ -159,7 +159,7 @@ def _seed_registries(engine: Engine) -> None:
         session.close()
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture()
 def live_company(settings: AppSettings) -> CompanyRef:
     """Resolve the live Adapter Test company (skip when Tryton is down).
 
@@ -299,21 +299,24 @@ def extra_keys(
     """Extra keys on the shared world's tenant (no Tryton needed).
 
     The shared ``world`` keys carry only company:read + reports:read;
-    the scope tests need narrower keys. The world's teardown deletes
-    the tenant, cascading to these keys.
+    the scope tests need narrower keys, and the company-restriction
+    test needs a key restricted to company A that still holds EVERY
+    tool scope — otherwise the middleware denies with missing_scope
+    before the company check is ever reached.
     """
     session = sessionmaker(bind=engine)()
     service = ApiKeyService(ApiKeyCrypto(settings.auth.api_key_pepper))
     client = session.get(ApiClientModel, world.client_id)
     assert client is not None
 
-    def _key(scopes: list[str]) -> str:
+    def _key(scopes: list[str], **kwargs: object) -> str:
         issued = service.issue_key(
             session,
             client=client,
             name="mcp us-602 extra key",
             scopes=scopes,
             installation_id=INSTALLATION_ID,
+            **kwargs,  # type: ignore[arg-type]
         )
         return issued.secret
 
@@ -321,6 +324,10 @@ def extra_keys(
         "mcp_only": _key(["mcp:connect"]),
         "standards_only": _key(["mcp:connect", "standards:read"]),
         "workflow_only": _key(["mcp:connect", "workflow:read"]),
+        # Restricted to company A, but scoped for every tool: the
+        # company-restriction test must reach the company check, not
+        # trip on missing_scope first.
+        "restricted_all": _key(ALL_TOOL_SCOPES, engine_company_id=world.company_a_id),
     }
     session.commit()
     yield keys
@@ -589,12 +596,19 @@ def test_restricted_key_cannot_call_other_company(
     world: World,
     session_factory: Callable[[], Session],
     settings: AppSettings,
+    extra_keys: dict[str, str],
 ) -> None:
-    """A key restricted to company A is refused company B (same tenant)."""
+    """A key restricted to company A is refused company B (same tenant).
+
+    Uses the fully-scoped restricted key: the shared world's
+    restricted key lacks banking:read / workflow:read, so the
+    middleware would deny those tools with missing_scope before the
+    company check runs — and this test is about the company check.
+    """
 
     async def _run() -> int:
         server = _core_server(
-            session_factory, settings, bootstrap_secret=world.key_restricted_a_secret
+            session_factory, settings, bootstrap_secret=extra_keys["restricted_all"]
         )
         async with connected_client(server) as session:
             return await _call_error_code(session, tool, _args_for(tool, world.company_b_id))
@@ -691,20 +705,30 @@ def test_bad_review_filter_is_invalid_params(
 def test_malformed_date_is_rejected(
     world: World, session_factory: Callable[[], Session], settings: AppSettings
 ) -> None:
-    """A non-date string for a date argument fails (pydantic validation)."""
+    """A non-date string for a date argument fails as an isError result.
+
+    The ``date`` param is validated by pydantic at the SIGNATURE level,
+    before the handler runs — the SDK wraps the ValidationError in a
+    ToolError, which becomes ``CallToolResult(is_error=True)`` (only
+    MCPError propagates as a protocol error). That is the distinction
+    from a handler-level rejection, which does raise MCPError.
+    """
 
     async def _run() -> None:
         server = _core_server(session_factory, settings, bootstrap_secret=world.key_full_secret)
         async with connected_client(server) as session:
-            with pytest.raises(MCPError):
-                await session.call_tool(
-                    "get_trial_balance",
-                    {
-                        "company": world.company_a_id,
-                        "date_from": "not-a-date",
-                        "date_to": PERIOD_NOV_2026[1],
-                    },
-                )
+            result = await session.call_tool(
+                "get_trial_balance",
+                {
+                    "company": world.company_a_id,
+                    "date_from": "not-a-date",
+                    "date_to": PERIOD_NOV_2026[1],
+                },
+            )
+            assert result.is_error
+            text = tool_text(result)
+            assert text.startswith("Error executing tool get_trial_balance:")
+            assert "date_from" in text
 
     asyncio.run(_run())
 

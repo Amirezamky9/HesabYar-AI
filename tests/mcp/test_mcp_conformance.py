@@ -57,7 +57,6 @@ from hesabyar.interfaces.mcp.errors import MCP_ERROR_FORBIDDEN
 from hesabyar.interfaces.mcp.prompts import PROMPT_DEFINITIONS
 from hesabyar.interfaces.mcp.registry import ToolRegistry
 from hesabyar.interfaces.mcp.resources import RESOURCE_DEFINITIONS, RESOURCE_MIME_TYPE
-from hesabyar.interfaces.mcp.tools_core import MCP_ERROR_INVALID_PARAMS
 from tests.mcp.conformance import (
     EXPECTED_PROMPT_COUNT,
     EXPECTED_PROMPT_NAMES,
@@ -67,9 +66,9 @@ from tests.mcp.conformance import (
     EXPECTED_TOOL_NAMES,
     EXPECTED_TOOL_PROPERTIES,
     EXPECTED_TOOL_REQUIRED,
+    MCP_NEGOTIATED_VERSION,
     MCP_SPEC_VERSION,
     STDIO_TIMEOUT_SECONDS,
-    RawMcpError,
     connect_raw_memory,
     connect_raw_stdio,
     make_full_surface_server,
@@ -148,7 +147,7 @@ def _seed_registries(engine: Engine) -> None:
         session.close()
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture()
 def live_company(settings: AppSettings) -> CompanyRef:
     """Resolve the live Adapter Test company (skip when Tryton is down)."""
     tryton = settings.tryton
@@ -318,7 +317,13 @@ def test_sdk_targets_spec_version() -> None:
 def test_protocol_version_negotiated(
     world: World, session_factory: Callable[[], Session], settings: AppSettings
 ) -> None:
-    """Initialize negotiates MCP 2026-07-28 with the reference client."""
+    """Initialize negotiates the newest handshake version the pinned SDK offers.
+
+    The spec target is MCP 2026-07-28, but the pinned SDK (mcp 2.3.0)
+    only reaches 2026-07-28 through the stateless per-request
+    envelope — the ``initialize`` handshake tops out at 2025-11-25
+    (``HANDSHAKE_PROTOCOL_VERSIONS`` in ``mcp_types/version.py``).
+    """
 
     async def _run() -> str | None:
         server, _ = make_full_surface_server(
@@ -329,7 +334,7 @@ def test_protocol_version_negotiated(
             assert session.server_info.name == SERVER_NAME
             return session.protocol_version
 
-    assert asyncio.run(_run()) == MCP_SPEC_VERSION
+    assert asyncio.run(_run()) == MCP_NEGOTIATED_VERSION
 
 
 def test_full_surface_lists_exactly(
@@ -529,7 +534,7 @@ def test_raw_client_initialize_and_lists(
             )
 
     init, tool_names, template_uris, prompt_names = asyncio.run(_run())
-    assert init["protocolVersion"] == MCP_SPEC_VERSION
+    assert init["protocolVersion"] == MCP_NEGOTIATED_VERSION
     assert init["serverInfo"]["name"] == SERVER_NAME
     assert init.get("instructions")
     assert tool_names == EXPECTED_TOOL_NAMES
@@ -598,33 +603,46 @@ def test_raw_client_calls_tool_reads_resource_gets_prompt(
     assert "خلاصهٔ مطالبات معوق" in rendered
 
 
-def test_raw_client_unknown_tool_is_method_not_found(
+def test_raw_client_unknown_tool_is_error_result(
     world: World, session_factory: Callable[[], Session], settings: AppSettings
 ) -> None:
-    """A raw client calling an unknown tool gets JSON-RPC -32601."""
+    """A raw client calling an unknown tool gets an isError result.
 
-    async def _run() -> int:
+    NOT JSON-RPC -32601: that code is for an unknown METHOD, and
+    ``tools/call`` is a known method — the unknown thing is the tool
+    name inside it. The SDK raises ToolError for an unknown tool and
+    converts it to ``CallToolResult(is_error=True)`` (only MCPError
+    propagates as a protocol error).
+    """
+
+    async def _run() -> dict[str, Any]:
         server, _ = make_full_surface_server(
             session_factory, settings, bootstrap_secret=world.key_full_secret
         )
         async with connect_raw_memory(server) as raw:
             await raw.initialize()
-            with pytest.raises(RawMcpError) as excinfo:
-                await raw.request(
-                    "tools/call",
-                    {"name": "no_such_tool", "arguments": {}},
-                )
-            return excinfo.value.code
+            return await raw.request(
+                "tools/call",
+                {"name": "no_such_tool", "arguments": {}},
+            )
 
-    assert asyncio.run(_run()) == -32601
+    result = asyncio.run(_run())
+    assert result["isError"] is True
+    assert result["content"][0]["text"] == "Unknown tool: no_such_tool"
 
 
 def test_raw_client_invalid_arguments(
     world: World, session_factory: Callable[[], Session], settings: AppSettings
 ) -> None:
-    """A raw client calling a tool without its required args gets -32602."""
+    """A raw client calling a tool without its required args gets an isError result.
 
-    async def _run() -> int:
+    NOT JSON-RPC -32602: pydantic signature validation fails before
+    the handler runs, the SDK wraps the ValidationError in a
+    ToolError, and that becomes ``CallToolResult(is_error=True)``
+    whose text names the rejected fields.
+    """
+
+    async def _run() -> dict[str, Any]:
         secret, _ = _issue_key(
             session_factory, settings, world, list(ALL_CONFORMANCE_SCOPES)
         )
@@ -633,14 +651,18 @@ def test_raw_client_invalid_arguments(
         )
         async with connect_raw_memory(server) as raw:
             await raw.initialize()
-            with pytest.raises(RawMcpError) as excinfo:
-                await raw.request(
-                    "tools/call",
-                    {"name": "get_trial_balance", "arguments": {}},
-                )
-            return excinfo.value.code
+            return await raw.request(
+                "tools/call",
+                {"name": "get_trial_balance", "arguments": {}},
+            )
 
-    assert asyncio.run(_run()) == MCP_ERROR_INVALID_PARAMS
+    result = asyncio.run(_run())
+    assert result["isError"] is True
+    text = str(result["content"][0]["text"])
+    assert text.startswith("Error executing tool get_trial_balance:")
+    assert "company" in text
+    assert "date_from" in text
+    assert "date_to" in text
 
 
 # ---------------------------------------------------------------------------
@@ -672,7 +694,7 @@ def test_raw_stdio_client_lists_full_surface(
     init, tool_names, template_uris, prompt_names = asyncio.run(
         asyncio.wait_for(_run(), timeout=STDIO_TIMEOUT_SECONDS)
     )
-    assert init["protocolVersion"] == MCP_SPEC_VERSION
+    assert init["protocolVersion"] == MCP_NEGOTIATED_VERSION
     assert init["serverInfo"]["name"] == SERVER_NAME
     assert tool_names == EXPECTED_TOOL_NAMES
     assert template_uris == EXPECTED_RESOURCE_TEMPLATES

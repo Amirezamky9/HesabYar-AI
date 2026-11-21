@@ -602,7 +602,12 @@ def snapshot_for_b(
             total_debit=1000,
             total_credit=1000,
         )
-        session.add_all([run, snapshot])
+        session.add(run)
+        # SQLAlchemy does not order a flush by a bare-FK dependency
+        # without a relationship: the run must exist before the
+        # snapshot that references it (validation_run_id FK).
+        session.flush()
+        session.add(snapshot)
         session.commit()
         yield SeededSnapshot(run_id=run_id, snapshot_id=snapshot_id)
     finally:
