@@ -43,6 +43,7 @@ const ROUTES: { path: string; heading?: string; text?: string }[] = [
   { path: "/payments", heading: "پرداخت‌ها" },
   { path: "/banking/statements", heading: "صورت‌حساب‌های بانکی" },
   { path: "/banking/cash-boxes", heading: "صندوق‌ها" },
+  { path: "/banking/bank-rules", heading: "قواعد تطبیق" },
   { path: "/settlements", heading: "مرکز تسویه" },
   { path: "/settlements/schedule", heading: "برنامهٔ قسط‌های تسویه" },
   { path: "/settlements/import", heading: "ایمپورت فایل تسویه" },
@@ -53,6 +54,7 @@ const ROUTES: { path: string; heading?: string; text?: string }[] = [
   { path: "/compliance/tax-policy", heading: "سیاست مالیاتی" },
   { path: "/compliance/validations", heading: "اعتبارسنجی‌ها" },
   { path: "/compliance/moadian", heading: "مودیان" },
+  { path: "/integrations/workflows", heading: "گردش‌کارها" },
 ];
 
 /** True when the document has no horizontal overflow at the current viewport. */

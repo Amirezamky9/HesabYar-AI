@@ -17,13 +17,15 @@
  * installment endpoints (US-540–545: plans, receipts, contracts,
  * payoff quotes, early settlements, the overdue report, dunning,
  * plan amendments, SMS reminders) and the US-544 SMS provider
- * registry. Response types mirror the
+ * registry, plus the Phase 5-7 rules-engine endpoints (US-561:
+ * rules CRUD, enable/disable, dry-run, live evaluate, execution
+ * history, rule-set modes). Response types mirror the
  * backend's Pydantic schemas
  * (see docs/rest-api.md, docs/standards-registry.md,
  * docs/tax-policy.md, docs/report-validations.md, docs/moadian.md,
  * docs/review-queue.md, docs/event-platform.md, docs/cashbox.md,
  * docs/packaging.md, docs/settlement.md, docs/installments.md,
- * docs/sms-providers.md).
+ * docs/sms-providers.md, docs/rules-engine.md).
  *
  * Errors: the backend returns RFC 9457 problem-details
  * ({ type, title, status, detail, code, request_id }). Failures throw
@@ -526,6 +528,95 @@ export interface MatchRuleResponse {
   confirmations: number;
   created_at: string | null;
   updated_at: string | null;
+}
+
+// -- bank auto-coding rules (US-565, W3) ---------------------------------------
+// User-defined rules: when <statement-line pattern> → suggest <account>.
+// A rule is born in SUGGEST mode and becomes AUTO only after a human
+// promotes it at 3 confirmed suggestions (the US-552 pattern).
+
+export interface BankRuleResponse {
+  id: string;
+  tenant_id: string;
+  company_id: string;
+  bank_key: string;
+  name: string;
+  description_contains: string | null;
+  counterparty_contains: string | null;
+  amount_min_irr: number | null;
+  amount_max_irr: number | null;
+  direction: string;
+  target_account_id: number;
+  target_party_id: number | null;
+  target_kind: string;
+  mode: string;
+  confirmations: number;
+  auto_eligible: boolean;
+  priority: number;
+  enabled: boolean;
+  created_by: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface BankRuleCreateRequest {
+  company_id: string;
+  name: string;
+  target_account_id: number;
+  bank_key?: string;
+  description_contains?: string | null;
+  counterparty_contains?: string | null;
+  amount_min_irr?: number | null;
+  amount_max_irr?: number | null;
+  direction?: string;
+  target_party_id?: number | null;
+  target_kind?: string;
+  priority?: number;
+  enabled?: boolean;
+}
+
+export interface BankRuleUpdateRequest {
+  name?: string | null;
+  bank_key?: string | null;
+  description_contains?: string | null;
+  counterparty_contains?: string | null;
+  amount_min_irr?: number | null;
+  amount_max_irr?: number | null;
+  direction?: string | null;
+  target_account_id?: number | null;
+  target_party_id?: number | null;
+  target_kind?: string | null;
+  priority?: number | null;
+  enabled?: boolean | null;
+}
+
+export interface BankRuleSuggestionResponse {
+  id: string;
+  tenant_id: string;
+  rule_id: string | null;
+  rule_name: string;
+  company_id: string;
+  statement_id: number;
+  statement_line_id: number;
+  line_description: string;
+  line_amount_irr: number;
+  target_account_id: number;
+  target_party_id: number | null;
+  status: string;
+  confirmed_by: string | null;
+  confirmed_at: string | null;
+  created_at: string | null;
+}
+
+export interface ConfirmSuggestionResponse {
+  match: BankStatementMatchResponse;
+  rule: BankRuleResponse | null;
+}
+
+export interface UndoAutoCodeResponse {
+  match: BankStatementMatchResponse;
+  undone_rule_id: string;
+  undone_match_id: string;
 }
 
 export interface ReconciliationRowResponse {
@@ -1272,6 +1363,122 @@ export interface ReviewQueueSummaryResponse {
   oldest_open_age_hours: number | null;
   oldest_open_item_id: string | null;
   admin_notifications: AdminNotificationResponse[];
+}
+
+// ---------------------------------------------------------------------------
+// Rules engine (US-561) — docs/rules-engine.md
+//
+// Conditions and action params travel as raw JSON (validated by the
+// backend's DSL grammar and the closed action set — never by the
+// frontend). Amounts inside conditions/payloads are whole Rial; the
+// UI takes تومان from the operator and converts (×10) at the boundary.
+// ---------------------------------------------------------------------------
+
+/** One action from the closed set (create_draft | post_if_policy_allows | notify | assign | tag | set_field). */
+export interface RuleAction {
+  kind: string;
+  params: Record<string, unknown>;
+}
+
+export interface RuleResponse {
+  id: string;
+  tenant_id: string;
+  installation_id: string | null;
+  name: string;
+  description: string;
+  event_type: string;
+  conditions: Record<string, unknown>;
+  action: RuleAction;
+  priority: number;
+  enabled: boolean;
+  created_by: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface RuleCreateRequest {
+  name: string;
+  description?: string;
+  event_type: string;
+  conditions?: Record<string, unknown>;
+  action: RuleAction;
+  priority?: number;
+  enabled?: boolean;
+}
+
+export interface RuleUpdateRequest {
+  name?: string;
+  description?: string;
+  event_type?: string;
+  conditions?: Record<string, unknown>;
+  action?: RuleAction;
+  priority?: number;
+  enabled?: boolean;
+}
+
+export interface RuleExecutionResponse {
+  id: string;
+  tenant_id: string;
+  rule_id: string | null;
+  event_id: string | null;
+  event_type: string;
+  mode: string;
+  decision: string;
+  outcome: string;
+  action_kind: string | null;
+  details: Record<string, unknown>;
+  error: string | null;
+  executed_by: string;
+  executed_at: string | null;
+}
+
+/** Dry-run / live-evaluate event input: a past event OR a sample payload, never both. */
+export interface RuleEventInput {
+  event_id?: string | null;
+  event_type?: string | null;
+  payload?: Record<string, unknown> | null;
+  company_engine_id?: number | null;
+  event_date?: string | null;
+  channel_key?: string | null;
+  review_item_id?: string | null;
+  draft_kind?: string | null;
+  draft_engine_id?: number | null;
+}
+
+export type DryRunRequest = RuleEventInput;
+
+export interface DryRunResponse {
+  rule_id: string | null;
+  rule_name: string;
+  event_type: string;
+  matched: boolean;
+  decision: string;
+  outcome: string;
+  would_do: string;
+  details: Record<string, unknown>;
+  execution_id: string;
+}
+
+export interface DryRunDefinitionRequest extends RuleEventInput {
+  name: string;
+  conditions?: Record<string, unknown>;
+  action: RuleAction;
+}
+
+export interface EvaluateRequest extends RuleEventInput {
+  match_mode?: string | null;
+}
+
+export interface EvaluateResponse {
+  executions: RuleExecutionResponse[];
+  matched_rules: number;
+}
+
+export interface RuleSetConfigResponse {
+  tenant_id: string;
+  event_type: string;
+  match_mode: string;
+  updated_at: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -2960,7 +3167,7 @@ export interface StaleInboxResponse {
 // ---------------------------------------------------------------------------
 
 export interface RequestOptions {
-  method?: "GET" | "POST" | "PATCH" | "PUT";
+  method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
   /** JSON body for POST/PATCH. */
   body?: unknown;
   /** Idempotency-Key for mutations (required by the backend on creates/posts). */
@@ -3001,7 +3208,7 @@ export async function bffRequest<T>(path: string, options: RequestOptions = {}):
     ...options.init,
   });
 
-  // Empty success body (e.g. 204) — none of the endpoints use it, but stay safe.
+  // Empty success body — DELETE /rules/{id} answers 204 (US-562).
   if (res.status === 204) return undefined as T;
 
   const data: unknown = await res.json().catch(() => null);
@@ -3029,7 +3236,7 @@ export async function bffRequest<T>(path: string, options: RequestOptions = {}):
 }
 
 // ---------------------------------------------------------------------------
-// Endpoint methods (207) — one per backend route
+// Endpoint methods (246) — one per backend route
 // ---------------------------------------------------------------------------
 
 export const api = {
@@ -3261,6 +3468,69 @@ export const api = {
       idempotencyKey,
     }),
 
+  // -- bank auto-coding rules (US-565, W3) ------------------------------------
+  listBankRules: (params: { company?: string; enabled?: boolean; mode?: string } = {}) =>
+    bffRequest<BankRuleResponse[]>(
+      `bank/rules${buildQuery({
+        company: params.company,
+        enabled: params.enabled === undefined ? undefined : params.enabled ? "true" : "false",
+        mode: params.mode,
+      })}`,
+    ),
+  createBankRule: (body: BankRuleCreateRequest) =>
+    bffRequest<BankRuleResponse>("bank/rules", { method: "POST", body }),
+  getBankRule: (ruleId: string) =>
+    bffRequest<BankRuleResponse>(`bank/rules/${encodeURIComponent(ruleId)}`),
+  updateBankRule: (ruleId: string, body: BankRuleUpdateRequest) =>
+    bffRequest<BankRuleResponse>(`bank/rules/${encodeURIComponent(ruleId)}`, {
+      method: "PUT",
+      body,
+    }),
+  deleteBankRule: (ruleId: string) =>
+    bffRequest<void>(`bank/rules/${encodeURIComponent(ruleId)}`, { method: "DELETE" }),
+  enableBankRule: (ruleId: string) =>
+    bffRequest<BankRuleResponse>(`bank/rules/${encodeURIComponent(ruleId)}/enable`, {
+      method: "POST",
+    }),
+  disableBankRule: (ruleId: string) =>
+    bffRequest<BankRuleResponse>(`bank/rules/${encodeURIComponent(ruleId)}/disable`, {
+      method: "POST",
+    }),
+  promoteBankRule: (ruleId: string) =>
+    bffRequest<BankRuleResponse>(`bank/rules/${encodeURIComponent(ruleId)}/promote`, {
+      method: "POST",
+    }),
+  demoteBankRule: (ruleId: string) =>
+    bffRequest<BankRuleResponse>(`bank/rules/${encodeURIComponent(ruleId)}/demote`, {
+      method: "POST",
+    }),
+  listBankRuleSuggestions: (
+    params: { rule_id?: string; status?: string; company?: string } = {},
+  ) =>
+    bffRequest<BankRuleSuggestionResponse[]>(
+      `bank/rules/suggestions${buildQuery(params as Record<string, string | undefined>)}`,
+    ),
+  confirmBankRuleSuggestion: (suggestionId: string, idempotencyKey = newIdempotencyKey()) =>
+    bffRequest<ConfirmSuggestionResponse>(
+      `bank/rules/suggestions/${encodeURIComponent(suggestionId)}/confirm`,
+      { method: "POST", idempotencyKey },
+    ),
+  rejectBankRuleSuggestion: (suggestionId: string) =>
+    bffRequest<BankRuleSuggestionResponse>(
+      `bank/rules/suggestions/${encodeURIComponent(suggestionId)}/reject`,
+      { method: "POST" },
+    ),
+  undoAutoCode: (
+    statementId: number,
+    lineId: number,
+    body: { corrected_account_id: number; corrected_party_id?: number | null },
+    idempotencyKey = newIdempotencyKey(),
+  ) =>
+    bffRequest<UndoAutoCodeResponse>(
+      `bank/statements/${statementId}/lines/${lineId}/undo-auto-code`,
+      { method: "POST", body, idempotencyKey },
+    ),
+
   // -- audit ------------------------------------------------------------------
   listAuditEvents: (
     params: PaginationParams & { actor?: string; action?: string; from?: string; to?: string } = {},
@@ -3472,6 +3742,51 @@ export const api = {
       `integrations/mappings/${encodeURIComponent(mappingId)}/promote`,
       { method: "POST" },
     ),
+
+  // -- rules engine (US-561; UI in US-562) ------------------------------------
+  listRules: (params: { event_type?: string; enabled?: boolean } = {}) =>
+    bffRequest<RuleResponse[]>(
+      `rules${buildQuery({
+        event_type: params.event_type,
+        enabled: params.enabled === undefined ? undefined : params.enabled ? "true" : "false",
+      })}`,
+    ),
+  createRule: (body: RuleCreateRequest, idempotencyKey = newIdempotencyKey()) =>
+    bffRequest<RuleResponse>("rules", { method: "POST", body, idempotencyKey }),
+  getRule: (ruleId: string) => bffRequest<RuleResponse>(`rules/${encodeURIComponent(ruleId)}`),
+  updateRule: (ruleId: string, body: RuleUpdateRequest) =>
+    bffRequest<RuleResponse>(`rules/${encodeURIComponent(ruleId)}`, { method: "PUT", body }),
+  deleteRule: (ruleId: string) =>
+    bffRequest<void>(`rules/${encodeURIComponent(ruleId)}`, { method: "DELETE" }),
+  enableRule: (ruleId: string) =>
+    bffRequest<RuleResponse>(`rules/${encodeURIComponent(ruleId)}/enable`, { method: "POST" }),
+  disableRule: (ruleId: string) =>
+    bffRequest<RuleResponse>(`rules/${encodeURIComponent(ruleId)}/disable`, { method: "POST" }),
+  dryRunRule: (ruleId: string, body: DryRunRequest) =>
+    bffRequest<DryRunResponse>(`rules/${encodeURIComponent(ruleId)}/dry-run`, {
+      method: "POST",
+      body,
+    }),
+  dryRunDefinition: (body: DryRunDefinitionRequest) =>
+    bffRequest<DryRunResponse>("rules/dry-run-definition", { method: "POST", body }),
+  evaluateRules: (body: EvaluateRequest) =>
+    bffRequest<EvaluateResponse>("rules/evaluate", { method: "POST", body }),
+  listExecutions: (params: { rule_id?: string; event_id?: string; limit?: number } = {}) =>
+    bffRequest<RuleExecutionResponse[]>(
+      `rules/executions${buildQuery(params as Record<string, string | number | undefined>)}`,
+    ),
+  getExecution: (executionId: string) =>
+    bffRequest<RuleExecutionResponse>(`rules/executions/${encodeURIComponent(executionId)}`),
+  listRuleExecutions: (ruleId: string, params: { limit?: number } = {}) =>
+    bffRequest<RuleExecutionResponse[]>(
+      `rules/${encodeURIComponent(ruleId)}/executions${buildQuery(params as Record<string, string | number | undefined>)}`,
+    ),
+  listRuleSets: () => bffRequest<RuleSetConfigResponse[]>("rules/sets"),
+  setRuleSetMode: (eventType: string, body: { match_mode: string }) =>
+    bffRequest<RuleSetConfigResponse>(`rules/sets/${encodeURIComponent(eventType)}`, {
+      method: "PUT",
+      body,
+    }),
 
   // -- manual entries (US-513, dual entry) ------------------------------------
   createManualOrder: (body: CreateManualOrderRequest, idempotencyKey = newIdempotencyKey()) =>

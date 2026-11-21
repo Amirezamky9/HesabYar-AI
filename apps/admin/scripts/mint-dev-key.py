@@ -117,6 +117,19 @@ OPERATOR_SCOPES = [
     # report through the BFF, which requires installments:*.
     "installments:read",
     "installments:write",
+    # Phase 5-7 (US-562 rules management UI): the workflows pages
+    # read/write rules, dry-run, live-evaluate and read execution
+    # history through the BFF, which requires rules:* (without them
+    # the workflows page 403s — the same trap as cheques:* in ۵ث).
+    "rules:read",
+    "rules:manage",
+    # Phase 5-7 (US-560 scheduler + US-564 reminders): the jobs
+    # endpoints and the reminder preferences/log endpoints require
+    # jobs:manage / reminders:manage (coordinator fix — neither
+    # worker added them, and the CI Playwright job mints its key
+    # from this script).
+    "jobs:manage",
+    "reminders:manage",
 ]
 
 

@@ -72,7 +72,7 @@ function problem(status: number, code: string, detail: string) {
   );
 }
 
-async function handle(request: Request, { params }: RouteParams, method: "GET" | "POST" | "PATCH" | "PUT") {
+async function handle(request: Request, { params }: RouteParams, method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE") {
   const session = await getSession();
   if (!session) {
     return problem(401, "UNAUTHORIZED", "Not signed in.");
@@ -135,4 +135,8 @@ export async function PATCH(request: Request, ctx: RouteParams) {
 
 export async function PUT(request: Request, ctx: RouteParams) {
   return handle(request, ctx, "PUT");
+}
+
+export async function DELETE(request: Request, ctx: RouteParams) {
+  return handle(request, ctx, "DELETE");
 }

@@ -152,6 +152,30 @@ export function persianApiErrorMessage(err: unknown, fallback: string): string {
       case "LEDGER_PAYMENT_NOT_FOUND":
       case "LEDGER_STATEMENT_NOT_FOUND":
         return "این رکورد پیدا نشد؛ ممکن است حذف شده باشد.";
+      case "RULE_NOT_FOUND":
+        return "این قانون پیدا نشد؛ ممکن است حذف شده باشد.";
+      case "RULE_INVALID":
+        return "تعریف قانون معتبر نیست؛ رویداد، شرط‌ها و اقدام را بررسی کنید — اقدام باید از مجموعهٔ مجاز باشد و شرط‌ها باید در قالب مجاز باشند.";
+      case "RULE_EXECUTION_NOT_FOUND":
+        return "این اجرای قانون پیدا نشد؛ ممکن است حذف شده باشد.";
+      case "EVENT_NOT_FOUND":
+        return "رویداد گذشته پیدا نشد؛ شناسهٔ رویداد را بررسی کنید.";
+      case "RULE_EVENT_INPUT_CONFLICT":
+        return "برای آزمایش یا اجرا، یا شناسهٔ رویداد گذشته را بدهید یا نمونهٔ آزمایشی را؛ هر دو با هم قابل قبول نیست.";
+      case "RULE_EVENT_INPUT_REQUIRED":
+        return "برای آزمایش یا اجرا، شناسهٔ رویداد گذشته یا نمونهٔ آزمایشی لازم است.";
+      case "BANK_RULE_NOT_FOUND":
+        return "این قاعدهٔ بانکی پیدا نشد؛ ممکن است حذف شده باشد.";
+      case "BANK_RULE_INVALID":
+        return "تعریف قاعدهٔ بانکی معتبر نیست؛ دست‌کم یک شرط لازم است و حداقل مبلغ نمی‌تواند بیشتر از حداکثر باشد.";
+      case "BANK_RULE_NOT_PROMOTABLE":
+        return "این قاعده هنوز سه تأیید نگرفته است؛ ارتقا به خودکار ممکن نیست.";
+      case "BANK_RULE_SUGGESTION_NOT_FOUND":
+        return "این پیشنهاد پیدا نشد؛ ممکن است حذف شده باشد.";
+      case "BANK_RULE_SUGGESTION_NOT_PENDING":
+        return "این پیشنهاد قبلاً بررسی شده است؛ دیگر در انتظار نیست.";
+      case "BANK_RULE_NOTHING_TO_UNDO":
+        return "برای این ردیف کدگذاری خودکاری وجود ندارد که بتوان آن را برگرداند.";
       default:
         return fallback;
     }

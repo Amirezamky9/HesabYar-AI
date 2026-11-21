@@ -73,6 +73,36 @@ describe("persianApiErrorMessage", () => {
     expect(msg).not.toContain("invoice:read");
     expect(msg).not.toContain("{");
   });
+
+  it("translates the bank-rule codes (US-565)", () => {
+    expect(
+      persianApiErrorMessage(new ApiError(404, "BANK_RULE_NOT_FOUND", "gone"), "پشتیبان"),
+    ).toContain("قاعدهٔ بانکی");
+    expect(
+      persianApiErrorMessage(new ApiError(422, "BANK_RULE_INVALID", "no conditions"), "پشتیبان"),
+    ).toContain("دست‌کم یک شرط");
+    expect(
+      persianApiErrorMessage(new ApiError(409, "BANK_RULE_NOT_PROMOTABLE", "2 < 3"), "پشتیبان"),
+    ).toContain("سه تأیید");
+    expect(
+      persianApiErrorMessage(
+        new ApiError(404, "BANK_RULE_SUGGESTION_NOT_FOUND", "gone"),
+        "پشتیبان",
+      ),
+    ).toContain("پیشنهاد");
+    expect(
+      persianApiErrorMessage(
+        new ApiError(409, "BANK_RULE_SUGGESTION_NOT_PENDING", "confirmed"),
+        "پشتیبان",
+      ),
+    ).toContain("قبلاً بررسی شده");
+    expect(
+      persianApiErrorMessage(
+        new ApiError(409, "BANK_RULE_NOTHING_TO_UNDO", "no auto match"),
+        "پشتیبان",
+      ),
+    ).toContain("کدگذاری خودکار");
+  });
 });
 
 describe("isPermissionDenied / isNotFoundError", () => {

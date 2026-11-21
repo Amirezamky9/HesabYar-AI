@@ -22,9 +22,11 @@
  * - مرکز اقساط `/installments` (US-545): مرکز اقساط، برنامهٔ جدید،
  *   گزارش‌های اقساط
  * - گزارش‌ها `/reports` (US-305)
+ * - یکپارچه‌سازی‌ها: گردش‌کارها `/integrations/workflows` (US-562)
  */
 
 import {
+  ArrowLeftRight,
   BookMarked,
   BookOpen,
   Bot,
@@ -52,6 +54,7 @@ import {
   TicketCheck,
   Users,
   Wallet,
+  Workflow,
   type LucideIcon,
 } from "lucide-react";
 
@@ -110,6 +113,7 @@ export const NAV_MODULES: NavModule[] = [
     children: [
       { id: "statements", label: "صورت‌حساب‌ها", href: "/banking/statements", icon: Landmark },
       { id: "cash-boxes", label: "صندوق‌ها", href: "/banking/cash-boxes", icon: Wallet },
+      { id: "bank-rules", label: "قواعد تطبیق", href: "/banking/bank-rules", icon: ArrowLeftRight },
     ],
   },
   {
@@ -170,7 +174,14 @@ export const NAV_MODULES: NavModule[] = [
       { id: "compliance-moadian", label: "مودیان", href: "/compliance/moadian", icon: Send },
     ],
   },
-  { id: "integrations", label: "یکپارچه‌سازی‌ها", icon: Plug, comingSoon: true },
+  {
+    id: "integrations",
+    label: "یکپارچه‌سازی‌ها",
+    icon: Plug,
+    children: [
+      { id: "workflows", label: "گردش‌کارها", href: "/integrations/workflows", icon: Workflow },
+    ],
+  },
   { id: "ai", label: "هوش مصنوعی و MCP", icon: Bot, comingSoon: true },
   { id: "api", label: "مدیریت API", icon: KeyRound, comingSoon: true },
   { id: "users", label: "کاربران و دسترسی‌ها", icon: Users, comingSoon: true },
@@ -190,6 +201,7 @@ export const ROUTE_LABELS: Record<string, string> = {
   banking: "بانک و صندوق",
   statements: "صورت‌حساب‌های بانکی",
   "cash-boxes": "صندوق‌ها",
+  "bank-rules": "قواعد تطبیق",
   reports: "گزارش‌ها",
   cheques: "مرکز چک",
   // Shared segment: /cheques/new and /installments/new both end in
@@ -212,6 +224,8 @@ export const ROUTE_LABELS: Record<string, string> = {
   "tax-policy": "سیاست مالیاتی",
   validations: "اعتبارسنجی‌ها",
   moadian: "مودیان",
+  integrations: "یکپارچه‌سازی‌ها",
+  workflows: "گردش‌کارها",
 };
 
 /** True when the current path belongs to this module (for active state). */

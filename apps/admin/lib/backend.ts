@@ -59,7 +59,9 @@ export const XL_UPSTREAM_TIMEOUT_MS = 1_800_000;
 const GET_RETRY_DELAY_MS = 1_000;
 
 export interface BackendCallOptions {
-  method?: "GET" | "POST" | "PATCH" | "PUT";
+  // DELETE joined in US-562 (DELETE /rules/{id}); node:http carries it
+  // like any other method, and the BFF proxies the 204 unchanged.
+  method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
   body?: unknown;
   idempotencyKey?: string;
   /** Per-call upstream timeout override (ms). Defaults to 120s. */

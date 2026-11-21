@@ -92,14 +92,18 @@ describe("api methods", () => {
     );
   });
 
-  it("exposes all endpoints including the Phase 4 compliance, Phase 5 review-queue, Phase 5-2 cash-box and Phase 5-6 report/forecast/import methods", () => {
+  it("exposes all endpoints including the Phase 4 compliance, Phase 5 review-queue, Phase 5-2 cash-box, Phase 5-6 report/forecast/import and Phase 5-7 rules methods", () => {
     // Count check: 3 health + 2 companies + 2 accounts + 2 fiscal-years +
     // 2 fiscal-periods + 1 setup-status + 7 journals + 4 invoices +
     // 2 payments + 4 statements + 2 audit = 31 methods (list+get pairs),
     // plus 22 Phase 4 compliance methods (US-401..US-404) = 53,
     // plus 24 Phase 5-6 methods (US-550 reports 5, US-551 dashboard 1,
     // US-552 review queue 2, US-553 cash forecast 2, US-554 imports 14)
-    // = 231.
+    // = 231, plus 15 Phase 5-7 rules methods (US-561: CRUD 5,
+    // enable/disable 2, dry-run 2, evaluate 1, executions 3, sets 2)
+    // = 246, plus 13 Phase 5-7 bank-rules methods (US-565: CRUD 5,
+    // enable/disable 2, promote/demote 2, suggestions 3, undo 1)
+    // = 259.
     const methods = Object.keys(api);
     for (const name of [
       "getHealth",
@@ -352,10 +356,40 @@ describe("api methods", () => {
       "retryBatchPosting",
       "supersedeSettlementColumnMapping",
       "uploadImportBatch",
+      // Phase 5-7 rules engine (US-561; UI in US-562)
+      "listRules",
+      "createRule",
+      "getRule",
+      "updateRule",
+      "deleteRule",
+      "enableRule",
+      "disableRule",
+      "dryRunRule",
+      "dryRunDefinition",
+      "evaluateRules",
+      "listExecutions",
+      "getExecution",
+      "listRuleExecutions",
+      "listRuleSets",
+      "setRuleSetMode",
+      // Phase 5-7 bank auto-coding rules (US-565, W3)
+      "listBankRules",
+      "createBankRule",
+      "getBankRule",
+      "updateBankRule",
+      "deleteBankRule",
+      "enableBankRule",
+      "disableBankRule",
+      "promoteBankRule",
+      "demoteBankRule",
+      "listBankRuleSuggestions",
+      "confirmBankRuleSuggestion",
+      "rejectBankRuleSuggestion",
+      "undoAutoCode",
     ]) {
       expect(methods).toContain(name);
     }
-    expect(methods).toHaveLength(231);
+    expect(methods).toHaveLength(259);
   });
 });
 

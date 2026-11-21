@@ -7,6 +7,12 @@
  * matching — exact reference, amount + date, smart suggestion. Unmatched
  * lines get a manual-match form; the statement is never auto-validated
  * or auto-posted by reconciliation.
+ *
+ * US-565: a line an AUTO bank rule coded (matched/already_matched with
+ * target_type "rule") gets an undo form — the wrong auto-code is
+ * rejected and the corrected coding is written instead; the response
+ * names the undone rule so the operator can demote or disable it
+ * from the bank-rules page.
  */
 
 "use client";
@@ -142,6 +148,10 @@ export function StatementDetail({ statementId }: { statementId: number }) {
   const [matchAccountId, setMatchAccountId] = React.useState("");
   const [matchSaveAsRule, setMatchSaveAsRule] = React.useState(false);
   const [matching, setMatching] = React.useState(false);
+  const [undoLineId, setUndoLineId] = React.useState<number | null>(null);
+  const [undoAccountId, setUndoAccountId] = React.useState("");
+  const [undoing, setUndoing] = React.useState(false);
+  const [undoneRuleId, setUndoneRuleId] = React.useState<string | null>(null);
 
   const handleReconcile = async () => {
     setReconciling(true);
@@ -186,6 +196,30 @@ export function StatementDetail({ statementId }: { statementId: number }) {
       setReconcileError(err);
     } finally {
       setMatching(false);
+    }
+  };
+
+  const handleUndoAutoCode = async () => {
+    if (undoLineId === null || undoAccountId.trim() === "") return;
+    setUndoing(true);
+    setReconcileError(null);
+    try {
+      const data = await api.undoAutoCode(statementId, undoLineId, {
+        corrected_account_id: Number(undoAccountId.trim()),
+      });
+      setUndoLineId(null);
+      setUndoAccountId("");
+      setResult(null);
+      setUndoneRuleId(data.undone_rule_id);
+      setReloadKey((k) => k + 1);
+    } catch (err: unknown) {
+      if (err instanceof ApiError && err.isUnauthorized) {
+        router.replace("/login");
+        return;
+      }
+      setReconcileError(err);
+    } finally {
+      setUndoing(false);
     }
   };
 
@@ -350,6 +384,15 @@ export function StatementDetail({ statementId }: { statementId: number }) {
               onRetry={() => setReconcileError(null)}
             />
           ) : null}
+          {undoneRuleId ? (
+            <p className="text-sm" role="status" data-testid="undo-auto-code-notice">
+              کدگذاری خودکار برگردانده و تصحیح شد. اگر قاعده اشتباه کد می‌کند، آن را در{" "}
+              <Link href="/banking/bank-rules" className="font-medium underline">
+                قواعد تطبیق
+              </Link>{" "}
+              به پیشنهاد برگردانید یا غیرفعال کنید.
+            </p>
+          ) : null}
           {result ? (
             <div className="space-y-4">
               <dl className="grid gap-4 sm:grid-cols-4">
@@ -484,6 +527,70 @@ export function StatementDetail({ statementId }: { statementId: number }) {
                     }
                   >
                     {matching ? "در حال ثبت…" : "ثبت تطبیق دستی"}
+                  </Button>
+                </div>
+              ) : null}
+              {result.lines.some(
+                (l) =>
+                  (l.outcome === "matched" || l.outcome === "already_matched") &&
+                  l.target_type === "rule",
+              ) ? (
+                <div className="space-y-4 border-t border-border pt-4" data-testid="undo-auto-code-form">
+                  <h3 className="text-base font-semibold">برگرداندن کدگذاری خودکار</h3>
+                  <p className="text-sm text-muted-foreground">
+                    اگر قاعدهٔ بانکی ردیفی را اشتباه کد کرده است، ردیف را انتخاب کنید و حساب درست
+                    را وارد کنید؛ کدگذاری خودکار رد می‌شود و کدینگ تصحیح‌شده ثبت می‌شود.
+                    صورت‌حساب تا تأیید شما پیش‌نویس می‌ماند.
+                  </p>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="undo-line">ردیف خودکارکدشده</Label>
+                      <Select
+                        value={undoLineId === null ? "" : String(undoLineId)}
+                        onValueChange={(v) => setUndoLineId(v ? Number(v) : null)}
+                      >
+                        <SelectTrigger id="undo-line" data-testid="undo-auto-code-line">
+                          <SelectValue placeholder="یک ردیف انتخاب کنید" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {result.lines
+                            .filter(
+                              (l) =>
+                                (l.outcome === "matched" ||
+                                  l.outcome === "already_matched") &&
+                                l.target_type === "rule",
+                            )
+                            .map((l) => (
+                              <SelectItem key={l.line_id} value={String(l.line_id)}>
+                                {formatIsoDate(l.line_date)} — {l.description} —{" "}
+                                {formatMoney(Math.abs(l.amount_irr))}
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="undo-account-id">حساب درست</Label>
+                      <Input
+                        id="undo-account-id"
+                        data-testid="undo-auto-code-account"
+                        inputMode="numeric"
+                        dir="ltr"
+                        value={undoAccountId}
+                        onChange={(e) => setUndoAccountId(e.target.value)}
+                        placeholder="شمارهٔ حساب"
+                      />
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    onClick={handleUndoAutoCode}
+                    disabled={
+                      undoing || undoLineId === null || !/^\d+$/.test(undoAccountId.trim())
+                    }
+                    data-testid="undo-auto-code-submit"
+                  >
+                    {undoing ? "در حال برگرداندن…" : "برگرداندن و تصحیح کدگذاری"}
                   </Button>
                 </div>
               ) : null}

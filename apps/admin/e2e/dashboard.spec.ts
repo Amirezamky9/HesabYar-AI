@@ -225,13 +225,13 @@ test("sidebar lists all §18 modules; later-phase modules are disabled coming-so
     "انبار و بسته‌بندی",
     "گزارش‌ها",
     "استانداردها و انطباق",
+    "یکپارچه‌سازی‌ها",
   ];
   for (const label of live) {
     await expect(nav.getByText(label, { exact: true }).first()).toBeVisible();
   }
   const comingSoon = [
     "دارایی ثابت",
-    "یکپارچه‌سازی‌ها",
     "هوش مصنوعی و MCP",
     "مدیریت API",
     "کاربران و دسترسی‌ها",
@@ -278,6 +278,13 @@ test("sidebar lists all §18 modules; later-phase modules are disabled coming-so
   await expect(nav.getByRole("link", { name: "استانداردها" })).toHaveAttribute(
     "href",
     "/compliance/standards",
+  );
+
+  // Integrations group is live now (US-562): workflows under it.
+  await nav.getByRole("button", { name: "یکپارچه‌سازی‌ها" }).click();
+  await expect(nav.getByRole("link", { name: "گردش‌کارها" })).toHaveAttribute(
+    "href",
+    "/integrations/workflows",
   );
 });
 
