@@ -384,3 +384,11 @@
 - Final static gates on the merged head: ruff clean, pyright 0, tsc 0,
   eslint 0, pnpm build green, alembic heads single 0039, app import OK.
 - Deferred items (all stories): see the coordinator final report.
+
+## Verification (parent, 2026-11-21 ~15:13) — CI run #20 GREEN (run 44899098292, fork 802dc94c)
+- python-gates: ruff + pyright green (38s)
+- python-tests: 3831 passed / 324 skipped / 0 failed
+- python-tests-tryton: 4138 passed / 17 skipped / 0 failed
+- frontend: vitest 429/429 + tsc + eslint + build green
+- Run #18 (9b2cf40c): 16 Python + 1 frontend failures. Fix pass (4adaacf, 8 commits): REMINDER review type got its permitted actions + suggestion (product — the 500 was a KeyError in the types endpoint), jobs-list test updated to 10, bank-rule priority test reads the suggestion, recurring payloads built inside raises blocks, list_templates returns a list, reminder tests reach the simulator via the world helper, generic 404 no longer shadows specific codes (product). Run #19: 17 -> 1 failure. Parent fix (single test): the retry test now expects 2 recorded attempts — the fake records every send CALL including the failed one (same convention as FakeEmailSender). Run #20: 0 failures.
+- US-560, US-561, US-563, US-564 passes: true. US-562 + US-565 passes: false ONLY because their Playwright specs (e2e/rules.spec.ts, e2e/workflows.spec.ts) have not run — the Playwright CI job starts only after the user pastes the 5-job ci.yml on ralph/phase-5-7; their backend + vitest passed in run #20. Same pending state as US-545 + US-555.

@@ -1,104 +1,99 @@
 {
-  "branchName": "ralph/phase-5-6",
-  "description": "HesabYar Phase 5-6 (۵ح — Unified panel + review queue): the five §11.2 coming-soon reports wired (trial balance, general ledger, balance sheet, P&L, cash flow) + cheque report 7, unified dashboard with six live sections, one review queue for all 10 exception types, cash forecast calendar, first-class manual imports, and the FK-flush hygiene sweep.",
+  "branchName": "ralph/phase-5-7",
+  "description": "HesabYar Phase 5-7 (۵خ — Workflows & automation): Procrastinate scheduler + maintenance jobs, rules engine v1 (when + conditions → closed safe actions, dry-run, audit), rules management UI, recurring invoices/journals (Jalali-aware), reminders (cheque/installment/cashbox/eNamad, SMS via the US-544 registry), and Xero-style bank auto-coding rules.",
   "project": "HesabYar",
   "userStories": [
     {
       "acceptanceCriteria": [
-        "Trial balance: UI report wired to the US-403 backend, with §11.1 freshness metadata (source, source timestamp, generated at, company + period, report + calculation version, freshness indicator, reproducibility metadata) + drill-down to the general ledger",
-        "General ledger per account: backend from the Tryton reference report through the AccountingEnginePort (never client-side recompute — §11.1) + UI with account/period/company filters",
-        "Balance sheet: backend + UI with prior-period comparison",
-        "Income statement (P&L): backend + UI with prior-period comparison + monthly revenue/expense bar chart",
-        "Cash flow statement: backend + UI, three sections (operating / investing / financing) + waterfall chart",
-        "Cheque report 7 (notes receivable/payable balance — the ۵ث honest coming-soon): wired to the Tryton reference report through the port, with aging buckets (30/60/90/120+) and party/due-date/instrument filters",
-        "Every report states its data source + §7.5 chart type; Excel/PDF export carries the applied filters in the header",
-        "REST endpoints under the existing reports routes; scope reports:read; tenant/company scoping honored",
+        "Procrastinate periodic jobs (from F1/US-501): reconciliation polling, Supply-wizard result read (execution runs on ir.cron INSIDE Tryton, not Procrastinate — HesabYar only reads the result), tranche.expected → due transition at maturity (the schedule belongs to P1/US-521; W1 only issues the transition), cheque/installment due alerts, inbox staleness alert",
+        "The ۵ج dunning sweep (currently on-demand via POST /dunning/run) runs on schedule; the US-544 SMS daily job runs on schedule; the store-sync endpoint (POST /integrations/{connector}/sync, US-533 deferred) runs on a 15-minute cadence",
+        "Jalali-aware scheduling: next_run computed in-app (no Jalali cron exists); Friday is the weekend default",
+        "Job registry: each job has an id, schedule, last run, next run, last outcome; failures go to the DLQ + review queue as inbox_dead_letter, never silent",
+        "REST endpoints to list jobs, trigger one run on demand, and enable/disable a job; scope jobs:manage (new scope if no fitting scope exists)",
         "Targeted tests per story + affected-area tests written for CI; ruff + pyright clean"
       ],
-      "description": "Wire the five §11.2 coming-soon financial reports (trial balance, general ledger, balance sheet, P&L, cash flow) to their backends, plus cheque report 7 from the Tryton reference report.",
-      "id": "US-550",
-      "notes": "Wave A (first — the other stories build on its endpoints). Depends on: US-403 (trial balance backend), US-502 (Tryton modules), US-535 (cheque reports page). Tryton reference reports come through the port — the engine is the only ledger authority (ADR 0002).",
+      "description": "Scheduler + maintenance jobs on Procrastinate: reconciliation polling, tranche transitions, due alerts, inbox staleness, dunning sweep, SMS job, store sync — all Jalali-aware.",
+      "id": "US-560",
+      "notes": "Wave A (first — the other stories build on the scheduler). Depends on US-501 (event platform + Procrastinate), US-521 (settlement tranches), US-541 (dunning), US-544 (SMS job), US-533 (store sync endpoint). The Supply wizard runs inside Tryton on ir.cron — HesabYar NEVER drives it from Procrastinate.",
       "passes": true,
       "priority": 1,
-      "title": "Financial reports backend: 5 coming-soon reports + cheque report 7"
+      "title": "Scheduler + maintenance jobs (W1)"
     },
     {
       "acceptanceCriteria": [
-        "Unified dashboard shows all six sections with LIVE data: پولِ امروز، پولِ در راه، نیازمند توجه (review-queue counters), خزانه، هشدارها، ایمپورت‌های دستی",
-        "Every KPI carries its period, company and unit, and links to the filtered operational page (§11.3 requirement)",
-        "Company-scoped cheque figures (۵ث deferred item): backend list filter so the treasury widgets (cheque exposure, in-clearing aging, due-soon) scope by company; the dashboard and the cheque center honor the company filter; tenant-wide remains the default",
-        "Dashboard Playwright spec updated to current constants (the ci-playwright risk note: 153 accounts, 114 postable, FY 2027, 24 open periods, standards nav live) — the spec must assert the NEW dashboard, not the US-302 one",
-        "Persian RTL, VibeFarsi components; tsc 0, eslint 0, vitest green, build green"
+        "Rules engine v1: `when <event> + <conditions> → do <action>` — event from the 12 canonical event types (spec §10.2 + ADR 0004 + ADR 0005), conditions on event fields (amount ranges, channel, party, company), actions from a CLOSED SAFE SET ONLY: create draft / post via the policy gate / notify (in-app + email) / allocate (mapping)",
+        "Dry-run: a rule can be tested against past events (or a sample payload) showing exactly what it WOULD do, with no side effects; every dry-run and every live execution is audit-logged (rule id, event id, decision, outcome)",
+        "NO rule can auto-post without passing the 3-layer policy gate (F3) — a rule that would post is blocked by the gate exactly like a manual post; draft is the default",
+        "NO arbitrary user code execution (no 'Execute Python Code' action), no visual DAG builder, no BPMN/Temporal",
+        "REST endpoints for rules (CRUD, enable/disable, dry-run, execution history); scopes rules:read/rules:manage (new scopes if no fitting scope exists)",
+        "Targeted tests per story + affected-area tests written for CI; ruff + pyright clean"
       ],
-      "description": "Unified dashboard UI: six live sections with linked KPIs, plus company-scoped treasury figures.",
-      "id": "US-551",
-      "notes": "Wave B. Depends on US-550 (report endpoints) + US-504 (review-queue counters) + US-535 (treasury widgets). Frontend house rules in apps/admin/AGENTS.md apply. The dashboard batch is slow against remote Supabase (~105s measured in ۵ث) — the spec timeouts must stay generous; CI's Tryton is local and fast.",
+      "description": "Rules engine v1 core: event + conditions → closed safe actions, with dry-run and full audit; the policy gate is never bypassed.",
+      "id": "US-561",
+      "notes": "Wave B. Depends on US-501 (events), US-503 (policy gate), US-552 (audit patterns). The closed action set is a SAFETY property — a test must prove an unknown action is rejected and a post action still goes through the gate.",
       "passes": true,
       "priority": 2,
-      "title": "Unified dashboard UI + company-scoped treasury figures"
+      "title": "Rules engine v1 core (W2)"
     },
     {
       "acceptanceCriteria": [
-        "All 10 review item types (the 9 §7.2 types + sms_delivery_failed from US-544) visible and resolvable in ONE queue with a uniform structure: mapping, settlement_variance, cheque_exception, bank_unmatched, packaging_reorder, installment_overdue, manual_import_review, cashbox_variance, inbox_dead_letter, sms_delivery_failed",
-        "Per-type allowed actions + suggested action + Persian reason for every type (full list in phased design §7.2)",
-        "Manual replay from DLQ + mapping learning (Suggest → Auto) + full audit of every action taken on an item",
-        "Filters: type / severity / amount / age / channel; default sort critical-first, then oldest",
-        "REST: the existing 7-path review API extended where a new action needs it; scopes review:read/resolve/file",
+        "Rules management UI (Persian RTL, VibeFarsi): list rules with status + last execution, create/edit form (event picker, condition builder, action picker from the closed set), enable/disable, dry-run panel showing the would-do result, execution history + audit log view",
+        "Rule ownership: user-defined rules are W3's — the UI makes clear which rules are user-defined vs system; B2 learned mappings enter the engine as SUGGESTIONS only, never as auto-rules",
+        "Every UI action calls the US-561 REST endpoints (no direct DB access from the frontend); tsc 0, eslint 0, vitest green, build green",
+        "Playwright: one rules journey (create → dry-run → enable → see an execution in history)",
         "Targeted tests per story + affected-area tests written for CI; ruff + pyright clean"
       ],
-      "description": "Complete the one review queue: all 10 exception types with per-type actions, suggestions, manual replay, mapping learning, and full audit.",
-      "id": "US-552",
-      "notes": "Wave B. Depends on US-504 (queue skeleton) + every module's exceptions (settlement, cheque, bank, packaging, installments, SMS, inbox). One queue, not three — each flow files its own types into it.",
-      "passes": true,
+      "description": "Rules management UI: create/edit/enable/disable rules, dry-run panel, execution history and audit view.",
+      "id": "US-562",
+      "notes": "Wave C (needs US-561's API). Frontend house rules in apps/admin/AGENTS.md apply. B2 learned mappings (US-514/US-552) are suggestions, not rules — the UI must not present them as active automations.",
+      "passes": false,
       "priority": 3,
-      "title": "One review queue: all 10 types, actions, replay, learning"
+      "title": "Rules management UI (W2)"
     },
     {
       "acceptanceCriteria": [
-        "Cash forecast calendar, monthly view: expected INFLOWS (gateway settlement tranches, sales installments, due received cheques, due invoices) and expected OUTFLOWS (due issued cheques, payable installments/suppliers, packaging purchases)",
-        "Two separate columns: قطعی (registered contract / cheque / installment) vs پیش‌بینی (expected sales); collateral cheques appear in NEITHER column, ever",
-        "30/60/90/120-day cash-flow forecast (§11.2 settlement report) with the §11.1 freshness metadata",
-        "Cheque report 12 (monthly match-trend — ۵ث deferred: no stored monthly match history existed): monthly match history is now stored, and the trend chart renders from it",
-        "Cheque report 14 (cheque cash forecast) feeds the calendar: received-cheque collections → expected inflow, issued-cheque clearings → expected outflow",
-        "REST endpoints + UI at the dashboard cash section and reports ← cash forecast; Persian RTL, Jalali months; tsc 0, eslint 0, vitest green",
+        "Recurring invoices + recurring journals: Jalali-aware schedules (monthly on a Jalali day, every N months, yearly on a Jalali date); each occurrence is created as a DRAFT by default (auto-post only with explicit opt-in, through the policy gate)",
+        "Preview: the next N occurrences with dates + amounts before saving; pause/resume; end date or occurrence count",
+        "Each generated document links to its recurring template + occurrence number; editing the template does not rewrite already-generated drafts",
+        "REST endpoints for templates (CRUD, preview, pause/resume, generated list); scopes invoices:write / journals:write as applicable",
         "Targeted tests per story + affected-area tests written for CI; ruff + pyright clean"
       ],
-      "description": "Cash forecast calendar (confirmed vs forecast, 30–120 days) fed by settlement tranches, installments, cheques and payables, plus the monthly match-trend report.",
-      "id": "US-553",
-      "notes": "Wave B. Depends on US-521 (settlement tranches), US-534 (cheque clearing/matching), US-540 (installment schedules), US-515 (packaging purchases). Money is Rial only; amounts are MoneyIRR digits=0.",
+      "description": "Recurring invoices and journals with Jalali-aware schedules, draft by default, preview before saving.",
+      "id": "US-563",
+      "notes": "Wave B. Depends on US-560 (scheduler — the recurring generator is a scheduled job), US-202 (journal drafts), US-204 (invoices). Jalali month lengths vary (Esfand 29/30 days) — a day-31 monthly recurrence must clamp honestly, never silently skip.",
       "passes": true,
       "priority": 4,
-      "title": "Cash forecast calendar + monthly match-trend (report 12)"
+      "title": "Recurring invoices + journals (W3)"
     },
     {
       "acceptanceCriteria": [
-        "Import batch cycle in the panel, one flow for every manual import (statement B1 + settlement P2): upload → format / column-mapping detection (mapping savable per source) → validation + dedup → accounting-effect preview (gross, fee, tax, refunds, net, receivable balance after the batch, expected deposit) → review item → approve → the normal pipeline (same validation, mapping, policy gate, tie-out) → batch variance report",
-        "A rejected batch is archived with its reason and is re-runnable; nothing is silently dropped",
-        "Pipeline consumer for payment.settlement.received (US-523 deferred: the event exists, no consumer) — settlement receipts arriving as events flow through the same tie-out + auto-post rules as file imports",
-        "REST endpoints for batches (upload, preview, approve, reject, re-run, list); scopes banking:import + settlement:manage as applicable; draft by default, auto-post explicit opt-in (ADR 0003 decision 1)",
+        "Cheque due-soon reminders (3 days + 7 days before due), overdue-installment reminders, uncounted-cashbox reminders (cashbox not counted for more than N days, N user-configured), eNamad expiry reminders (expiry DISABLES gateway/BNPL service — §8.3 — so the reminder is a warning, not a suggestion)",
+        "SMS channel via the US-544 multi-provider registry (Kavenegar + sms.ir first built-ins; provider specifics user-entered, never hard-coded): due-installment + due-cheque reminders by SMS in addition to in-app + email; cost per SMS recorded; customer consent/opt-out honored; mobile numbers stored per the privacy policy",
+        "Reminder preferences per installation: which reminders are on, which channels (in-app/email/SMS), lead times; quiet hours honored",
+        "Reminders are idempotent (one reminder per event per lead-time, never duplicates); every sent reminder is logged with channel + cost",
         "Targeted tests per story + affected-area tests written for CI; ruff + pyright clean"
       ],
-      "description": "First-class manual imports: one batch cycle (upload → mapping → preview → approve → pipeline) for statements and settlements, plus the settlement-received event consumer.",
-      "id": "US-554",
-      "notes": "Wave B. Depends on US-514 (statement import), US-523 (settlement import + three-way matching), US-501 (event pipeline + DLQ). No IMAP fetch in scope (still deferred). No browser automation anywhere (ADR 0003).",
+      "description": "Reminders: cheque due-soon, overdue installments, uncounted cashbox, eNamad expiry — in-app + email + SMS via the provider registry.",
+      "id": "US-564",
+      "notes": "Wave B. Depends on US-560 (scheduler), US-531/US-534 (cheque due dates), US-541 (overdue legs), US-516 (cashbox counts), US-544 (SMS registry + simulator — NO live SMS without credentials). eNamad expiry disabling gateway/BNPL service is a design rule (§8.3), not a suggestion.",
       "passes": true,
       "priority": 5,
-      "title": "First-class manual imports + settlement-received consumer"
+      "title": "Reminders incl. SMS channel (W3)"
     },
     {
       "acceptanceCriteria": [
-        "FK-flush sweep (CI run #6 lesson): audit every repository that adds parent+child rows in one flush without a SQLAlchemy relationship — the bank import repositories are known to survive on hash-order luck; flush parents before children everywhere the pattern is found; the sweep list is documented in docs/ (which repositories were checked, which were fixed)",
-        "US-523 deferred: tick-created late_tranche review filing — when a settlement tick creates a late tranche, a settlement_variance review item is filed (never silent)",
-        "Playwright: unified-panel spec covering the dashboard six sections, the cash calendar, one import batch flow end-to-end, and one review-queue action per type-group; responsive checks at 360–390px; serial where specs share state",
-        "tsc 0, eslint 0, vitest green, build green; ruff + pyright clean",
-        "Targeted tests per story + affected-area tests written for CI"
+        "Xero-style bank rules for auto-coding statements: `when <statement-line pattern> (description contains / amount range / counterparty) → suggest <account + mapping>`; Suggest ← Auto promotion (a suggestion becomes automatic only after the user promotes it, threshold 3 confirmed suggestions — same pattern as US-552 mapping learning)",
+        "User-defined bank rules are W3 rules (managed in the US-562 UI); B2 learned mappings enter as suggestions only",
+        "Auto-coded lines still go through the policy gate + tie-out before posting; a wrong auto-code can be undone (the mapping is corrected, the journal is a draft until approved)",
+        "Playwright: workflows spec covering one rule journey (create → dry-run → live execution), one recurring template (create → preview), one bank rule (suggest → promote → auto-code); responsive checks at 360–390px",
+        "Targeted tests per story + affected-area tests written for CI; ruff + pyright clean"
       ],
-      "description": "Hygiene: the FK-flush sweep across repositories, the deferred late-tranche review filing, and the unified-panel Playwright spec.",
-      "id": "US-555",
-      "notes": "Wave C (last — needs the US-550–554 UIs + APIs). The FK-flush lesson from CI run #6: SQLAlchemy 2.0.54 does NOT order a flush by bare-FK dependency without a relationship — proven by probe; the installments repository was fixed with explicit flushes, the bank repositories still rely on luck.",
+      "description": "Xero-style bank auto-coding rules (Suggest → Auto) + the workflows Playwright spec.",
+      "id": "US-565",
+      "notes": "Wave C (last — needs US-561/US-562 + US-514 bank import). Depends on US-514 (statement import), US-552 (mapping learning pattern), US-561 (rules engine). The Suggest → Auto threshold (3) matches the US-552 mapping-learning threshold.",
       "passes": false,
       "priority": 6,
-      "title": "Hygiene: FK-flush sweep + late-tranche filing + panel Playwright"
+      "title": "Bank auto-coding rules + workflows Playwright (W3)"
     }
   ]
 }
