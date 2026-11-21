@@ -893,7 +893,14 @@ def test_failed_send_retries_next_run(world: ReminderWorld) -> None:
     client.error = None
     second = world.service().run_daily_reminder_job(today=TODAY, now=NOW)
     assert second.sent_sms == 1
-    assert len(world.simulator_client().sends) == 1
+    # The fake records every send CALL (attempt), including the failed
+    # one — FakeSmsClient.send appends to `sends` before raising, the
+    # same convention as FakeEmailSender. So two attempts are recorded:
+    # the rejected first attempt and the successful retry of the SAME
+    # reminder (same recipient + message), not two different sends.
+    sends = world.simulator_client().sends
+    assert len(sends) == 2
+    assert sends[0] == sends[1]
 
 
 def test_cashbox_reminder_fires_once_per_uncounted_period(world: ReminderWorld) -> None:
