@@ -220,13 +220,18 @@ def live_world(
         session.flush()
 
         def _company(tenant_id: str, external_id: str) -> EngineCompanyModel:
-            # One company per (tenant, connection) — unique constraint.
+            # One company per (tenant, connection) — and one connection
+            # per (engine, database_name): the unique constraint is on
+            # the pair, so each fixture company needs its own suffixed
+            # database name (the codebase-wide convention). The live
+            # adapter connects via settings.tryton, never via this row,
+            # so the suffix does not affect live reads.
             connection = EngineConnectionModel(
                 id=str(uuid.uuid4()),
                 name=f"conn-{uuid.uuid4().hex[:8]}",
                 engine="tryton",
                 base_url=settings.tryton.base_url,
-                database_name=settings.tryton.database,
+                database_name=f"hesabyar_tryton_test_{uuid.uuid4().hex[:8]}",
             )
             session.add(connection)
             session.flush()

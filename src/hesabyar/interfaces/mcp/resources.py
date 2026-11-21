@@ -192,11 +192,19 @@ def _fiscal_date(value: FiscalDate) -> JsonDict:
 
 
 def _company_block(request: ResourceRequest, view: CompanyView | None = None) -> JsonDict:
-    """Company metadata: row id + engine id + name (+ view fields when known)."""
+    """Company metadata: row id + engine id + name (+ view fields when known).
+
+    The name comes from the ENGINE view when one is available — REST's
+    ``CompanyResponse.name`` is documented as "Company display name
+    from the engine", and MCP must agree with REST for the same
+    company. The mapping row's ``company_name`` is only a tenant-local
+    label (fixtures use "Company 1"), so it is the fallback for
+    readers that have no engine view.
+    """
     block: JsonDict = {
         "id": request.row.id,
         "engine_id": request.ref.engine_id,
-        "name": request.row.company_name,
+        "name": view.name if view is not None else request.row.company_name,
     }
     if view is not None:
         block["currency_code"] = view.currency_code

@@ -81,13 +81,20 @@ def _is_error_result(result: HandlerResult) -> bool:
     The SDK converts an unknown tool or invalid arguments into a
     ``CallToolResult(is_error=True)`` returned NORMALLY — only
     ``MCPError`` propagates as a protocol error — so a successful
-    return is not necessarily a success. ``HandlerResult`` is
-    ``BaseModel | dict | None``; the SDK returns a ``CallToolResult``
-    model, but read defensively so a dict-shaped result is handled
-    the same way.
+    return is not necessarily a success.
+
+    ``HandlerResult`` is ``BaseModel | dict | None``, but the
+    middleware never sees the model: the SDK v2 runner serializes
+    the handler result INSIDE the middleware chain
+    (``ServerRunner._on_request`` -> ``_serialize`` -> ``_dump_result``,
+    ``model_dump(by_alias=True)``), so ``call_next`` returns the
+    WIRE dict — camelCase ``isError``, not snake_case ``is_error``.
+    Check the wire key first and keep the snake_case key + the model
+    attribute as defence in depth (a middleware that short-circuits
+    without ``call_next`` may return either shape).
     """
     if isinstance(result, dict):
-        return bool(result.get("is_error"))
+        return bool(result.get("isError") or result.get("is_error"))
     return bool(getattr(result, "is_error", False))
 
 

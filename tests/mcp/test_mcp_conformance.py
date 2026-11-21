@@ -198,7 +198,10 @@ def live_world(
             name=f"conn-{uuid.uuid4().hex[:8]}",
             engine="tryton",
             base_url=settings.tryton.base_url,
-            database_name=settings.tryton.database,
+            # Suffixed per fixture (codebase convention): the unique
+            # constraint is on (engine, database_name), and the live
+            # adapter connects via settings.tryton, never via this row.
+            database_name=f"hesabyar_tryton_test_{uuid.uuid4().hex[:8]}",
         )
         session.add(connection)
         session.flush()
@@ -891,8 +894,32 @@ def test_live_chart_of_accounts_resource(
     assert payload["active_only"] is True
     assert payload["account_count"] == len(payload["accounts"])
     assert payload["account_count"] > 0, "the Adapter Test chart is empty"
+    # Every account has a name; every account except the chart root
+    # (code "", no parent) has a code. Only postable (leaf) accounts
+    # carry a type: group accounts — the "1" Assets group, the 7.x
+    # memorandum groups — have NO type in Tryton by design (REST
+    # asserts the same: root["type"] is None), so a typeless account
+    # is correct engine data, not a mapping gap.
+    codeless = [account for account in payload["accounts"] if not account["code"]]
+    assert len(codeless) <= 1, "at most one account (the chart root) has no code"
+    if codeless:
+        assert codeless[0]["parent_code"] is None
+        assert codeless[0]["type"] is None
+        assert codeless[0]["postable"] is False
     for account in payload["accounts"]:
-        assert account["code"] and account["name"] and account["type"]
+        assert account["name"], f"account {account['code']!r} has no name"
+        if account["postable"]:
+            assert account["type"], f"postable account {account['code']} has no type"
+    assert any(
+        account["type"] is None and not account["postable"]
+        for account in payload["accounts"]
+    ), "the live chart has no typeless group account"
+    cash = next(
+        account for account in payload["accounts"] if account["code"] == "1.1.1"
+    )
+    assert cash["name"] == "Cash and Cash Equivalents"
+    assert cash["type"]
+    assert cash["postable"] is True
     provenance = payload["provenance"]
     assert provenance["company_id"] == live_world.engine_id
     assert provenance["report_type"] == "chart-of-accounts"
