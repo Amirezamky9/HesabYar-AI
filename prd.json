@@ -1,99 +1,102 @@
 {
-  "branchName": "ralph/phase-5-7",
-  "description": "HesabYar Phase 5-7 (۵خ — Workflows & automation): Procrastinate scheduler + maintenance jobs, rules engine v1 (when + conditions → closed safe actions, dry-run, audit), rules management UI, recurring invoices/journals (Jalali-aware), reminders (cheque/installment/cashbox/eNamad, SMS via the US-544 registry), and Xero-style bank auto-coding rules.",
+  "branchName": "ralph/phase-6",
+  "description": "HesabYar Phase 6 (MCP + AI access): MCP server on the official Python SDK v2 (MCP 2026-07-28, stdio + Streamable HTTP), the 14 read-only tools of spec §13.4 plus read-only tools for the Phase 5 reports (settlement, cheques, packaging, cashbox, cash forecast), resources + prompts, draft-only mutation tools, and MCP client management + conformance tests.",
   "project": "HesabYar",
   "userStories": [
     {
       "acceptanceCriteria": [
-        "Procrastinate periodic jobs (from F1/US-501): reconciliation polling, Supply-wizard result read (execution runs on ir.cron INSIDE Tryton, not Procrastinate — HesabYar only reads the result), tranche.expected → due transition at maturity (the schedule belongs to P1/US-521; W1 only issues the transition), cheque/installment due alerts, inbox staleness alert",
-        "The ۵ج dunning sweep (currently on-demand via POST /dunning/run) runs on schedule; the US-544 SMS daily job runs on schedule; the store-sync endpoint (POST /integrations/{connector}/sync, US-533 deferred) runs on a 15-minute cadence",
-        "Jalali-aware scheduling: next_run computed in-app (no Jalali cron exists); Friday is the weekend default",
-        "Job registry: each job has an id, schedule, last run, next run, last outcome; failures go to the DLQ + review queue as inbox_dead_letter, never silent",
-        "REST endpoints to list jobs, trigger one run on demand, and enable/disable a job; scope jobs:manage (new scope if no fitting scope exists)",
+        "MCP server on the official Python MCP SDK v2, targeting the MCP 2026-07-28 specification; `mcp` 2.x pinned in uv.lock; Python 3.12 baseline",
+        "Transports: stdio (local developer) + Streamable HTTP (remote/production); NO new legacy HTTP+SSE implementation",
+        "Authentication + authorization: the same API-key + scope system as REST (hya_live_ keys, HMAC-SHA-256 + pepper); the company identity is always checked against the authenticated grant — a tool must NEVER accept a caller-provided company ID as proof of authorization; OAuth access tokens (if used) bound to the intended MCP resource/audience",
+        "Every MCP call is audit-logged (ai_access_audit: client, tool, company, scope, outcome, timestamp); no hidden chain-of-thought or provider secrets stored",
+        "The MCP server calls the SAME application query/command handlers as REST — no separate implementation of trial balance, tax calculation or posting for AI; no direct PostgreSQL access from any MCP tool (spec §0 rule 4); no API keys in tool arguments, URLs, logs or bundles",
+        "Protocol conformance + client-compatibility test harness in place (run in CI); server starts cleanly in both transports",
         "Targeted tests per story + affected-area tests written for CI; ruff + pyright clean"
       ],
-      "description": "Scheduler + maintenance jobs on Procrastinate: reconciliation polling, tranche transitions, due alerts, inbox staleness, dunning sweep, SMS job, store sync — all Jalali-aware.",
-      "id": "US-560",
-      "notes": "Wave A (first — the other stories build on the scheduler). Depends on US-501 (event platform + Procrastinate), US-521 (settlement tranches), US-541 (dunning), US-544 (SMS job), US-533 (store sync endpoint). The Supply wizard runs inside Tryton on ir.cron — HesabYar NEVER drives it from Procrastinate.",
+      "description": "MCP server core: SDK v2, MCP 2026-07-28, stdio + Streamable HTTP, REST-grade auth + scopes + audit, same application services as REST.",
+      "id": "US-601",
+      "notes": "Wave A (first — every other story builds on the server). Spec §13.2 + §13.3 + §13.8. The MCP process may share the HesabYar Python package and run as a separate process/container; the system stays a modular monolith.",
       "passes": true,
       "priority": 1,
-      "title": "Scheduler + maintenance jobs (W1)"
+      "title": "MCP server core (SDK v2, transports, auth, audit)"
     },
     {
       "acceptanceCriteria": [
-        "Rules engine v1: `when <event> + <conditions> → do <action>` — event from the 12 canonical event types (spec §10.2 + ADR 0004 + ADR 0005), conditions on event fields (amount ranges, channel, party, company), actions from a CLOSED SAFE SET ONLY: create draft / post via the policy gate / notify (in-app + email) / allocate (mapping)",
-        "Dry-run: a rule can be tested against past events (or a sample payload) showing exactly what it WOULD do, with no side effects; every dry-run and every live execution is audit-logged (rule id, event id, decision, outcome)",
-        "NO rule can auto-post without passing the 3-layer policy gate (F3) — a rule that would post is blocked by the gate exactly like a manual post; draft is the default",
-        "NO arbitrary user code execution (no 'Execute Python Code' action), no visual DAG builder, no BPMN/Temporal",
-        "REST endpoints for rules (CRUD, enable/disable, dry-run, execution history); scopes rules:read/rules:manage (new scopes if no fitting scope exists)",
+        "All 14 read-only tools of spec §13.4, each calling the same application query service as the matching REST endpoint: list_companies (company:read), get_accounting_summary (reports:read), get_trial_balance (reports:read), get_general_ledger (ledger:read), get_balance_sheet (reports:read), get_income_statement (reports:read), get_cash_flow (reports:read), get_receivables_aging (reports:read), get_payables_aging (reports:read), get_bank_reconciliation_status (banking:read), get_tax_compliance_status (compliance:read), validate_financial_statement (standards:validate), explain_accounting_rule (standards:read), list_pending_review_items (workflow:read)",
+        "Tool arguments explicit and narrow: company, date range, report type, account filter, output detail — nothing else",
+        "Provenance on EVERY financial result (spec §13.7): company + period, currency + canonical unit (Rial), source engine + report type, generated timestamp + source-data freshness, snapshot/source reference, calculation/ruleset version, validation + incomplete-data warnings, and a clear statement that the model interprets supplied data and does not create authoritative financial facts",
+        "Amounts as integer Rial values or safe decimal strings — NEVER binary floating-point",
+        "Conformance test per tool (arguments, scopes, error shapes); equality test: the same report via MCP and via REST produces the same figures for the same company, date range and source snapshot",
         "Targeted tests per story + affected-area tests written for CI; ruff + pyright clean"
       ],
-      "description": "Rules engine v1 core: event + conditions → closed safe actions, with dry-run and full audit; the policy gate is never bypassed.",
-      "id": "US-561",
-      "notes": "Wave B. Depends on US-501 (events), US-503 (policy gate), US-552 (audit patterns). The closed action set is a SAFETY property — a test must prove an unknown action is rejected and a post action still goes through the gate.",
+      "description": "The 14 read-only tools of spec §13.4, with full §13.7 provenance and MCP-vs-REST equality.",
+      "id": "US-602",
+      "notes": "Wave B. Depends on US-601 (server) + the Phase 5-6 report services (US-550). The equality test is a spec requirement (§13.3 + §19: 'A report requested from MCP and the dashboard must produce the same figures').",
       "passes": true,
       "priority": 2,
-      "title": "Rules engine v1 core (W2)"
+      "title": "Read-only tools — the 14 of spec §13.4"
     },
     {
       "acceptanceCriteria": [
-        "Rules management UI (Persian RTL, VibeFarsi): list rules with status + last execution, create/edit form (event picker, condition builder, action picker from the closed set), enable/disable, dry-run panel showing the would-do result, execution history + audit log view",
-        "Rule ownership: user-defined rules are W3's — the UI makes clear which rules are user-defined vs system; B2 learned mappings enter the engine as SUGGESTIONS only, never as auto-rules",
-        "Every UI action calls the US-561 REST endpoints (no direct DB access from the frontend); tsc 0, eslint 0, vitest green, build green",
-        "Playwright: one rules journey (create → dry-run → enable → see an execution in history)",
+        "Read-only MCP tools for the Phase 5 reports, same freshness + source metadata as §11.1: settlement status (tranches, expected vs received, variances), cheques (registry, due-soon, in-clearing aging, collateral), packaging + shipping costs, cash-box counts + variances, cash forecast (30/60/90/120-day, confirmed vs forecast)",
+        "Each tool reuses the existing application query service (US-521/US-531/US-515/US-516/US-553) — no duplicate logic; scopes match the REST endpoints (settlement:read, cheques:read, banking:read, reports:read as applicable)",
+        "MCP-vs-REST equality tests for the same data + period for every new tool",
+        "Provenance §13.7 on every result (same as US-602)",
         "Targeted tests per story + affected-area tests written for CI; ruff + pyright clean"
       ],
-      "description": "Rules management UI: create/edit/enable/disable rules, dry-run panel, execution history and audit view.",
-      "id": "US-562",
-      "notes": "Wave C (needs US-561's API). Frontend house rules in apps/admin/AGENTS.md apply. B2 learned mappings (US-514/US-552) are suggestions, not rules — the UI must not present them as active automations.",
-      "passes": false,
+      "description": "Read-only MCP tools for the Phase 5 reports (settlement, cheques, packaging, cashbox, cash forecast).",
+      "id": "US-603",
+      "notes": "Wave B. Depends on US-601 + the Phase 5 report services. Phased design §1.3 phase 6: 'ابزارهای فقط‌خواندنی برای گزارش‌های جدید ... با همان فرادادهٔ تازگی و منبع §۱۱٫۱'.",
+      "passes": true,
       "priority": 3,
-      "title": "Rules management UI (W2)"
+      "title": "Read-only tools — Phase 5 reports"
     },
     {
       "acceptanceCriteria": [
-        "Recurring invoices + recurring journals: Jalali-aware schedules (monthly on a Jalali day, every N months, yearly on a Jalali date); each occurrence is created as a DRAFT by default (auto-post only with explicit opt-in, through the policy gate)",
-        "Preview: the next N occurrences with dates + amounts before saving; pause/resume; end date or occurrence count",
-        "Each generated document links to its recurring template + occurrence number; editing the template does not rewrite already-generated drafts",
-        "REST endpoints for templates (CRUD, preview, pause/resume, generated list); scopes invoices:write / journals:write as applicable",
+        "Resources (all filtered by identity + company scope; NO unfiltered all-company resource): active chart-of-accounts metadata, available fiscal periods + company metadata, versioned standards summaries + verified source references, active tax-policy profile + applicability metadata, approved report snapshots with bounded access, integration + compliance status summaries",
+        "Prompts: monthly close review, explain unusual balance movement, summarize overdue receivables, review unreconciled bank activity, validate the financial statements for a period, compare month-over-month performance",
+        "Each prompt is a deterministic template over the read-only tools — the prompt never invents figures; every figure it cites comes from a tool call with provenance",
+        "Conformance tests for resources (scope filtering proven: a client scoped to company A cannot read company B's resource) and prompts (template renders + cites only tool-provided data)",
         "Targeted tests per story + affected-area tests written for CI; ruff + pyright clean"
       ],
-      "description": "Recurring invoices and journals with Jalali-aware schedules, draft by default, preview before saving.",
-      "id": "US-563",
-      "notes": "Wave B. Depends on US-560 (scheduler — the recurring generator is a scheduled job), US-202 (journal drafts), US-204 (invoices). Jalali month lengths vary (Esfand 29/30 days) — a day-31 monthly recurrence must clamp honestly, never silently skip.",
+      "description": "MCP resources + prompts, all identity- and company-scoped.",
+      "id": "US-604",
+      "notes": "Wave B. Depends on US-601 (+ US-602/US-603 for the data the prompts cite). Spec §13.6. The scope-filtering test is a SECURITY property — a cross-company read must fail closed.",
       "passes": true,
       "priority": 4,
-      "title": "Recurring invoices + journals (W3)"
+      "title": "MCP resources + prompts"
     },
     {
       "acceptanceCriteria": [
-        "Cheque due-soon reminders (3 days + 7 days before due), overdue-installment reminders, uncounted-cashbox reminders (cashbox not counted for more than N days, N user-configured), eNamad expiry reminders (expiry DISABLES gateway/BNPL service — §8.3 — so the reminder is a warning, not a suggestion)",
-        "SMS channel via the US-544 multi-provider registry (Kavenegar + sms.ir first built-ins; provider specifics user-entered, never hard-coded): due-installment + due-cheque reminders by SMS in addition to in-app + email; cost per SMS recorded; customer consent/opt-out honored; mobile numbers stored per the privacy policy",
-        "Reminder preferences per installation: which reminders are on, which channels (in-app/email/SMS), lead times; quiet hours honored",
-        "Reminders are idempotent (one reminder per event per lead-time, never duplicates); every sent reminder is logged with channel + cost",
+        "Four draft-only tools (spec §13.5), exposed ONLY after the read-only tools are stable: prepare_journal_draft, prepare_invoice_draft, prepare_reconciliation_suggestions, prepare_tax_document_draft",
+        "Each tool creates a DRAFT object only and returns its ID + validation findings + the next human action; it must NEVER post the journal, finalize the invoice, approve a reconciliation, or submit anything to Moadian",
+        "Drafts go through the same validation + policy gate as dashboard-created drafts (draft by default, ADR 0003 decision 1); the draft is attributed to the MCP client in the audit log",
+        "NO approve_and_post tool in this release (spec §13.5: a later one would need a separately approved policy, explicit human confirmation, scoped identity, idempotency, complete audit logging — and a model's natural-language statement is NEVER approval)",
+        "Conformance tests per tool: draft created, nothing posted, findings + next action present, Moadian never touched",
         "Targeted tests per story + affected-area tests written for CI; ruff + pyright clean"
       ],
-      "description": "Reminders: cheque due-soon, overdue installments, uncounted cashbox, eNamad expiry — in-app + email + SMS via the provider registry.",
-      "id": "US-564",
-      "notes": "Wave B. Depends on US-560 (scheduler), US-531/US-534 (cheque due dates), US-541 (overdue legs), US-516 (cashbox counts), US-544 (SMS registry + simulator — NO live SMS without credentials). eNamad expiry disabling gateway/BNPL service is a design rule (§8.3), not a suggestion.",
+      "description": "Draft-only mutation tools — drafts only, never post/finalize/approve/submit.",
+      "id": "US-605",
+      "notes": "Wave C (after US-602/US-603 are stable — spec §13.5: 'After read-only MCP is stable'). Depends on US-601 + US-202 (journal drafts) + US-204 (invoices) + US-514 (reconciliation) + US-402/US-404 (tax/Moadian). The never-post guarantee is a SAFETY property — test it explicitly.",
       "passes": true,
       "priority": 5,
-      "title": "Reminders incl. SMS channel (W3)"
+      "title": "Draft-only mutation tools"
     },
     {
       "acceptanceCriteria": [
-        "Xero-style bank rules for auto-coding statements: `when <statement-line pattern> (description contains / amount range / counterparty) → suggest <account + mapping>`; Suggest ← Auto promotion (a suggestion becomes automatic only after the user promotes it, threshold 3 confirmed suggestions — same pattern as US-552 mapping learning)",
-        "User-defined bank rules are W3 rules (managed in the US-562 UI); B2 learned mappings enter as suggestions only",
-        "Auto-coded lines still go through the policy gate + tie-out before posting; a wrong auto-code can be undone (the mapping is corrected, the journal is a draft until approved)",
-        "Playwright: workflows spec covering one rule journey (create → dry-run → live execution), one recurring template (create → preview), one bank rule (suggest → promote → auto-code); responsive checks at 360–390px",
+        "MCP authorized-clients registry (mcp_authorized_clients): per-client scopes + company grants, key rotation + revocation, first-use secret shown exactly once (same rules as REST API keys: HMAC-SHA-256 + pepper, never in logs/bundles)",
+        "Admin UI (Persian RTL, VibeFarsi): list authorized MCP clients, create/revoke/rotate, audit log view (ai_access_audit: who called what, when, for which company, with what outcome)",
+        "Full protocol conformance suite in CI: every tool + resource + prompt against the MCP 2026-07-28 spec (client compatibility: at least the reference MCP client + one host-style client)",
+        "Operator docs: how to connect an AI client (stdio + Streamable HTTP), scope model, audit, revocation; security review of the MCP boundary documented (no direct DB access, no keys in arguments, OAuth audience binding, fail-closed scope checks)",
+        "Playwright: MCP client-management journey (create client → see it listed → revoke → audit shows the revocation); responsive checks at 360–390px",
         "Targeted tests per story + affected-area tests written for CI; ruff + pyright clean"
       ],
-      "description": "Xero-style bank auto-coding rules (Suggest → Auto) + the workflows Playwright spec.",
-      "id": "US-565",
-      "notes": "Wave C (last — needs US-561/US-562 + US-514 bank import). Depends on US-514 (statement import), US-552 (mapping learning pattern), US-561 (rules engine). The Suggest → Auto threshold (3) matches the US-552 mapping-learning threshold.",
+      "description": "MCP client management (registry + admin UI + audit) + full conformance suite + operator docs.",
+      "id": "US-606",
+      "notes": "Wave C (last — needs the whole server). Depends on US-601–US-605. Frontend house rules in apps/admin/AGENTS.md apply. The conformance suite is the phase exit criterion (spec §17 phase 6 + phased design §1.3).",
       "passes": false,
       "priority": 6,
-      "title": "Bank auto-coding rules + workflows Playwright (W3)"
+      "title": "MCP client management + conformance + docs"
     }
   ]
 }
