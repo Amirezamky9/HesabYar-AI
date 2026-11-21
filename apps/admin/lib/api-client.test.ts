@@ -92,7 +92,7 @@ describe("api methods", () => {
     );
   });
 
-  it("exposes all endpoints including the Phase 4 compliance, Phase 5 review-queue, Phase 5-2 cash-box, Phase 5-6 report/forecast/import and Phase 5-7 rules methods", () => {
+  it("exposes all endpoints including the Phase 4 compliance, Phase 5 review-queue, Phase 5-2 cash-box, Phase 5-6 report/forecast/import, Phase 5-7 rules and Phase 6 MCP methods", () => {
     // Count check: 3 health + 2 companies + 2 accounts + 2 fiscal-years +
     // 2 fiscal-periods + 1 setup-status + 7 journals + 4 invoices +
     // 2 payments + 4 statements + 2 audit = 31 methods (list+get pairs),
@@ -103,7 +103,8 @@ describe("api methods", () => {
     // enable/disable 2, dry-run 2, evaluate 1, executions 3, sets 2)
     // = 246, plus 13 Phase 5-7 bank-rules methods (US-565: CRUD 5,
     // enable/disable 2, promote/demote 2, suggestions 3, undo 1)
-    // = 259.
+    // = 259, plus 6 Phase 6 MCP client methods (US-606: list/get/
+    // create/rotate/revoke clients + audit list) = 265.
     const methods = Object.keys(api);
     for (const name of [
       "getHealth",
@@ -386,10 +387,16 @@ describe("api methods", () => {
       "confirmBankRuleSuggestion",
       "rejectBankRuleSuggestion",
       "undoAutoCode",
+      "listMcpClients",
+      "getMcpClient",
+      "createMcpClient",
+      "rotateMcpClient",
+      "revokeMcpClient",
+      "listMcpAuditEvents",
     ]) {
       expect(methods).toContain(name);
     }
-    expect(methods).toHaveLength(259);
+    expect(methods).toHaveLength(265);
   });
 });
 

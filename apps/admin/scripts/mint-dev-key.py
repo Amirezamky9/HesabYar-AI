@@ -130,6 +130,14 @@ OPERATOR_SCOPES = [
     # from this script).
     "jobs:manage",
     "reminders:manage",
+    # Phase 6 (US-602): the MCP list_pending_review_items tool
+    # requires workflow:read (spec §13.4); the CI Playwright job
+    # mints its key from this script, so a missing scope 403s it.
+    "workflow:read",
+    # Phase 6 (US-606): the MCP client-management endpoints reuse
+    # api_keys:manage (managing an MCP client IS managing an API
+    # key); the MCP e2e journey 403s without it.
+    "api_keys:manage",
 ]
 
 

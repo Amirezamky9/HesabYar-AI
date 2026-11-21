@@ -182,7 +182,14 @@ export const NAV_MODULES: NavModule[] = [
       { id: "workflows", label: "گردش‌کارها", href: "/integrations/workflows", icon: Workflow },
     ],
   },
-  { id: "ai", label: "هوش مصنوعی و MCP", icon: Bot, comingSoon: true },
+  {
+    id: "ai",
+    label: "هوش مصنوعی و MCP",
+    icon: Bot,
+    children: [
+      { id: "mcp-clients", label: "کلاینت‌های MCP", href: "/ai/mcp-clients", icon: Bot },
+    ],
+  },
   { id: "api", label: "مدیریت API", icon: KeyRound, comingSoon: true },
   { id: "users", label: "کاربران و دسترسی‌ها", icon: Users, comingSoon: true },
   { id: "settings", label: "تنظیمات", icon: Settings, comingSoon: true },
@@ -226,6 +233,8 @@ export const ROUTE_LABELS: Record<string, string> = {
   moadian: "مودیان",
   integrations: "یکپارچه‌سازی‌ها",
   workflows: "گردش‌کارها",
+  ai: "هوش مصنوعی و MCP",
+  "mcp-clients": "کلاینت‌های MCP",
 };
 
 /** True when the current path belongs to this module (for active state). */

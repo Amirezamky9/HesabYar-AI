@@ -693,6 +693,61 @@ export interface AuditEventResponse {
   metadata_after: Record<string, unknown> | null;
 }
 
+// -- MCP authorized clients (US-606) -------------------------------------------
+// An MCP client is one API client + one ordinary API key + one registry
+// row. The secret is returned ONLY by create/rotate (WithSecret shape);
+// list/get never carry it.
+//
+// Note: there is no `client_name` on the audit rows — the audit table
+// records the client id and the key prefix, not a name.
+export interface McpClientResponse {
+  id: string;
+  /** The underlying api_clients row id — the client_id the audit log records. */
+  api_client_id: string;
+  name: string;
+  description: string | null;
+  key_prefix: string;
+  scopes: string[];
+  company_id: string | null;
+  company_name: string | null;
+  status: "active" | "revoked";
+  created_at: string;
+  updated_at: string;
+  last_used_at: string | null;
+  expires_at: string | null;
+  revoked_at: string | null;
+  revoked_reason: string | null;
+}
+
+export interface McpClientWithSecretResponse extends McpClientResponse {
+  secret: string;
+}
+
+export interface McpClientCreateRequest {
+  name: string;
+  scopes: string[];
+  description?: string | null;
+  company_id?: string | null;
+  expires_at?: string | null;
+}
+
+export interface McpAuditRowResponse {
+  id: string;
+  client_id: string | null;
+  key_prefix: string | null;
+  tool: string;
+  kind: "tool" | "resource" | "prompt" | "management";
+  company_id: string | null;
+  company_name: string | null;
+  scopes: string[];
+  outcome: "allowed" | "denied" | "error";
+  error_code: string | null;
+  request_id: string | null;
+  transport: "stdio" | "streamable-http" | "memory" | "rest";
+  client_info: string | null;
+  created_at: string;
+}
+
 export interface StandardRevisionResponse {
   revision_id: string;
   title: string;
@@ -3540,6 +3595,45 @@ export const api = {
     ),
   getAuditEvent: (eventId: string) =>
     bffRequest<AuditEventResponse>(`audit/events/${encodeURIComponent(eventId)}`),
+
+  // -- MCP authorized clients (US-606) --------------------------------------
+  listMcpClients: (params: { include_revoked?: boolean } = {}) =>
+    bffRequest<McpClientResponse[]>(
+      `mcp/clients${buildQuery({
+        include_revoked:
+          params.include_revoked === undefined
+            ? undefined
+            : params.include_revoked
+              ? "true"
+              : "false",
+      })}`,
+    ),
+  getMcpClient: (clientId: string) =>
+    bffRequest<McpClientResponse>(`mcp/clients/${encodeURIComponent(clientId)}`),
+  createMcpClient: (body: McpClientCreateRequest) =>
+    bffRequest<McpClientWithSecretResponse>("mcp/clients", { method: "POST", body }),
+  rotateMcpClient: (clientId: string) =>
+    bffRequest<McpClientWithSecretResponse>(`mcp/clients/${encodeURIComponent(clientId)}/rotate`, {
+      method: "POST",
+    }),
+  revokeMcpClient: (clientId: string, reason?: string) =>
+    bffRequest<McpClientResponse>(`mcp/clients/${encodeURIComponent(clientId)}/revoke`, {
+      method: "POST",
+      body: { reason: reason ?? null },
+    }),
+  listMcpAuditEvents: (
+    params: PaginationParams & {
+      client?: string;
+      kind?: string;
+      outcome?: string;
+      tool?: string;
+      from?: string;
+      to?: string;
+    } = {},
+  ) =>
+    bffRequest<Paginated<McpAuditRowResponse>>(
+      `mcp/audit${buildQuery(params as Record<string, string | number | undefined>)}`,
+    ),
 
   // -- standards registry + validation runs (US-401) ------------------------
   listStandards: (
