@@ -1632,8 +1632,30 @@ class TrytonAccountingAdapter:
     def _report_context(
         self, company_id: int, **extra: Any
     ) -> dict[str, Any]:
-        """Report context for Function-field reads: company + posted-only."""
-        context: dict[str, Any] = {"company": company_id, "posted": True}
+        """Report context for Function-field reads: company + posted-only.
+
+        ``flat_balance`` is MANDATORY: Tryton's ``account.account``
+        ``balance`` Function field otherwise returns the account's
+        balance INCLUDING all its descendants (the nested-set join in
+        ``Account.get_balance``), and this chart has 16 typed parent
+        accounts (revenue 4.1/4.2/4.3, finance costs 6.2, current tax
+        6.3, property/depreciation/intangible, payable, financial
+        liabilities, provisions, capital 3.1–3.4, root). Every caller
+        sums per-account figures, so a hierarchical balance
+        double-counts each child once through its parent: the balance
+        sheet stopped balancing and the P&L monthly sums (line-based,
+        each line once) stopped tying to the section totals. With
+        ``flat_balance`` every account's balance is its own lines
+        only — leaves are unchanged, parents stop double-counting.
+        (The ``debit``/``credit`` Function fields are flat by
+        construction — ``get_credit_debit`` has no child join — so
+        the key is a no-op for them.)
+        """
+        context: dict[str, Any] = {
+            "company": company_id,
+            "posted": True,
+            "flat_balance": True,
+        }
         context.update(extra)
         return context
 

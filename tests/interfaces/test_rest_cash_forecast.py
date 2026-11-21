@@ -139,11 +139,13 @@ def test_cash_forecast_aggregates_tranche_and_cheque(
     assert items[0]["bucket"] == "confirmed"
     assert items[0]["direction"] == "inflow"
     # 2026-11-25 is 1405-09-04 (Azar) — Aban ends 2026-11-21 — so the
-    # tranche day lives in the Azar month, not Aban.
+    # tranche day lives in the Azar month, not Aban. BOTH items fall
+    # on 2026-11-25 (the cheque fixture is due that day too), so the
+    # day row aggregates both — matching the totals above.
     azar = next(m for m in data["months"] if m["month_jalali"] == "1405-09")
     day = next(d for d in azar["days"] if d["date"] == "2026-11-25")
-    assert day["inflow_confirmed_irr"] == 9_450_000
-    assert day["item_count"] == 1
+    assert day["inflow_confirmed_irr"] == 19_450_000
+    assert day["item_count"] == 2
 
 
 def test_cash_forecast_needs_reports_read_scope(api: TestClient) -> None:

@@ -678,9 +678,30 @@ class EventPipelineService:
         if inbox_event is None:
             raise EventNotFoundError(f"Inbox event {event_id!r} does not exist.")
         if inbox_event.status == InboxEventStatus.PROCESSED:
+            # Idempotency returns the ORIGINAL result: the draft the
+            # first processing created, recorded in the §10.4
+            # external-entity mapping — the same ref the exactly-once
+            # pre-check in _run_pipeline returns. A re-run that drops
+            # the ref breaks callers that need the draft (the US-552
+            # reprocess loop re-runs the event after completing the
+            # mappings and expects the draft ref back). Events with
+            # no entity mapping keep draft_ref None, as before.
+            draft_ref: str | None = None
+            if (
+                inbox_event.external_entity_type is not None
+                and inbox_event.external_entity_id is not None
+            ):
+                existing = self._external_ids.get(
+                    inbox_event.source_system,
+                    inbox_event.external_entity_type,
+                    inbox_event.external_entity_id,
+                )
+                if existing is not None:
+                    draft_ref = existing.target_external_id
             return PipelineResult(
                 inbox_event_id=inbox_event.id,
                 outcome=PipelineOutcome.PROCESSED_DRAFT,
+                draft_ref=draft_ref,
                 error="Event was already processed; no duplicate effect.",
             )
         if inbox_event.status in (InboxEventStatus.DEAD_LETTERED, InboxEventStatus.NEEDS_REVIEW):
