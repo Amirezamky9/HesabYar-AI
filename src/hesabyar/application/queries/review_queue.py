@@ -173,7 +173,7 @@ class ReviewQueueQueryService:
         return self._view(item, policies, current)
 
     def sla_policies(self, tenant_id: str) -> Sequence[SlaPolicy]:
-        """Effective SLA policy for all ten types (configured over default)."""
+        """Effective SLA policy for all eleven types (configured over default)."""
         policies = self._policies(tenant_id)
         return tuple(policies[item_type] for item_type in ReviewItemType)
 
@@ -186,7 +186,7 @@ class ReviewQueueQueryService:
     ) -> ReviewQueueSummary:
         """Per-type counters + ageing + admin notifications for the dashboard.
 
-        All ten types are always present (even with zero items). A
+        All eleven types are always present (even with zero items). A
         critical item past its SLA produces one admin notification —
         the dashboard and the queue page surface it as an alert.
         """

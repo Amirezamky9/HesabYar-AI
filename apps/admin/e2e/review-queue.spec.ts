@@ -39,6 +39,7 @@ const SEED_TYPES: { type: string; severity: string; channel: string | null; amou
   { type: "cashbox_variance", severity: "critical", channel: null, amountIrr: 120_000 },
   { type: "inbox_dead_letter", severity: "critical", channel: "store", amountIrr: null },
   { type: "sms_delivery_failed", severity: "warning", channel: null, amountIrr: null },
+  { type: "reminder", severity: "warning", channel: null, amountIrr: null },
 ];
 
 /** Collect console errors for the whole flow; asserted at the end. */
@@ -262,6 +263,8 @@ test("review queue (US-552): derived suggestion, mapping learning, replay error,
     cashbox_variance: ["escalate_to_manager", "large_variance_needs_manager"],
     inbox_dead_letter: ["replay", "event_dead_lettered"],
     sms_delivery_failed: ["retry_reminder", "sms_send_failed"],
+    // The reminder seed has no subtype: the suggestion is to acknowledge it.
+    reminder: ["acknowledge", "reminder_needs_attention"],
   };
   for (const [type, [action, reasonKey]] of Object.entries(expectedSuggestions)) {
     const detail = await page.request.get(`/api/bff/review-queue/items/${ids[type]}`);

@@ -402,22 +402,28 @@ def test_create_rejects_kind_payload_mismatch() -> None:
 
 def test_create_rejects_unbalanced_journal() -> None:
     service, _ = _template_service()
-    payload = JournalTemplatePayload(
-        lines=(
-            JournalTemplateLine(account_engine_id=21, debit_irr=100),
-            JournalTemplateLine(account_engine_id=22, credit_irr=99),
-        )
-    )
+    # The payload validates its invariants in __post_init__ (domain
+    # invariants are enforced at construction), so the unbalanced
+    # payload must be built INSIDE the raises block — building it
+    # outside lets the error escape before the block is entered.
     with pytest.raises(UnbalancedJournalError):
+        payload = JournalTemplatePayload(
+            lines=(
+                JournalTemplateLine(account_engine_id=21, debit_irr=100),
+                JournalTemplateLine(account_engine_id=22, credit_irr=99),
+            )
+        )
         _make_template(service, kind=TemplateKind.JOURNAL, payload=payload)
 
 
 def test_create_rejects_zero_total_invoice() -> None:
     service, _ = _template_service()
-    payload = InvoiceTemplatePayload(
-        invoice_type="out", party_engine_id=7, lines=()
-    )
+    # Same as the unbalanced-journal test: the empty-lines payload
+    # raises in __post_init__, so it must be built inside the block.
     with pytest.raises(InvalidRecurringTemplateError, match="at least one line"):
+        payload = InvoiceTemplatePayload(
+            invoice_type="out", party_engine_id=7, lines=()
+        )
         _make_template(service, payload=payload)
 
 
@@ -439,7 +445,10 @@ def test_list_templates_filters() -> None:
     assert len(service.list_templates(TENANT_ID)) == 3
     assert len(service.list_templates(TENANT_ID, kind=TemplateKind.JOURNAL)) == 1
     assert len(service.list_templates(TENANT_ID, company_id="company-2")) == 1
-    assert service.list_templates(OTHER_TENANT) == ()
+    # list_templates returns Sequence; both the SQL repository (a list
+    # comprehension over the rows) and the fake return a list — there
+    # is no tuple convention here (unlike the frozen-dataclass DTOs).
+    assert service.list_templates(OTHER_TENANT) == []
 
 
 def test_preview_computes_dates_amounts_and_clamps() -> None:

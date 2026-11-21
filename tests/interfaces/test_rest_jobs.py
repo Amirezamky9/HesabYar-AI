@@ -110,6 +110,7 @@ def test_list_jobs(api: TestClient) -> None:
         "scheduler.dunning_sweep",
         "scheduler.store_sync",
         "scheduler.inbox_staleness",
+        "reminders.daily",
         "scheduler.recurring_generation",
     ]
     tick = next(job for job in jobs if job["id"] == "settlement.tick")

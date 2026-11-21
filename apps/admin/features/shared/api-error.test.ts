@@ -62,7 +62,8 @@ describe("persianApiErrorMessage", () => {
         "پشتیبان",
       ),
     ).toContain("قابل ارتقا به خودکار نیست");
-    // A missing source event is a 404, so the generic not-found message wins.
+    // A missing source event is a 404 with its own specific message
+    // ("رویداد مبدأ این آیتم پیدا نشد..."), which still contains "پیدا نشد".
     expect(
       persianApiErrorMessage(new ApiError(404, "INBOX_EVENT_NOT_FOUND", "gone"), "پشتیبان"),
     ).toContain("پیدا نشد");

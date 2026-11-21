@@ -375,7 +375,13 @@ def test_match_statement_line_w3_first_match_by_priority() -> None:
     first = _rule(id="rule-low", priority=10, target_account_id=601)
     second = _rule(id="rule-high", priority=20, target_account_id=501)
     result = match_statement_line(_match_line(), [], [], bank_rules=[second, first])
-    assert result.target_id == "rule-low"
+    # The fixture rules are born SUGGEST (BankRule.mode defaults to
+    # SUGGEST), so the winning rule lands in suggestions — the
+    # top-level target_id is set only by an AUTO rule (same as the
+    # learned-rule branches). Priority still picks the lowest number.
+    assert result.outcome == ReconcileOutcome.SUGGESTED
+    assert len(result.suggestions) == 1
+    assert result.suggestions[0].target_id == "rule-low"
 
 
 def test_match_statement_line_w3_disabled_rule_never_fires() -> None:

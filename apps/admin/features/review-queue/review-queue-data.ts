@@ -11,7 +11,7 @@
 import type { StatusTone } from "@/components/ui";
 import { faNumber } from "@/lib/utils";
 
-/** The ten item types (phased design §7.2 lists nine; US-544 added the tenth), in table order. */
+/** The eleven item types (phased design §7.2 lists nine; US-544 added the tenth, US-564 the eleventh), in table order. */
 export const REVIEW_ITEM_TYPES = [
   "mapping",
   "settlement_variance",
@@ -23,6 +23,7 @@ export const REVIEW_ITEM_TYPES = [
   "cashbox_variance",
   "inbox_dead_letter",
   "sms_delivery_failed",
+  "reminder",
 ] as const;
 
 export type ReviewItemTypeCode = (typeof REVIEW_ITEM_TYPES)[number];
@@ -38,6 +39,7 @@ export const REVIEW_ITEM_TYPE_LABELS: Record<string, { label: string; descriptio
   cashbox_variance: { label: "مغایرت صندوق", description: "اختلاف شمارش صندوق با ماندهٔ دفتری" },
   inbox_dead_letter: { label: "رویداد مرده", description: "رویدادی که پردازش آن ناموفق مانده است" },
   sms_delivery_failed: { label: "ارسال پیامک ناموفق", description: "یادآوری پیامکی که ارسال آن ناموفق مانده است" },
+  reminder: { label: "یادآوری", description: "سررسید نزدیک چک، قسط معوق، صندوق شمارش‌نشده یا انقضای اینماد" },
 };
 
 export function reviewTypeLabel(type: string | null | undefined): string {
@@ -128,6 +130,7 @@ export const REVIEW_ACTION_LABELS: Record<string, string> = {
   fix_source_retry: "اصلاح دادهٔ مبدأ و پردازش مجدد",
   close_with_reason: "بستن با دلیل",
   retry_reminder: "ارسال مجدد یادآوری",
+  acknowledge: "تأیید و بستن یادآوری",
   filed: "ثبت در صف",
   assign: "تخصیص",
 };
@@ -158,6 +161,8 @@ export const SUGGESTED_REASON_LABELS: Record<string, string> = {
   variance_needs_approval: "شمارش صحیح فرض می‌شود؛ سند کسری یا اضافی را تأیید کنید.",
   event_dead_lettered: "رویداد پس از چند تلاش ناموفق متوقف شده است؛ بازپخش آن را دوباره به صف برمی‌گرداند.",
   sms_send_failed: "ارسال ناموفق بوده است؛ معمولاً با ارسال مجدد رفع می‌شود.",
+  reminder_needs_follow_up: "پیگیری با مشتری یا صادرکنندهٔ چک لازم است؛ سررسید نزدیک است یا گذشته است.",
+  reminder_needs_attention: "یادآوری نیازمند اقدام است؛ پس از انجام، آن را تأیید کنید.",
 };
 
 export function suggestedReasonLabel(reasonKey: string | null | undefined): string {

@@ -117,12 +117,12 @@ def _parse_enum(value: str | None, allowed: set[str], param: str) -> str | None:
 @router.get(
     "/review-queue/types",
     response_model=list[ReviewItemTypeResponse],
-    summary="List the ten review item types with their permitted actions",
+    summary="List the eleven review item types with their permitted actions",
 )
 def list_review_types(
     _client: AuthenticatedClient = Depends(require_scopes("review:read")),
 ) -> list[ReviewItemTypeResponse]:
-    """Return all ten §7.2 item types with their permitted actions."""
+    """Return all eleven item types with their permitted actions."""
     return [ReviewItemTypeResponse.from_type(item_type) for item_type in ReviewItemType]
 
 
@@ -133,7 +133,7 @@ def list_review_types(
 )
 def list_review_items(
     request: Request,
-    type: str | None = Query(default=None, description="Filter to one of the ten item types"),
+    type: str | None = Query(default=None, description="Filter to one of the eleven item types"),
     severity: str | None = Query(default=None, description="Filter to a severity: info | warning | critical"),
     status: str | None = Query(
         default=None, description="Filter to a status: open | in_review | resolved | written_off"
@@ -335,7 +335,7 @@ def get_review_queue_summary(
     client: AuthenticatedClient = Depends(require_scopes("review:read")),
     service: ReviewQueueQueryService = Depends(get_review_queue_query_service),
 ) -> ReviewQueueSummaryResponse:
-    """Return the queue summary (all ten types, even with zero items)."""
+    """Return the queue summary (all eleven types, even with zero items)."""
     with translate_errors():
         summary = service.summary(client.tenant_id, company_id=company)
     return ReviewQueueSummaryResponse.from_summary(summary)
@@ -350,7 +350,7 @@ def list_sla_policies(
     client: AuthenticatedClient = Depends(require_scopes("review:read")),
     service: ReviewQueueQueryService = Depends(get_review_queue_query_service),
 ) -> list[SlaPolicyResponse]:
-    """Return the effective SLA policy for all ten types."""
+    """Return the effective SLA policy for all eleven types."""
     with translate_errors():
         policies = service.sla_policies(client.tenant_id)
     return [SlaPolicyResponse.from_policy(policy) for policy in policies]

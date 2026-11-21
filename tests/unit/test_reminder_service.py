@@ -881,13 +881,16 @@ def test_second_run_sends_nothing_new(world: ReminderWorld) -> None:
 
 def test_failed_send_retries_next_run(world: ReminderWorld) -> None:
     _seed_cheque_world(world)
-    world.sms_world.clients.clients["simulator"].error = SmsProviderRejectedError(
-        "simulator", reason="no credit."
-    )
+    # The fake factory creates the simulator client lazily on the
+    # first send, so the raw dict has no "simulator" key yet —
+    # simulator_client() creates it (the send path reuses the same
+    # instance from the dict).
+    client = world.simulator_client()
+    client.error = SmsProviderRejectedError("simulator", reason="no credit.")
     first = world.service().run_daily_reminder_job(today=TODAY, now=NOW)
     assert first.failed == 1
     assert first.sent_sms == 0
-    world.sms_world.clients.clients["simulator"].error = None
+    client.error = None
     second = world.service().run_daily_reminder_job(today=TODAY, now=NOW)
     assert second.sent_sms == 1
     assert len(world.simulator_client().sends) == 1
@@ -940,7 +943,7 @@ def test_cashbox_reminder_fires_again_after_a_new_count(world: ReminderWorld) ->
 
 def test_sms_cost_is_recorded_from_the_provider_result(world: ReminderWorld) -> None:
     _seed_cheque_world(world)
-    client = world.sms_world.clients.clients["simulator"]
+    client = world.simulator_client()
     client.result = SmsSendResult(
         provider_message_id="sim-cost-1",
         status=SmsDeliveryStatus.SENT,
@@ -975,7 +978,7 @@ def test_sms_provider_failure_logs_failed_and_files_review_item(
     world: ReminderWorld,
 ) -> None:
     _seed_cheque_world(world)
-    world.sms_world.clients.clients["simulator"].error = SmsProviderRejectedError(
+    world.simulator_client().error = SmsProviderRejectedError(
         "simulator", reason="no credit."
     )
     report = world.service().run_daily_reminder_job(today=TODAY, now=NOW)
@@ -992,7 +995,7 @@ def test_sms_provider_failure_logs_failed_and_files_review_item(
 
 def test_sms_provider_reported_failed_is_a_failure(world: ReminderWorld) -> None:
     _seed_cheque_world(world)
-    client = world.sms_world.clients.clients["simulator"]
+    client = world.simulator_client()
     client.result = SmsSendResult(
         provider_message_id="sim-fail-1",
         status=SmsDeliveryStatus.FAILED,

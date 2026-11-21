@@ -203,12 +203,12 @@ def _item(
 
 
 # ---------------------------------------------------------------------------
-# Domain: the ten types, permitted actions, SLA defaults
+# Domain: the eleven types, permitted actions, SLA defaults
 # ---------------------------------------------------------------------------
 
 
-def test_ten_item_types_exist():
-    assert len(ReviewItemType) == 10
+def test_eleven_item_types_exist():
+    assert len(ReviewItemType) == 11
     assert {t.value for t in ReviewItemType} == {
         "mapping",
         "settlement_variance",
@@ -220,6 +220,7 @@ def test_ten_item_types_exist():
         "cashbox_variance",
         "inbox_dead_letter",
         "sms_delivery_failed",
+        "reminder",
     }
 
 
@@ -352,10 +353,10 @@ def test_get_item_carries_audit_trail(world):
     assert view.sla_breached is False
 
 
-def test_summary_covers_all_ten_types_even_empty(world):
+def test_summary_covers_all_eleven_types_even_empty(world):
     _queue, _audit, query, _cmd = world
     summary = query.summary(TENANT)
-    assert len(summary.counters) == 10
+    assert len(summary.counters) == 11
     assert {counter.item_type for counter in summary.counters} == set(ReviewItemType)
     assert summary.total_open == 0
     assert summary.total_overdue == 0

@@ -20,8 +20,8 @@ import {
 } from "./review-queue-data";
 
 describe("review queue labels", () => {
-  it("covers all ten §7.2 item types", () => {
-    expect(REVIEW_ITEM_TYPES).toHaveLength(10);
+  it("covers all eleven §7.2 item types", () => {
+    expect(REVIEW_ITEM_TYPES).toHaveLength(11);
     expect(REVIEW_ITEM_TYPES).toEqual([
       "mapping",
       "settlement_variance",
@@ -33,6 +33,7 @@ describe("review queue labels", () => {
       "cashbox_variance",
       "inbox_dead_letter",
       "sms_delivery_failed",
+      "reminder",
     ]);
     for (const type of REVIEW_ITEM_TYPES) {
       expect(reviewTypeLabel(type)).not.toBe(type);
@@ -79,6 +80,7 @@ describe("review queue labels", () => {
       "replay",
       "fix_source_retry",
       "close_with_reason",
+      "acknowledge",
     ];
     expect(Object.keys(REVIEW_ACTION_LABELS)).toEqual(expect.arrayContaining(actionCodes));
     for (const code of actionCodes) {
@@ -118,6 +120,8 @@ describe("derived suggestions (US-552)", () => {
       "variance_needs_approval",
       "event_dead_lettered",
       "sms_send_failed",
+      "reminder_needs_follow_up",
+      "reminder_needs_attention",
     ];
     expect(Object.keys(SUGGESTED_REASON_LABELS)).toEqual(expect.arrayContaining(reasonKeys));
     for (const key of reasonKeys) {

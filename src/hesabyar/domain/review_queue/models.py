@@ -3,8 +3,9 @@
 Phased design §1.2 (F4) and §7.2: every exception — from any module —
 is a ``ReviewItem`` with the same fields: ``id, type, severity,
 source_event_ref, reason, suggested_action, amount_irr, age +
-sla_deadline, actions[], assignee, audit[]``. The ten item types and
-their permitted actions come from §7.2; the Persian labels live in the
+sla_deadline, actions[], assignee, audit[]``. The eleven item types and
+their permitted actions come from §7.2 (the tenth and eleventh types
+arrived later — see :class:`ReviewItemType`); the Persian labels live in the
 frontend (``features/review-queue``) — this layer stays English.
 
 Ageing and SLA
@@ -210,6 +211,16 @@ PERMITTED_ACTIONS: dict[ReviewItemType, tuple[ReviewAction, ...]] = {
         ReviewAction("contact_customer", ReviewActionKind.NOTE),
         ReviewAction("close_with_reason", ReviewActionKind.DISMISS, ReviewResolution.SKIPPED),
     ),
+    # The eleventh type (US-564, Phase 5-7 ۵خ W3) — not in the §7.2
+    # table, which predates it (same as SMS_DELIVERY_FAILED). A
+    # reminder is an in-app notification, not an exception: the
+    # operator acknowledges it once acted on, snoozes it, or records
+    # following up with the customer (cheque / installment subtypes).
+    ReviewItemType.REMINDER: (
+        ReviewAction("acknowledge", ReviewActionKind.RESOLVE, ReviewResolution.CONFIRMED_OK),
+        ReviewAction("contact_customer", ReviewActionKind.NOTE),
+        ReviewAction("snooze", ReviewActionKind.DISMISS, ReviewResolution.DEFERRED),
+    ),
 }
 
 
@@ -336,7 +347,7 @@ class ReviewItem:
 class ReviewTypeCounter:
     """Per-type counters for the dashboard (phased design §7.3).
 
-    All ten types are always present in the summary — even with zero
+    All eleven types are always present in the summary — even with zero
     items — so the dashboard never has to guess which types exist.
     """
 

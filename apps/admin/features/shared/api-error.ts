@@ -14,7 +14,10 @@ export function persianApiErrorMessage(err: unknown, fallback: string): string {
   if (err instanceof ApiError) {
     if (err.isUnauthorized) return "نشست شما به پایان رسیده است؛ دوباره وارد شوید.";
     if (err.isForbidden) return "کلید شما برای این بخش دسترسی ندارد.";
-    if (err.isNotFound) return "این رکورد پیدا نشد؛ ممکن است حذف شده باشد.";
+    // No generic 404 return here: a specific code (BANK_RULE_NOT_FOUND,
+    // REVIEW_ITEM_NOT_FOUND, ...) has its own Persian message in the
+    // switch, and an early 404 return would shadow every one of them.
+    // Unknown 404 codes still get the generic message (switch default).
     switch (err.code) {
       case "COMPANY_REQUIRED":
         return "شرکتی انتخاب نشده است؛ ابتدا یک شرکت انتخاب کنید.";
@@ -177,6 +180,7 @@ export function persianApiErrorMessage(err: unknown, fallback: string): string {
       case "BANK_RULE_NOTHING_TO_UNDO":
         return "برای این ردیف کدگذاری خودکاری وجود ندارد که بتوان آن را برگرداند.";
       default:
+        if (err.isNotFound) return "این رکورد پیدا نشد؛ ممکن است حذف شده باشد.";
         return fallback;
     }
   }

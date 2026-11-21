@@ -38,6 +38,11 @@ Rules (type first, then payload overrides):
 - ``inbox_dead_letter`` → ``replay``: the dead letter's whole point.
 - ``sms_delivery_failed`` → ``retry_reminder``: a transient
   failure — retry first.
+- ``reminder`` → a customer-facing subtype (``cheque_due_soon``,
+  ``installment_overdue``) → ``contact_customer`` (follow up with
+  the customer/issuer first); otherwise ``acknowledge`` (the
+  operator acts on the reminder — counts the box, renews the
+  eNamad — and closes it).
 """
 
 from __future__ import annotations
@@ -54,6 +59,12 @@ from hesabyar.domain.review_queue.models import (
 #: cheque module, US-531/532): the bounce must be recorded, not
 #: investigated first.
 _BOUNCED_SUBTYPES = frozenset({"cheque_bounced", "issued_cheque_bounced"})
+
+#: Reminder subtypes (US-564) whose follow-up is with a customer or
+#: cheque issuer: the suggestion is to contact them, not merely to
+#: acknowledge the reminder. The other subtypes (cashbox_uncounted,
+#: enmad_expiry) are the operator's own work — acknowledge.
+_CUSTOMER_FOLLOW_UP_SUBTYPES = frozenset({"cheque_due_soon", "installment_overdue"})
 
 
 @dataclass(frozen=True)
@@ -104,4 +115,8 @@ def derive_suggestion(item: ReviewItem) -> SuggestedAction:
         return SuggestedAction("replay", "event_dead_lettered")
     if item_type is ReviewItemType.SMS_DELIVERY_FAILED:
         return SuggestedAction("retry_reminder", "sms_send_failed")
+    if item_type is ReviewItemType.REMINDER:
+        if item.subtype in _CUSTOMER_FOLLOW_UP_SUBTYPES:
+            return SuggestedAction("contact_customer", "reminder_needs_follow_up")
+        return SuggestedAction("acknowledge", "reminder_needs_attention")
     raise AssertionError(f"unhandled review item type {item_type!r}")

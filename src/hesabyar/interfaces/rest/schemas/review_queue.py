@@ -67,7 +67,7 @@ class ReviewItemResponse(BaseModel):
     """One uniform review-queue item with computed ageing/SLA fields."""
 
     id: str = Field(description="Review item id")
-    item_type: str = Field(description="Exception type — one of the ten §7.2 types")
+    item_type: str = Field(description="Exception type — one of the eleven §7.2 types")
     subtype: str | None = Field(description="Subtype for filtering/stats")
     severity: str = Field(description="Severity: info | warning | critical")
     status: str = Field(description="Status: open | in_review | resolved | written_off")
@@ -144,7 +144,7 @@ class ReviewItemResponse(BaseModel):
 class CreateReviewItemRequest(BaseModel):
     """File a new exception item (modules file through this endpoint)."""
 
-    item_type: str = Field(description="Exception type — one of the ten §7.2 types")
+    item_type: str = Field(description="Exception type — one of the eleven §7.2 types")
     severity: str = Field(description="Severity: info | warning | critical")
     reason: str = Field(description="Why the item needs review (Persian, human-readable)", min_length=1)
     suggested_action: str = Field(description="System-suggested next step", min_length=1)
@@ -198,7 +198,7 @@ class AssignReviewItemRequest(BaseModel):
 
 
 class ReviewTypeCounterResponse(BaseModel):
-    """Per-type counters for the dashboard (all ten types always present)."""
+    """Per-type counters for the dashboard (all eleven types always present)."""
 
     item_type: str = Field(description="Exception type")
     open_count: int = Field(description="Open items of this type")
@@ -248,7 +248,7 @@ class AdminNotificationResponse(BaseModel):
 class ReviewQueueSummaryResponse(BaseModel):
     """Queue summary for the dashboard: counters + ageing + alerts."""
 
-    counters: list[ReviewTypeCounterResponse] = Field(description="Per-type counters (all ten types)")
+    counters: list[ReviewTypeCounterResponse] = Field(description="Per-type counters (all eleven types)")
     total_open: int = Field(description="Total open items")
     total_in_review: int = Field(description="Total in-review items")
     total_overdue: int = Field(description="Total open/in-review items past SLA")
@@ -303,7 +303,7 @@ class UpdateSlaPolicyRequest(BaseModel):
 
 
 class ReviewItemTypeResponse(BaseModel):
-    """One of the ten item types with its permitted actions (§7.2)."""
+    """One of the eleven item types with its permitted actions (§7.2)."""
 
     item_type: str = Field(description="Exception type")
     actions: list[ReviewActionResponse] = Field(description="Permitted actions for this type")
