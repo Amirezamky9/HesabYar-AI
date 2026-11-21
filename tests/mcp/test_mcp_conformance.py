@@ -899,12 +899,15 @@ def test_live_chart_of_accounts_resource(
     # carry a type: group accounts — the "1" Assets group, the 7.x
     # memorandum groups — have NO type in Tryton by design (REST
     # asserts the same: root["type"] is None), so a typeless account
-    # is correct engine data, not a mapping gap.
+    # is correct engine data, not a mapping gap. The chart root itself
+    # is the one exception: it carries the chart template's ROOT type
+    # ("Universal Chart of Account Types" — the type tree's root node,
+    # mirrored in REST's own fixture in test_reports_us550.py).
     codeless = [account for account in payload["accounts"] if not account["code"]]
     assert len(codeless) <= 1, "at most one account (the chart root) has no code"
     if codeless:
         assert codeless[0]["parent_code"] is None
-        assert codeless[0]["type"] is None
+        assert codeless[0]["type"] == "Universal Chart of Account Types"
         assert codeless[0]["postable"] is False
     for account in payload["accounts"]:
         assert account["name"], f"account {account['code']!r} has no name"
