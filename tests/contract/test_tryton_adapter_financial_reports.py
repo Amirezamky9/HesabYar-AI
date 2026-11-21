@@ -41,6 +41,7 @@ from hesabyar.domain.accounting.commands import CreateJournalDraft, JournalDraft
 from hesabyar.domain.accounting.refs import AccountRef, CompanyRef, JournalRef
 from hesabyar.domain.accounting.value_objects import AccountView
 from hesabyar.domain.common.dates import FiscalDate
+from hesabyar.domain.common.errors import AccountNotFoundError
 from hesabyar.domain.common.money import MoneyIRR
 from hesabyar.domain.reports.statements import aging_bucket
 from hesabyar.infrastructure.accounting.tryton.adapter import TrytonAccountingAdapter
@@ -240,11 +241,14 @@ def test_general_ledger_excludes_draft_moves(
 def test_general_ledger_unknown_account_raises(
     adapter: TrytonAccountingAdapter, company: CompanyRef
 ) -> None:
-    with pytest.raises(TrytonAdapterError) as excinfo:
+    # Unknown ACCOUNT -> AccountNotFoundError (LEDGER_ACCOUNT_NOT_FOUND),
+    # the same as get_account_balance's twin check; only an unknown
+    # COMPANY is TrytonAdapterError(ENGINE_NOT_FOUND).
+    with pytest.raises(AccountNotFoundError) as excinfo:
         adapter.get_general_ledger(
             company, NOV_FROM, NOV_TO, AccountRef(engine_id=999_999)
         )
-    assert excinfo.value.code == ENGINE_NOT_FOUND
+    assert excinfo.value.code == "LEDGER_ACCOUNT_NOT_FOUND"
 
 
 def test_general_ledger_reversed_range_raises(

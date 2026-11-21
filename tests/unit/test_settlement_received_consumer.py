@@ -94,7 +94,10 @@ NOW = datetime.datetime(2026, 11, 6, 12, 0, tzinfo=datetime.UTC)
 def world() -> dict[str, Any]:
     """A fresh fake world: settlement service + the consumer handler."""
     settlement_repo = FakeSettlementRepository()
-    registry = _make_registry()
+    # The registry is installation-scoped: seed snapppay under THIS
+    # module's installation id ("installation-event-tests"), not the
+    # import-services module's default.
+    registry = _make_registry(INSTALLATION_ID)
     audit = FakeSettlementAudit()
     commands = SettlementCommandService(settlement_repo, registry, audit)
     queue = BankFakeReviewQueue()

@@ -848,7 +848,14 @@ def test_complete_mapping_retry_without_mapping_only_reprocesses(
     )
     assert response.status_code == 200, response.text
     assert response.json()["status"] == "in_review"
-    assert _list_suggestions(engine, INSTALLATION_ID) == []
+    # No mapping was supplied, so THIS action must learn nothing. The
+    # DB is module-shared, so an earlier test's suggestion may exist —
+    # assert on this item's basis, not on an empty table.
+    assert [
+        s
+        for s in _list_suggestions(engine, INSTALLATION_ID)
+        if s.basis == f"review_queue:{created['id']}"
+    ] == []
     assert response.json()["audit"][-1]["mapping_version"] is None
     reprocessed = _get_inbox_event(engine, event_id)
     assert reprocessed is not None

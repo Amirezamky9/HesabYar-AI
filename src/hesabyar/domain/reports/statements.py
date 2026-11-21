@@ -513,9 +513,18 @@ def build_income_statement_sections(
     sections: list[StatementSectionView] = []
     totals: dict[str, MoneyIRR] = {}
     totals_cmp: dict[str, MoneyIRR | None] = {}
-    for key, title in (("revenue", "Revenue"), ("expenses", "Expenses")):
+    # NOTE: the section key is "expenses" but classify_income_types
+    # returns the singular kind "expense" — the filter must use the
+    # kind, not the key (filtering on "expenses" matched nothing and
+    # the expenses section was always empty).
+    for key, title, kind_filter in (
+        ("revenue", "Revenue", "revenue"),
+        ("expenses", "Expenses", "expense"),
+    ):
         type_ids = {
-            type_id for type_id, kind in classification.items() if kind == key
+            type_id
+            for type_id, kind in classification.items()
+            if kind == kind_filter
         }
         section_accounts = [
             row for row in accounts if row.type_id in type_ids

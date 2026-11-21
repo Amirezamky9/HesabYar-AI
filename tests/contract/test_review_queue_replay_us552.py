@@ -50,7 +50,11 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from hesabyar.application.commands.events import DlqReplayService, EventPipelineService
-from hesabyar.application.commands.integrations import MappingService, PolicyGateService
+from hesabyar.application.commands.integrations import (
+    ChannelRegistryService,
+    MappingService,
+    PolicyGateService,
+)
 from hesabyar.application.commands.policy_gate import RegistryPolicyGate
 from hesabyar.application.commands.review_queue import MappingLearningInput, ReviewQueueCommandService
 from hesabyar.application.commands.store_events import StoreDraftBuilder, StoreMappingResolver
@@ -88,6 +92,7 @@ from hesabyar.infrastructure.persistence.postgres.models import (
     Base,
     IntegrationMappingModel,
     MappingSuggestionModel,
+    PaymentChannelModel,
     TenantModel,
 )
 from hesabyar.infrastructure.persistence.postgres.review_queue_repository import (
@@ -302,6 +307,14 @@ def world(
         session.flush()
         tenant_id = tenant.id
         registry = SqlAlchemyIntegrationsRepository(session)
+        # The zarinpal channel must exist before any GATEWAY_JOURNAL
+        # mapping can reference it (MappingService validates channel
+        # existence). A channel is not a mapping, so this does not
+        # break the fixture's "no mappings seeded" contract.
+        ChannelRegistryService(registry).create_channel(
+            installation_id, "zarinpal", "زرین‌پال", "gateway"
+        )
+        session.commit()
         review_repository = SqlAlchemyReviewQueueRepository(session)
         inbox = SqlAlchemyEventInboxRepository(session)
         outbox = SqlAlchemyEventOutboxRepository(session)
@@ -358,6 +371,11 @@ def world(
             cleanup.execute(
                 delete(MappingSuggestionModel).where(
                     MappingSuggestionModel.installation_id == installation_id
+                )
+            )
+            cleanup.execute(
+                delete(PaymentChannelModel).where(
+                    PaymentChannelModel.installation_id == installation_id
                 )
             )
             if tenant_id:

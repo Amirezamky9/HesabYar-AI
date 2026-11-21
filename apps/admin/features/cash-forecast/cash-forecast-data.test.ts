@@ -35,8 +35,10 @@ describe("jalaliMonthRange", () => {
   });
 
   it("returns the Gregorian span of Esfand 1405 (29 days, non-leap)", () => {
+    // Esfand 1, 1405 is 2027-02-20 (2027-02-19 is Bahman 30); Esfand
+    // 29, 1405 is 2027-03-20.
     expect(jalaliMonthRange({ jy: 1405, jm: 12 })).toEqual({
-      fromIso: "2027-02-19",
+      fromIso: "2027-02-20",
       toIso: "2027-03-20",
     });
   });

@@ -200,11 +200,16 @@ class SettlementCommandService:
         """
         if self._review is None or tenant_id is None:
             return False
-        amount = (
-            exception.actual_amount_irr
-            if exception.actual_amount_irr is not None
-            else exception.expected_amount_irr
-        )
+        # The amount at stake is the VARIANCE (outstanding), not the
+        # amount actually received: a late tranche with 0 received
+        # against 22,250,000 expected files 22,250,000, not 0. With
+        # only one side present, that side is the amount at stake.
+        expected = exception.expected_amount_irr
+        actual = exception.actual_amount_irr
+        if expected is not None and actual is not None:
+            amount: int | None = abs(expected - actual)
+        else:
+            amount = actual if actual is not None else expected
         self._review.file_item(
             tenant_id=tenant_id,
             item_type=ReviewItemType.SETTLEMENT_VARIANCE,

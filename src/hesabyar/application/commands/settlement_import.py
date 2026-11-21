@@ -774,6 +774,20 @@ class SettlementImportService:
         ]
         gross = sum(row.amount_irr or 0 for row in settlement_rows if (row.amount_irr or 0) > 0)
         fee = sum(row.fee_irr or 0 for row in settlement_rows)
+        # VAT is not in the file: it is the fee VAT snapshotted on
+        # the tranches these rows match (one tranche's VAT counted
+        # once, however many rows point at it). Unmatched rows carry
+        # no tranche, so they contribute no VAT.
+        matched_tranche_ids = {
+            row.matched_tranche_id
+            for row in settlement_rows
+            if row.matched_tranche_id is not None
+        }
+        vat = 0
+        for tranche_id in matched_tranche_ids:
+            tranche = self._repository.get_tranche(installation_id, tranche_id)
+            if tranche is not None:
+                vat += tranche.fee_vat_irr
         net = sum(row.net_irr or 0 for row in settlement_rows)
         refunds = -sum(
             row.net_irr or 0
@@ -793,7 +807,7 @@ class SettlementImportService:
         return ImportPreview(
             gross_irr=gross,
             fee_irr=fee,
-            vat_irr=0,
+            vat_irr=vat,
             net_irr=net,
             refunds_irr=refunds,
             deductions_irr=deductions,

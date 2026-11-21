@@ -6,7 +6,7 @@
  */
 
 import { JALALI_MONTHS, jalaliToIso, toJalali } from "@/lib/jalali";
-import { faNumber } from "@/lib/utils";
+import { fa } from "@/lib/utils";
 import type {
   CashFlowResponse,
   MonthlyRevenueExpenseResponse,
@@ -70,7 +70,9 @@ export function jalaliMonthLabel(jalaliMonth: string): string {
   if (!match) return jalaliMonth;
   const month = Number(match[2]);
   if (month < 1 || month > 12) return jalaliMonth;
-  return `${JALALI_MONTHS[month - 1]} ${faNumber(Number(match[1]))}`;
+  // A year is an identifier, not an amount: fa() converts digits
+  // without grouping (faNumber would render 1405 as «۱٬۴۰۵»).
+  return `${JALALI_MONTHS[month - 1]} ${fa(match[1])}`;
 }
 
 /** Monthly revenue/expense chart items, labelled with Jalali months. */

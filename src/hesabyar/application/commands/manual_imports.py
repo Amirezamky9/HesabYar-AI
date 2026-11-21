@@ -334,11 +334,18 @@ class ManualImportService:
         if existing is not None and existing.preview is not None:
             return UploadBatchResult(batch=existing, preview=existing.preview, duplicate=True)
         if save_mapping and mapping_columns is not None and mapping_id is None:
+            # Detect the format with the BANK reader (the same reader
+            # create_import validates the mapping against) — NOT the
+            # settlement reader: a CSV statement detected as XLSX
+            # would make create_import reject its own mapping.
+            detected_format = self._bank_import.detect_file(
+                content=content, filename=filename
+            ).file_format
             saved = self._bank_import.save_mapping(
                 tenant_id=tenant_id,
                 bank_key=bank_key,
                 name=mapping_name or f"{bank_key} — {filename}",
-                file_format=self._reader.read_file(content, filename).file_format,
+                file_format=detected_format,
                 columns=mapping_columns,
                 date_kind=date_kind,
                 currency_unit=currency_unit,

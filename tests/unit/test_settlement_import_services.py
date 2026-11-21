@@ -289,13 +289,21 @@ class FakePolicyGate:
         )
 
 
-def _make_registry() -> FakeIntegrationsRepository:
+def _make_registry(installation_id: str | None = None) -> FakeIntegrationsRepository:
+    """Seed snapppay + its contract under ``installation_id``.
+
+    Defaults to this module's INSTALLATION_ID; callers with their own
+    installation (e.g. the settlement-received consumer tests) must
+    pass theirs — the channel registry is installation-scoped, so a
+    channel seeded under another installation is invisible.
+    """
+    installation_id = installation_id if installation_id is not None else INSTALLATION_ID
     repo = FakeIntegrationsRepository()
     channels = ChannelRegistryService(repo)
     contracts = GatewayContractService(repo)
-    channels.create_channel(INSTALLATION_ID, "snapppay", "اسنپ‌پی", "bnpl")
+    channels.create_channel(installation_id, "snapppay", "اسنپ‌پی", "bnpl")
     contracts.create_version(
-        INSTALLATION_ID,
+        installation_id,
         "snapppay",
         valid_from=datetime.date(2026, 10, 23),
         fee_percent=Decimal("10"),

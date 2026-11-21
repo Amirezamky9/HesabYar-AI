@@ -502,12 +502,14 @@ def test_service_balance_sheet_comparison_defaults_one_jalali_year_earlier() -> 
 
 def test_service_balance_sheet_comparison_esfand_30_clamps() -> None:
     service, engine = _service()
-    # 1403-12-30 exists (leap year); 1404 has only 29 Esfand days.
+    # 1403-12-30 exists (leap year); the comparison goes one Jalali
+    # year EARLIER, and 1402 has only 29 Esfand days, so it clamps
+    # to 1402-12-29 (2024-03-19).
     as_of = jdatetime.date(1403, 12, 30).togregorian()
     service.get_balance_sheet(COMPANY, as_of)
     _, _, comparison = engine.calls["balance_sheet"]
     assert isinstance(comparison, FiscalDate)
-    assert comparison.gregorian_date == jdatetime.date(1404, 12, 29).togregorian()
+    assert comparison.gregorian_date == jdatetime.date(1402, 12, 29).togregorian()
 
 
 def test_service_balance_sheet_explicit_comparison_passes_through() -> None:

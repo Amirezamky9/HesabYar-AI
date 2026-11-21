@@ -92,11 +92,14 @@ describe("api methods", () => {
     );
   });
 
-  it("exposes all endpoints including the Phase 4 compliance, Phase 5 review-queue and Phase 5-2 cash-box methods", () => {
+  it("exposes all endpoints including the Phase 4 compliance, Phase 5 review-queue, Phase 5-2 cash-box and Phase 5-6 report/forecast/import methods", () => {
     // Count check: 3 health + 2 companies + 2 accounts + 2 fiscal-years +
     // 2 fiscal-periods + 1 setup-status + 7 journals + 4 invoices +
     // 2 payments + 4 statements + 2 audit = 31 methods (list+get pairs),
-    // plus 22 Phase 4 compliance methods (US-401..US-404) = 53.
+    // plus 22 Phase 4 compliance methods (US-401..US-404) = 53,
+    // plus 24 Phase 5-6 methods (US-550 reports 5, US-551 dashboard 1,
+    // US-552 review queue 2, US-553 cash forecast 2, US-554 imports 14)
+    // = 231.
     const methods = Object.keys(api);
     for (const name of [
       "getHealth",
@@ -320,10 +323,39 @@ describe("api methods", () => {
       "listPlanReminders",
       "listSmsReminders",
       "listSmsProviders",
+      // Phase 5-6 financial reports (US-550)
+      "getBalanceSheet",
+      "getCashFlow",
+      "getGeneralLedger",
+      "getIncomeStatement",
+      "getNotesBalance",
+      // Phase 5-6 unified dashboard (US-551)
+      "listOverdueInstallments",
+      // Phase 5-6 one review queue (US-552; promoteIntegrationMapping
+      // is already listed above)
+      "listStaleInboxEvents",
+      // Phase 5-6 cash forecast + match trend (US-553)
+      "getCashForecast",
+      "getMonthlyMatchTrend",
+      // Phase 5-6 manual imports (US-554)
+      "approveImportBatch",
+      "createSettlementColumnMapping",
+      "detectImportFile",
+      "getImportBatch",
+      "getImportBatchPreview",
+      "getImportBatchVariance",
+      "getSettlementColumnMapping",
+      "listImportBatches",
+      "listSettlementColumnMappings",
+      "rejectImportBatch",
+      "rerunImportBatch",
+      "retryBatchPosting",
+      "supersedeSettlementColumnMapping",
+      "uploadImportBatch",
     ]) {
       expect(methods).toContain(name);
     }
-    expect(methods).toHaveLength(207);
+    expect(methods).toHaveLength(231);
   });
 });
 

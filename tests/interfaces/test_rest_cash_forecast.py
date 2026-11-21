@@ -138,9 +138,10 @@ def test_cash_forecast_aggregates_tranche_and_cheque(
     assert items[0]["date"] == "2026-11-25"  # sorted oldest first
     assert items[0]["bucket"] == "confirmed"
     assert items[0]["direction"] == "inflow"
-    # The Aban month carries the tranche day.
-    aban = next(m for m in data["months"] if m["month_jalali"] == "1405-08")
-    day = next(d for d in aban["days"] if d["date"] == "2026-11-25")
+    # 2026-11-25 is 1405-09-04 (Azar) — Aban ends 2026-11-21 — so the
+    # tranche day lives in the Azar month, not Aban.
+    azar = next(m for m in data["months"] if m["month_jalali"] == "1405-09")
+    day = next(d for d in azar["days"] if d["date"] == "2026-11-25")
     assert day["inflow_confirmed_irr"] == 9_450_000
     assert day["item_count"] == 1
 
@@ -175,8 +176,11 @@ def test_cash_forecast_reversed_range_is_422(api: TestClient) -> None:
 
 
 def test_cash_forecast_rejects_unknown_params(api: TestClient) -> None:
+    # Codebase convention: unknown query params are 400 INVALID_FILTER
+    # (reject_unknown_params), not FastAPI's 422.
     response = api.get(FORECAST_URL + "&bogus=1")
-    assert response.status_code == 422, response.text
+    assert response.status_code == 400, response.text
+    assert response.json()["code"] == "INVALID_FILTER"
 
 
 def test_openapi_lists_cash_forecast_path(api: TestClient) -> None:
@@ -266,5 +270,8 @@ def test_match_trend_needs_cheques_read_scope(api: TestClient) -> None:
 
 
 def test_match_trend_rejects_unknown_params(api: TestClient) -> None:
+    # Codebase convention: unknown query params are 400 INVALID_FILTER
+    # (reject_unknown_params), not FastAPI's 422.
     response = api.get(TREND_URL + "?bogus=1")
-    assert response.status_code == 422, response.text
+    assert response.status_code == 400, response.text
+    assert response.json()["code"] == "INVALID_FILTER"
