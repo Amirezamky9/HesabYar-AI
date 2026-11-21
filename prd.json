@@ -1,101 +1,104 @@
 {
-  "branchName": "ralph/phase-5-5",
-  "description": "HesabYar Phase 5-5 (۵ج — Installments + BNPL): internal installment plans with state machine + multi-stage receipt + linkage guard, finance income + dunning, installment by cheque (pending_clearance), BNPL installments (Snapp Pay / DigiPay, receivable from the gateway), SMS due-date reminders (multi-provider registry), installments center UI + 11 reports.",
+  "branchName": "ralph/phase-5-6",
+  "description": "HesabYar Phase 5-6 (۵ح — Unified panel + review queue): the five §11.2 coming-soon reports wired (trial balance, general ledger, balance sheet, P&L, cash flow) + cheque report 7, unified dashboard with six live sections, one review queue for all 10 exception types, cash forecast calendar, first-class manual imports, and the FK-flush hygiene sweep.",
   "project": "HesabYar",
   "userStories": [
     {
       "acceptanceCriteria": [
-        "installment_plan model + per-invoice installment schedule: plan linked to exactly one sales invoice, legs with due date (Jalali), principal amount (MoneyIRR digits=0), sequence; multi-stage payment terms (number of legs, interval, first due date) defined on the plan",
-        "Internal installment state machine per leg: expected → due → partially_paid → paid, plus overdue (past due date, unpaid balance > 0); transitions computed from receipts + wall-clock date, never stored ambiguously; plan-level status derived from legs",
-        "Multi-stage receipt of each leg + partial-receipt allocation rule (documented in docs/installments.md): a receipt allocates to the oldest overdue leg first, then the earliest due leg; overpayment creates an advance, never silently overpays a leg",
-        "THE LINKAGE GUARD (user key rule): every installment receipt MUST reference both the original invoice AND the accounting document (journal); a receipt without both refs is rejected with a typed 422; the guard is covered by unit + contract tests",
-        "installment_sale_contract model: late-fee rule (per contract, user-entered — never hard-coded), penalty account, early-settlement terms; contract versioned with effective date",
-        "ADR 0005 (or dated ADR 0003 amendment) ACCEPTED deciding the installment.schedule.created event: either approve the canonical event name (15-field envelope + X-HesabYar-Event-Type header contract from US-501) or decide internal-only scheduling with no canonical event — the decision is recorded, not left open",
-        "REST: POST /api/v1/installments/plans, GET list/detail, POST /api/v1/installments/plans/{id}/receipts (guard enforced), scopes installments:read + installments:write; draft by default, auto-post explicit opt-in (ADR 0003 decision 1)",
-        "Targeted tests per story + affected-area tests green; ruff + pyright clean"
+        "Trial balance: UI report wired to the US-403 backend, with §11.1 freshness metadata (source, source timestamp, generated at, company + period, report + calculation version, freshness indicator, reproducibility metadata) + drill-down to the general ledger",
+        "General ledger per account: backend from the Tryton reference report through the AccountingEnginePort (never client-side recompute — §11.1) + UI with account/period/company filters",
+        "Balance sheet: backend + UI with prior-period comparison",
+        "Income statement (P&L): backend + UI with prior-period comparison + monthly revenue/expense bar chart",
+        "Cash flow statement: backend + UI, three sections (operating / investing / financing) + waterfall chart",
+        "Cheque report 7 (notes receivable/payable balance — the ۵ث honest coming-soon): wired to the Tryton reference report through the port, with aging buckets (30/60/90/120+) and party/due-date/instrument filters",
+        "Every report states its data source + §7.5 chart type; Excel/PDF export carries the applied filters in the header",
+        "REST endpoints under the existing reports routes; scope reports:read; tenant/company scoping honored",
+        "Targeted tests per story + affected-area tests written for CI; ruff + pyright clean"
       ],
-      "description": "Core installment plan: per-invoice schedule, leg state machine, multi-stage receipt with allocation, the invoice↔journal linkage guard, sale contract, and the ADR decision for the schedule event.",
-      "id": "US-540",
-      "notes": "Waves (guidance; coordinator decides): A = US-540. Depends on: US-202 journal drafts, US-204 invoices, US-531 cheque legs (link target exists). Tryton already has most installment tooling (payment terms) — reuse it; HesabYar builds the per-invoice schedule + guard. Toman→Rial x10 at the boundary.",
+      "description": "Wire the five §11.2 coming-soon financial reports (trial balance, general ledger, balance sheet, P&L, cash flow) to their backends, plus cheque report 7 from the Tryton reference report.",
+      "id": "US-550",
+      "notes": "Wave A (first — the other stories build on its endpoints). Depends on: US-403 (trial balance backend), US-502 (Tryton modules), US-535 (cheque reports page). Tryton reference reports come through the port — the engine is the only ledger authority (ADR 0002).",
       "passes": true,
       "priority": 1,
-      "title": "Installment plan core + state machine + linkage guard"
+      "title": "Financial reports backend: 5 coming-soon reports + cheque report 7"
     },
     {
       "acceptanceCriteria": [
-        "Principal/interest split per leg from the contract terms (user-entered rate — never hard-coded); finance income recognised GRADUALLY as legs are collected (documented decision in docs/installments.md: recognition on COLLECTION, not on receipt — a bounced cheque never recognises income; the batch-1 open tension is closed by this decision)",
-        "Stepped dunning: reminder schedule per contract (day offsets user-entered); overdue legs age into dunning stages; dunning events filed to the review queue as installment_overdue (one of the 9 types)",
-        "Late fee per contract: computed from the original due date when a cheque bounces (documented decision closing the batch-1 tension: the obligation was never satisfied); fee posts to the contract penalty account as a DRAFT journal by default",
-        "Early settlement: payoff quote (remaining principal + accrued income to date, late fees waived or kept per contract flag) + settlement receipt that closes all open legs atomically; partial early payment reduces the schedule and re-amortises the remaining legs",
-        "REST: GET /api/v1/installments/plans/{id}/payoff-quote, POST /api/v1/installments/plans/{id}/early-settlement, GET /api/v1/installments/overdue (overdue report source); scopes installments:read + installments:write",
-        "Targeted tests per story + affected-area tests green; ruff + pyright clean"
+        "Unified dashboard shows all six sections with LIVE data: پولِ امروز، پولِ در راه، نیازمند توجه (review-queue counters), خزانه، هشدارها، ایمپورت‌های دستی",
+        "Every KPI carries its period, company and unit, and links to the filtered operational page (§11.3 requirement)",
+        "Company-scoped cheque figures (۵ث deferred item): backend list filter so the treasury widgets (cheque exposure, in-clearing aging, due-soon) scope by company; the dashboard and the cheque center honor the company filter; tenant-wide remains the default",
+        "Dashboard Playwright spec updated to current constants (the ci-playwright risk note: 153 accounts, 114 postable, FY 2027, 24 open periods, standards nav live) — the spec must assert the NEW dashboard, not the US-302 one",
+        "Persian RTL, VibeFarsi components; tsc 0, eslint 0, vitest green, build green"
       ],
-      "description": "Finance income (gradual recognition on collection), stepped dunning, late fees, and early settlement with payoff quotes.",
-      "id": "US-541",
-      "notes": "Wave B. Depends on US-540 (plan + legs). The Snapp Pay 'installment price <= cash price' rule vs finance income tension is a BNPL-contract concern — it belongs to US-543, not here; internal installments always carry explicit finance income.",
+      "description": "Unified dashboard UI: six live sections with linked KPIs, plus company-scoped treasury figures.",
+      "id": "US-551",
+      "notes": "Wave B. Depends on US-550 (report endpoints) + US-504 (review-queue counters) + US-535 (treasury widgets). Frontend house rules in apps/admin/AGENTS.md apply. The dashboard batch is slow against remote Supabase (~105s measured in ۵ث) — the spec timeouts must stay generous; CI's Tryton is local and fast.",
       "passes": true,
       "priority": 2,
-      "title": "Finance income + dunning + late fee + early settlement"
+      "title": "Unified dashboard UI + company-scoped treasury figures"
     },
     {
       "acceptanceCriteria": [
-        "Installment payment BY CHEQUE: a leg paid by cheque enters pending_clearance (not paid) until the cheque clears; the cheque ↔ installment_leg link exists (installment_leg_id on the cheque, from US-531)",
-        "CROSS-PHASE TEST from US-531 (deferred to ۵ج — this is the test): clear → leg paid; bounce → leg unpaid + leg returns to overdue with the late-fee rule from US-541; both directions covered by live contract tests against Tryton",
-        "Cheque intake for an installment leg creates NO journal until the cheque reaches held (same rule as US-533 site intake); the pending_clearance leg shows the linked cheque (sayad_id, due date, state) in the plan detail",
-        "REST: POST /api/v1/installments/plans/{id}/receipts accepts payment_method=cheque with cheque_id; the receipt is rejected (422) if the cheque is not in a receivable state; scopes installments:write",
-        "Targeted tests per story + affected-area tests green; ruff + pyright clean"
+        "All 10 review item types (the 9 §7.2 types + sms_delivery_failed from US-544) visible and resolvable in ONE queue with a uniform structure: mapping, settlement_variance, cheque_exception, bank_unmatched, packaging_reorder, installment_overdue, manual_import_review, cashbox_variance, inbox_dead_letter, sms_delivery_failed",
+        "Per-type allowed actions + suggested action + Persian reason for every type (full list in phased design §7.2)",
+        "Manual replay from DLQ + mapping learning (Suggest → Auto) + full audit of every action taken on an item",
+        "Filters: type / severity / amount / age / channel; default sort critical-first, then oldest",
+        "REST: the existing 7-path review API extended where a new action needs it; scopes review:read/resolve/file",
+        "Targeted tests per story + affected-area tests written for CI; ruff + pyright clean"
       ],
-      "description": "Installment legs paid by cheque: pending_clearance until clearing, plus the deferred US-531 two-way test.",
-      "id": "US-542",
-      "notes": "Wave B. Depends on US-540 (legs) + US-531/US-532 (cheque lifecycle + held/cleared/bounced transitions). The cheque side already exists — this story wires the leg side and proves both directions live.",
+      "description": "Complete the one review queue: all 10 exception types with per-type actions, suggestions, manual replay, mapping learning, and full audit.",
+      "id": "US-552",
+      "notes": "Wave B. Depends on US-504 (queue skeleton) + every module's exceptions (settlement, cheque, bank, packaging, installments, SMS, inbox). One queue, not three — each flow files its own types into it.",
       "passes": true,
       "priority": 3,
-      "title": "Installment payment by cheque (pending_clearance)"
+      "title": "One review queue: all 10 types, actions, replay, learning"
     },
     {
       "acceptanceCriteria": [
-        "Installment payment via BNPL (Snapp Pay / DigiPay): a leg paid through a BNPL gateway creates a receivable FROM THE GATEWAY (never from the customer), reusing the US-521 settlement engine (per-gateway/contract tranches: Snapp Pay 4 models incl. 4x25% over 4 months, DigiPay lump-sum ~14-30 days; fee % user-entered per contract, never hard-coded)",
-        "BNPL separated from internal installments in the model AND the reports: separate plan kind, separate receivable accounts, separate report filters; a BNPL plan never accrues internal finance income and never enters dunning (the gateway owns collection)",
-        "BNPL leg lifecycle: expected → gateway_confirmed → settled_per_tranche → paid; a gateway rejection/cancellation returns the leg to expected with a review-queue item; partial gateway settlement allocates per tranche",
-        "REST: POST /api/v1/installments/plans/{id}/receipts accepts payment_method=bnpl with gateway + gateway_reference; GET /api/v1/installments/plans filters by kind=internal|bnpl; scopes installments:read + installments:write",
-        "Targeted tests per story + affected-area tests green; ruff + pyright clean"
+        "Cash forecast calendar, monthly view: expected INFLOWS (gateway settlement tranches, sales installments, due received cheques, due invoices) and expected OUTFLOWS (due issued cheques, payable installments/suppliers, packaging purchases)",
+        "Two separate columns: قطعی (registered contract / cheque / installment) vs پیش‌بینی (expected sales); collateral cheques appear in NEITHER column, ever",
+        "30/60/90/120-day cash-flow forecast (§11.2 settlement report) with the §11.1 freshness metadata",
+        "Cheque report 12 (monthly match-trend — ۵ث deferred: no stored monthly match history existed): monthly match history is now stored, and the trend chart renders from it",
+        "Cheque report 14 (cheque cash forecast) feeds the calendar: received-cheque collections → expected inflow, issued-cheque clearings → expected outflow",
+        "REST endpoints + UI at the dashboard cash section and reports ← cash forecast; Persian RTL, Jalali months; tsc 0, eslint 0, vitest green",
+        "Targeted tests per story + affected-area tests written for CI; ruff + pyright clean"
       ],
-      "description": "BNPL installments: gateway receivable, tranche settlement via the US-521 engine, strict separation from internal installments.",
-      "id": "US-543",
-      "notes": "Wave B. Depends on US-540 (legs) + US-521/US-524 (settlement engine + gateway APIs). No live gateway credentials exist — gateway calls go through the existing gateway clients with simulator/manual fallback where US-524 left them; no new live connectivity is in scope.",
+      "description": "Cash forecast calendar (confirmed vs forecast, 30–120 days) fed by settlement tranches, installments, cheques and payables, plus the monthly match-trend report.",
+      "id": "US-553",
+      "notes": "Wave B. Depends on US-521 (settlement tranches), US-534 (cheque clearing/matching), US-540 (installment schedules), US-515 (packaging purchases). Money is Rial only; amounts are MoneyIRR digits=0.",
       "passes": true,
       "priority": 4,
-      "title": "BNPL installments (Snapp Pay / DigiPay)"
+      "title": "Cash forecast calendar + monthly match-trend (report 12)"
     },
     {
       "acceptanceCriteria": [
-        "SMS multi-provider registry (ADR 0003 amendment, user decision 2026-11-18): Kavenegar + sms.ir as the first built-in providers, other providers addable per installation behind one interface; provider specifics (price per SMS, rate limits, line type, contract/eNamad requirements) are USER-ENTERED editable fields — never hard-coded; only each provider's API integration shape is code",
-        "Due-date reminders: Procrastinate job (Jalali-aware scheduling, no Jalali cron — next_run computed in-app) sends reminders at contract offsets (e.g. 3 days before, on the day, 1 day overdue); each reminder logged with provider, cost, delivery status; failures go to DLQ + review queue, never silent",
-        "Simulator + manual fallback first: no live SMS provider call without credentials; a simulator provider (logs the message, returns a fake delivery id) is the default in dev/test; a dry-run mode previews the message text",
-        "REST: provider registry CRUD under /api/v1/integrations/sms/providers, POST /api/v1/installments/plans/{id}/remind (manual trigger), GET reminder log; scopes sms:manage + installments:read; Toman→Rial x10 does not apply (SMS prices are informational only)",
-        "Targeted tests per story + affected-area tests green; ruff + pyright clean"
+        "Import batch cycle in the panel, one flow for every manual import (statement B1 + settlement P2): upload → format / column-mapping detection (mapping savable per source) → validation + dedup → accounting-effect preview (gross, fee, tax, refunds, net, receivable balance after the batch, expected deposit) → review item → approve → the normal pipeline (same validation, mapping, policy gate, tie-out) → batch variance report",
+        "A rejected batch is archived with its reason and is re-runnable; nothing is silently dropped",
+        "Pipeline consumer for payment.settlement.received (US-523 deferred: the event exists, no consumer) — settlement receipts arriving as events flow through the same tie-out + auto-post rules as file imports",
+        "REST endpoints for batches (upload, preview, approve, reject, re-run, list); scopes banking:import + settlement:manage as applicable; draft by default, auto-post explicit opt-in (ADR 0003 decision 1)",
+        "Targeted tests per story + affected-area tests written for CI; ruff + pyright clean"
       ],
-      "description": "SMS due-date reminders on a pluggable multi-provider registry (Kavenegar + sms.ir first), with simulator-first delivery.",
-      "id": "US-544",
-      "notes": "Wave B. Depends on US-540 (schedules) + US-501 (Procrastinate). No live SMS credentials exist — the simulator is the deliverable; live provider verification is a later step needing the user's Kavenegar/sms.ir credentials.",
+      "description": "First-class manual imports: one batch cycle (upload → mapping → preview → approve → pipeline) for statements and settlements, plus the settlement-received event consumer.",
+      "id": "US-554",
+      "notes": "Wave B. Depends on US-514 (statement import), US-523 (settlement import + three-way matching), US-501 (event pipeline + DLQ). No IMAP fetch in scope (still deferred). No browser automation anywhere (ADR 0003).",
       "passes": true,
       "priority": 5,
-      "title": "SMS due-date reminders (multi-provider registry)"
+      "title": "First-class manual imports + settlement-received consumer"
     },
     {
       "acceptanceCriteria": [
-        "Installments center /installments (Persian RTL, VibeFarsi components): plan list (filters: kind, status, overdue, customer), plan detail (schedule table with leg states, receipts, linked cheque/BNPL references, payoff quote), plan-change flow with versioning on sale_amendment + full audit history",
-        "11 installment reports (§7.5 catalog) live at /installments/reports: overdue legs, collection forecast, finance income recognised, dunning stages, BNPL vs internal split, per-customer statement, per-plan schedule, early settlements, bounced-cheque legs, SMS reminder log, installment aging; every report states its data source + chart type from §7.5; any report whose source does not exist yet is an honest coming-soon with a reason (never fabricated figures)",
-        "Overdue-installments report (user's batch-1 requirement) is a first-class view with Jalali dates, customer + invoice links, and CSV export",
-        "Playwright: installments.spec.ts covers plan creation → receipt → leg paid, overdue list, reports page, plan change with versioning; all green against the live backend",
-        "tsc 0, eslint 0, vitest green for the new specs, build green; ruff + pyright clean"
+        "FK-flush sweep (CI run #6 lesson): audit every repository that adds parent+child rows in one flush without a SQLAlchemy relationship — the bank import repositories are known to survive on hash-order luck; flush parents before children everywhere the pattern is found; the sweep list is documented in docs/ (which repositories were checked, which were fixed)",
+        "US-523 deferred: tick-created late_tranche review filing — when a settlement tick creates a late tranche, a settlement_variance review item is filed (never silent)",
+        "Playwright: unified-panel spec covering the dashboard six sections, the cash calendar, one import batch flow end-to-end, and one review-queue action per type-group; responsive checks at 360–390px; serial where specs share state",
+        "tsc 0, eslint 0, vitest green, build green; ruff + pyright clean",
+        "Targeted tests per story + affected-area tests written for CI"
       ],
-      "description": "Installments center UI: plans, schedule, receipts, plan-change versioning, and the 11 installment reports.",
-      "id": "US-545",
-      "notes": "Wave C (last — needs the US-540–544 APIs). Frontend house rules in apps/admin/AGENTS.md apply (VibeFarsi CLI components, Persian digits via fa(), Jalali via lib/jalali, logical Tailwind only, 44px targets, verify at 360-390px).",
+      "description": "Hygiene: the FK-flush sweep across repositories, the deferred late-tranche review filing, and the unified-panel Playwright spec.",
+      "id": "US-555",
+      "notes": "Wave C (last — needs the US-550–554 UIs + APIs). The FK-flush lesson from CI run #6: SQLAlchemy 2.0.54 does NOT order a flush by bare-FK dependency without a relationship — proven by probe; the installments repository was fixed with explicit flushes, the bank repositories still rely on luck.",
       "passes": false,
       "priority": 6,
-      "title": "Installments center UI + 11 reports"
+      "title": "Hygiene: FK-flush sweep + late-tranche filing + panel Playwright"
     }
   ]
 }

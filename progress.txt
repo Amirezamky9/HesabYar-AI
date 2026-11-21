@@ -371,3 +371,12 @@
 - Final static gates on the merged head: ruff clean, pyright 0, tsc 0,
   eslint 0, pnpm build green, alembic heads single 0032, app import OK.
 - Deferred items (all phases): see the coordinator final report.
+
+## Verification (parent, 2026-11-21 ~12:02) — CI run #14 GREEN (run 44884543925, fork 58772e27)
+- python-gates: ruff + pyright green (44s)
+- python-tests: 3420 passed / 324 skipped / 0 failed
+- python-tests-tryton: 3727 passed / 17 skipped / 0 failed
+- frontend: vitest 371/371 + tsc + eslint + build green
+- Fix pass 1 (2a302c2, 11 commits): settlement-consumer registry seeding, P&L expense-kind bug, settlement VAT, late-tranche amount, statement mapping format, Jalali year label, api-client count 231, Esfand 1405 date. Run #13: 33 -> 6 failures.
+- Fix pass 2 (cdd91b0, 3 commits): flat_balance for report reads (Tryton Account.get_balance includes descendants — the balance-sheet double-count root cause), replay returns the existing draft ref, cash-forecast test corrected. Run #14: 0 failures.
+- US-550–554 passes: true. US-555 passes: false ONLY because its Playwright spec (e2e/unified-panel.spec.ts, 5 tests) has not run — the Playwright CI job starts only after the user pastes the 5-job ci.yml on ralph/phase-5-6; its backend (FK-flush sweep + late-tranche filing) passed in run #14. Same pending state as US-545 (installments.spec.ts, 7 tests).
