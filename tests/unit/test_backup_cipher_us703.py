@@ -35,8 +35,13 @@ def test_key_id_is_stable_and_8_hex_chars() -> None:
 
 
 def test_invalid_keys_fail_closed() -> None:
+    # "not-a-key" has 9 base64-alphabet chars (9 % 4 == 1), so decoding
+    # itself fails with Invalid padding -> the "base64-encoded 32-byte"
+    # branch. (Note: urlsafe_b64decode is LENIENT — it discards
+    # non-alphabet chars, so "not-a-fernet-key!!" decodes to 12 bytes
+    # and takes the "expected 32 bytes" branch instead.)
     with pytest.raises(BackupConfigurationError, match="base64-encoded 32-byte"):
-        FernetBackupCipher("not-a-fernet-key!!")
+        FernetBackupCipher("not-a-key")
     short = Fernet.generate_key().decode("ascii")[:20]
     with pytest.raises(BackupConfigurationError, match="expected 32 bytes"):
         FernetBackupCipher(short)

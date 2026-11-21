@@ -186,7 +186,11 @@ def test_redirect_to_file_url_is_refused(tmp_path) -> None:
     secret.write_bytes(_PNG)
     url = _serve_redirect(tmp_path, f"file://{secret}")
     store = LocalChequeScanStore(tmp_path / "filestore", allow_private_hosts=True)
-    with pytest.raises(ChequeScanDownloadError, match="redirects"):
+    # The stdlib refuses file:// redirects itself ("Redirection to url
+    # ... is not allowed") before our _NoRedirectHandler runs — only
+    # http(s)->http(s) redirects reach our "redirects" message. The
+    # behavior is correct either way; match the stdlib wording here.
+    with pytest.raises(ChequeScanDownloadError, match="Redirection to url"):
         store.store_scan(sayad_id=SAYAD_ID, scan_url=url)
     cheques_dir = tmp_path / "filestore" / "cheques"
     assert not cheques_dir.exists() or not list(cheques_dir.iterdir())

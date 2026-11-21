@@ -284,7 +284,9 @@ class PgDumpRestoreRunner:
         """Restore a dump into an (empty) database with pg_restore."""
         parts = parse_database_url(database_url)
         self.check_tools()
-        args = [self._pg_restore_path, "--exit-on-error"]
+        # pg_restore requires -d/--dbname (or -f/--file): the PGDATABASE
+        # env var alone does not substitute, and without -d it exits 1.
+        args = [self._pg_restore_path, "--exit-on-error", "-d", parts.database]
         if no_owner:
             args += ["--no-owner", "--no-privileges"]
         with tempfile.TemporaryDirectory(prefix="hesabyar-restore-") as tmpdir:

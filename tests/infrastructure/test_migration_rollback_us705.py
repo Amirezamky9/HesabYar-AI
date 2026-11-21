@@ -180,7 +180,11 @@ def rollback_engine() -> Generator[Engine, None, None]:
 
 def test_0042_downgrade_then_upgrade_roundtrips(rollback_engine: Engine) -> None:
     """downgrade 0041 drops the monitoring tables; upgrade head restores them."""
-    scratch_url = str(rollback_engine.url)
+    # str(engine.url) MASKS the password as "***" (SQLAlchemy 2.0), so
+    # downgrade/upgrade would authenticate with the literal "***" and
+    # fail with FATAL: password authentication failed. Render the URL
+    # with the real password (this DSN stays inside the test process).
+    scratch_url = rollback_engine.url.render_as_string(hide_password=False)
     assert _current_revision(rollback_engine) == TARGET_REVISION
     assert MONITORING_TABLES <= _tables(rollback_engine)
     assert DEDUP_INDEX in _index_names(rollback_engine, "monitoring_alerts")

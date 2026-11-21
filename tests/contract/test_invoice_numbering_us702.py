@@ -46,10 +46,12 @@ from hesabyar.domain.accounting.refs import (
     PartyAddressRef,
     PartyRef,
 )
+from hesabyar.domain.accounting.value_objects import InvoiceView
 from hesabyar.domain.common.dates import FiscalDate
 from hesabyar.domain.common.money import MoneyIRR
 from hesabyar.infrastructure.accounting.tryton.adapter import TrytonAccountingAdapter
 from hesabyar.infrastructure.accounting.tryton.client import TrytonRestClient
+from hesabyar.infrastructure.accounting.tryton.errors import TrytonAdapterError
 from tests.load_support import LatencyRecorder, run_threads
 
 BASE_URL = os.environ.get("TRYTON_BASE_URL", "http://localhost:8000")
@@ -159,6 +161,40 @@ def _invoice_command(company: CompanyRef, party: PartyRef, accounts) -> CreateIn
     )
 
 
+#: Bounded retries for one concurrent post (see _post_one_with_retry).
+_MAX_POST_ATTEMPTS = 3
+
+
+def _post_one_with_retry(
+    adapter: TrytonAccountingAdapter, company: CompanyRef, party: PartyRef, accounts
+) -> InvoiceView:
+    """Create -> validate -> post one invoice, retrying transient engine errors.
+
+    trytond runs every connection at REPEATABLE READ, so 8 threads posting
+    against one invoice sequence contend on the sequence row: serialization
+    failures (40001) and deadlocks surface as HTTP 503, which the adapter
+    translates to a retryable ENGINE_UNAVAILABLE error (CI run #31). This
+    is expected contention under load, not an engine outage — the
+    sequential test in this file posts fine. Production retries at the
+    event-pipeline level (``is_retryable``); this contract test calls the
+    adapter directly, so it retries at the call level instead, catching
+    ONLY retryable adapter errors. Retrying the whole sequence is safe:
+    drafts carry no number, so an orphaned draft from a failed attempt
+    cannot duplicate a number (and the module docstring already accepts
+    residue).
+    """
+    for attempt in range(1, _MAX_POST_ATTEMPTS + 1):
+        try:
+            ref = adapter.create_invoice_draft(_invoice_command(company, party, accounts))
+            adapter.validate_invoice(ref)
+            return adapter.post_invoice(ref)
+        except TrytonAdapterError as exc:
+            if not exc.retryable or attempt == _MAX_POST_ATTEMPTS:
+                raise
+            time.sleep(0.2 * attempt)
+    raise AssertionError("unreachable: the loop always returns or raises")
+
+
 def test_invoice_number_is_none_on_draft_and_set_on_posting(
     adapter: TrytonAccountingAdapter, company: CompanyRef, accounts, customer
 ) -> None:
@@ -191,11 +227,7 @@ def test_concurrent_invoice_posting_assigns_unique_numbers(
             numbers = []
             for _ in range(per_thread):
                 started = time.monotonic()
-                ref = thread_adapter.create_invoice_draft(
-                    _invoice_command(company, party, accounts)
-                )
-                thread_adapter.validate_invoice(ref)
-                posted = thread_adapter.post_invoice(ref)
+                posted = _post_one_with_retry(thread_adapter, company, party, accounts)
                 recorder.record("invoices.create_validate_post", time.monotonic() - started)
                 assert posted.state == "posted"
                 assert posted.number is not None and posted.number != ""

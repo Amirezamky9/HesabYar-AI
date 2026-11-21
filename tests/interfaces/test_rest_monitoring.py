@@ -183,20 +183,28 @@ def test_evaluate_fires_and_lists_alerts(api_stale: TestClient) -> None:
     response = api_stale.post("/api/v1/monitoring/evaluate")
     assert response.status_code == 200
     body = response.json()
-    assert len(body["fired"]) == 1
+    # The fixture legitimately fires THREE alerts, in rule order:
+    # inbox_stale (1 event, 25h stale) + one token_expiring per
+    # expiring token in the snapshot — key-1 (2 days left, critical)
+    # and rec-fintech (10 days left, warning).
+    assert len(body["fired"]) == 3
     assert body["fired"][0]["rule"] == "inbox_stale"
     assert body["fired"][0]["severity"] == "critical"
     assert body["fired"][0]["status"] == "open"
+    assert body["fired"][1]["rule"] == "token_expiring"
+    assert body["fired"][1]["severity"] == "critical"
+    assert body["fired"][2]["rule"] == "token_expiring"
+    assert body["fired"][2]["severity"] == "warning"
     assert body["already_open"] == 0
     assert body["dispatched"] == []  # no channels configured
 
     listed = api_stale.get("/api/v1/monitoring/alerts")
     assert listed.status_code == 200
-    assert len(listed.json()) == 1
+    assert len(listed.json()) == 3
 
     second = api_stale.post("/api/v1/monitoring/evaluate")
     assert second.json()["fired"] == []
-    assert second.json()["already_open"] == 1
+    assert second.json()["already_open"] == 3
 
 
 def test_evaluate_requires_manage_scope(api_without_scope: TestClient) -> None:

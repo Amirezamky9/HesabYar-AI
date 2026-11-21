@@ -222,6 +222,10 @@ def test_restore_uses_no_owner_flags_for_scratch_only() -> None:
     assert "--exit-on-error" in restore_call["args"]
     assert "--no-owner" in restore_call["args"]
     assert "--no-privileges" in restore_call["args"]
+    # pg_restore requires -d (PGDATABASE alone does not substitute);
+    # without it the restore exits 1 (CI run #31).
+    assert "-d" in restore_call["args"]
+    assert restore_call["args"][restore_call["args"].index("-d") + 1] == "hesabyar_test"
 
     fake2 = FakeRunner()
     runner2 = _runner(fake2)
@@ -229,6 +233,8 @@ def test_restore_uses_no_owner_flags_for_scratch_only() -> None:
     restore_call2 = next(c for c in fake2.calls if c["args"][0] == "pg_restore")
     assert "--no-owner" not in restore_call2["args"]
     assert "--no-privileges" not in restore_call2["args"]
+    assert "-d" in restore_call2["args"]
+    assert restore_call2["args"][restore_call2["args"].index("-d") + 1] == "hesabyar_test"
 
 
 def test_timeout_is_translated() -> None:

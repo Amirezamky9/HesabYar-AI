@@ -564,6 +564,9 @@ def test_dispatch_sms_provider_missing_is_failed() -> None:
         installation_id=INSTALLATION_ID,
     )
     service = _service(repo, sms_repo=sms_repo, client_factory=FakeSmsClientFactory())
+    # Fire one alert first (the _fire_one pattern): with no trigger
+    # state, evaluate() fires nothing and dispatched is empty.
+    repo.stale = (1, NOW - datetime.timedelta(hours=25))
     report = service.evaluate(now=NOW)
     assert report.dispatched[0].status == "failed"
 
@@ -579,6 +582,9 @@ def test_dispatch_sms_disabled_provider_is_skipped() -> None:
         installation_id=INSTALLATION_ID,
     )
     service = _service(repo, sms_repo=sms_repo, client_factory=FakeSmsClientFactory())
+    # Fire one alert first (the _fire_one pattern): with no trigger
+    # state, evaluate() fires nothing and dispatched is empty.
+    repo.stale = (1, NOW - datetime.timedelta(hours=25))
     report = service.evaluate(now=NOW)
     assert report.dispatched[0].status == "skipped"
 
@@ -605,6 +611,9 @@ def test_dispatch_sms_live_provider_without_credentials_is_skipped() -> None:
         installation_id=INSTALLATION_ID,
     )
     service = _service(repo, sms_repo=sms_repo, client_factory=FakeSmsClientFactory())
+    # Fire one alert first (the _fire_one pattern): with no trigger
+    # state, evaluate() fires nothing and dispatched is empty.
+    repo.stale = (1, NOW - datetime.timedelta(hours=25))
     report = service.evaluate(now=NOW)
     assert report.dispatched[0].status == "skipped"
     assert "credentials" in (report.dispatched[0].detail or "")
@@ -626,6 +635,9 @@ def test_dispatch_sms_client_error_is_failed_not_raised() -> None:
         installation_id=INSTALLATION_ID,
     )
     service = _service(repo, sms_repo=sms_repo, client_factory=factory)
+    # Fire one alert first (the _fire_one pattern): with no trigger
+    # state, evaluate() fires nothing and dispatched is empty.
+    repo.stale = (1, NOW - datetime.timedelta(hours=25))
     report = service.evaluate(now=NOW)
     assert len(report.fired) == 1
     assert report.dispatched[0].status == "failed"
@@ -651,6 +663,9 @@ def test_dispatch_sms_failed_delivery_is_failed() -> None:
         installation_id=INSTALLATION_ID,
     )
     service = _service(repo, sms_repo=sms_repo, client_factory=factory)
+    # Fire one alert first (the _fire_one pattern): with no trigger
+    # state, evaluate() fires nothing and dispatched is empty.
+    repo.stale = (1, NOW - datetime.timedelta(hours=25))
     report = service.evaluate(now=NOW)
     assert report.dispatched[0].status == "failed"
 
@@ -659,6 +674,9 @@ def test_dispatch_email_without_sender_is_skipped() -> None:
     repo = FakeMonitoringRepository()
     repo.channels["ch-mail"] = _channel(kind=AlertChannelKind.EMAIL, target="ops@example.com")
     service = _service(repo, email=None)
+    # Fire one alert first (the _fire_one pattern): with no trigger
+    # state, evaluate() fires nothing and dispatched is empty.
+    repo.stale = (1, NOW - datetime.timedelta(hours=25))
     report = service.evaluate(now=NOW)
     assert report.dispatched[0].status == "skipped"
     assert "email" in (report.dispatched[0].detail or "").lower()
@@ -681,6 +699,9 @@ def test_dispatch_email_error_is_failed_not_raised() -> None:
     email = FakeEmailSender(error=RuntimeError("smtp down"))
     repo.channels["ch-mail"] = _channel(kind=AlertChannelKind.EMAIL, target="ops@example.com")
     service = _service(repo, email=email)
+    # Fire one alert first (the _fire_one pattern): with no trigger
+    # state, evaluate() fires nothing and dispatched is empty.
+    repo.stale = (1, NOW - datetime.timedelta(hours=25))
     report = service.evaluate(now=NOW)
     assert len(report.fired) == 1
     assert report.dispatched[0].status == "failed"

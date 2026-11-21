@@ -12,6 +12,7 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import (
+    JSON,
     BigInteger,
     Boolean,
     CheckConstraint,
@@ -27,8 +28,23 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB as _PGJSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+#: Postgres JSONB that degrades to plain JSON on SQLite.
+#:
+#: The restore-drill / reconciliation / backup-status / pre-upgrade
+#: unit tests build the full schema on an in-memory SQLite database
+#: (``Base.metadata.create_all``), and SQLite's compiler cannot render
+#: the Postgres-specific JSONB type (CI run #31: ``CompileError:
+#: SQLiteTypeCompiler can't render element of type JSONB``). ``Variant``
+#: is the documented fix: on Postgres this renders as JSONB, on SQLite
+#: as JSON. All 17 JSONB columns in this module use the bare module
+#: name, so they all pick this up with no change at the usage sites.
+#: (A ``load_dialect_impl`` subclass does NOT work here: the DDL
+#: compiler dispatches on ``__visit_name__`` without consulting it —
+#: only ``Variant``'s ``visit_variant`` resolves the dialect impl.)
+JSONB = _PGJSONB().with_variant(JSON(), "sqlite")
 
 
 class Base(DeclarativeBase):

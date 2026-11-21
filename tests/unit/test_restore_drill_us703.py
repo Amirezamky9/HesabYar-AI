@@ -2,9 +2,9 @@
 
 The five reconciliation checks run against a SQLite database built
 from the real ORM metadata (``Base.metadata.create_all`` — the
-models use only SQLite-compatible DDL: JSONB is a plain type name
-to SQLite, CHECK constraints are standard SQL) plus a fake engine
-port, so the check LOGIC is pinned here without a live server. The
+models' JSONB columns degrade to plain JSON on SQLite via a Variant
+alias in models.py, CHECK constraints are standard SQL) plus a fake
+engine port, so the check LOGIC is pinned here without a live server. The
 full drill against real pg_dump/pg_restore + live Tryton is
 tests/infrastructure/test_restore_drill_us703.py.
 

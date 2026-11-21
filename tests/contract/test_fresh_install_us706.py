@@ -301,6 +301,17 @@ class FreshCompany:
     fiscal_years: tuple[int, int]
 
 
+def _model_data_id(client: TrytonRestClient, module: str, fs_id: str) -> int:
+    """Resolve any XML-loaded record's id via ``ir.model.data`` (REST)."""
+    records = client.search(
+        "ir.model.data",
+        domain=[("module", "=", module), ("fs_id", "=", fs_id)],
+        fields=["db_id"],
+    )
+    assert records, f"ir.model.data {module}.{fs_id} not found in the engine"
+    return int(records[0]["db_id"])
+
+
 def _sequence_type_id(client: TrytonRestClient, module: str, fs_id: str) -> int:
     """Resolve an ``ir.sequence`` type via ``ir.model.data`` (REST)."""
     records = client.search(
@@ -441,17 +452,17 @@ def fresh_company(
         {"companies": [["add", [company_id]]], "company_filter": "all"},
     )
 
-    # -- 4. Install the chart from the root template, then the
+    # -- 4. Install the chart from the ENGLISH root template, then the
     #    HesabYar extension accounts (update_chart is what adds
     #    1.1.6 / 1.2.8 / 5.2.4 / ... — install_chart alone installs
-    #    only the universal template).
-    templates = client.search(
-        "account.account.template",
-        domain=[("parent", "=", None)],
-        fields=["name"],
-    )
-    assert len(templates) == 1, f"expected exactly 1 root chart template, got {len(templates)}"
-    template_id = int(templates[0]["id"])
+    #    only the universal template). Four root templates ship in the
+    #    account module (de/en/es/fr — tryton.cfg loads all four
+    #    localized charts), so "exactly one root" is false; and the
+    #    HesabYar extension accounts live under the EN root
+    #    (hesabyar_setup/account_chart_en.xml), so the en root is the
+    #    one this fixture needs. Resolve it deterministically via
+    #    ir.model.data instead of searching for parentless templates.
+    template_id = _model_data_id(client, "account", "account_template_root_en")
     summary = client.action(
         "company.company",
         "install_chart",
