@@ -139,7 +139,13 @@ per-event policy rows (default draft).
   existing record; a contradicting payload files
   `duplicate_sayad_id` (CRITICAL) and raises
   `ChequeDuplicateError` — the handler translates it into a
-  processed outcome, so the event is never retried.
+  processed outcome, so the event is never retried. Two
+  registrations racing past the pre-check at the same instant are
+  serialized by the same index: the repository translates the
+  violation into `ChequeDuplicateError` naming the winner (HTTP
+  409), never a raw `IntegrityError` / 500 (US-702;
+  `tests/infrastructure/test_concurrency_us702.py`,
+  `tests/interfaces/test_rest_load_us702.py`).
 - **Payee check**: the mapped company's national id is its Tryton
   party's `code` (`CompanyView.national_id`, via
   `list_companies`); unknown company / no national id / mismatch

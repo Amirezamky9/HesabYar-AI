@@ -69,6 +69,11 @@ KNOWN_SCOPES: frozenset[str] = frozenset(
         "users:manage",
         "settings:manage",
         "mcp:connect",
+        # Phase 7 (US-704): the operator monitoring panel reads the
+        # snapshot/alerts with monitoring:read and manages channels,
+        # token records and alert lifecycle with monitoring:manage.
+        "monitoring:read",
+        "monitoring:manage",
     }
 )
 

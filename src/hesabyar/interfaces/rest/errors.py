@@ -158,6 +158,7 @@ from hesabyar.domain.events.errors import (
     EventNotFoundError,
     EventNotReprocessableError,
     EventSignatureError,
+    EventTooOldError,
     EventTypePendingAdrError,
     IdempotencyConflictError,
     InvalidEventEnvelopeError,
@@ -216,6 +217,11 @@ from hesabyar.domain.manual_imports.errors import (
     ManualImportNotFoundError,
     SettlementColumnMappingInvalidError,
     SettlementColumnMappingNotFoundError,
+)
+from hesabyar.domain.monitoring.errors import (
+    MonitoringAlertAlreadyOpenError,
+    MonitoringNotFoundError,
+    MonitoringValidationError,
 )
 from hesabyar.domain.packaging.errors import (
     CarrierRateNotFoundError,
@@ -625,6 +631,8 @@ def api_error_from_hesabyar_error(exc: HesabYarError) -> ApiError:
         return ApiError(status_code=409, code="IDEMPOTENCY_CONFLICT", detail=exc.message)
     if isinstance(exc, EventSignatureError):
         return ApiError(status_code=401, code="EVENT_SIGNATURE_INVALID", detail=exc.message)
+    if isinstance(exc, EventTooOldError):
+        return ApiError(status_code=422, code="EVENT_TOO_OLD", detail=exc.message)
     if isinstance(exc, UnsupportedSchemaVersionError):
         return ApiError(status_code=422, code="EVENT_UNSUPPORTED_SCHEMA_VERSION", detail=exc.message)
     if isinstance(exc, UnknownEventTypeError):
@@ -861,6 +869,16 @@ def api_error_from_hesabyar_error(exc: HesabYarError) -> ApiError:
         return ApiError(status_code=501, code="SMS_PROVIDER_CLIENT_UNAVAILABLE", detail=exc.message)
     if isinstance(exc, SmsProviderUnreachableError):
         return ApiError(status_code=502, code="SMS_PROVIDER_UNREACHABLE", detail=exc.message)
+    if isinstance(exc, MonitoringValidationError):
+        detail = exc.message
+        if exc.field_errors:
+            problems = "; ".join(f"{name}: {problem}" for name, problem in sorted(exc.field_errors.items()))
+            detail = f"{exc.message} Problems: {problems}"
+        return ApiError(status_code=422, code="MONITORING_VALIDATION_FAILED", detail=detail)
+    if isinstance(exc, MonitoringNotFoundError):
+        return ApiError(status_code=404, code="MONITORING_NOT_FOUND", detail=exc.message)
+    if isinstance(exc, MonitoringAlertAlreadyOpenError):
+        return ApiError(status_code=409, code="MONITORING_ALERT_ALREADY_OPEN", detail=exc.message)
     if isinstance(exc, SmsProviderAuthError):
         return ApiError(status_code=422, code="SMS_PROVIDER_AUTH_FAILED", detail=exc.message)
     if isinstance(exc, SmsProviderRejectedError):

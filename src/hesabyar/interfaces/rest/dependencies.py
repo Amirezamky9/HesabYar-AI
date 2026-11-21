@@ -29,6 +29,7 @@ routes, :func:`require_company_access`); see ``docs/api-key-auth.md``.
 
 from __future__ import annotations
 
+import datetime
 import logging
 from collections.abc import Callable, Generator
 
@@ -80,6 +81,7 @@ from hesabyar.application.commands.moadian import (
     MoadianReconciliationWorker,
     MoadianSubmissionService,
 )
+from hesabyar.application.commands.monitoring import MonitoringService
 from hesabyar.application.commands.packaging import PackagingCommandService
 from hesabyar.application.commands.policy_gate import RegistryPolicyGate
 from hesabyar.application.commands.recurring import (
@@ -138,6 +140,12 @@ from hesabyar.domain.accounting.refs import CompanyRef
 from hesabyar.domain.events.ports import JobQueuePort
 from hesabyar.domain.integrations.ports import CredentialVaultPort, FiscalPeriodCheckerPort
 from hesabyar.domain.moadian.ports import MoadianRepositoryPort, MoadianSimulatorPort
+from hesabyar.domain.monitoring.metrics import request_metrics
+from hesabyar.domain.monitoring.models import (
+    MonitoringThresholds,
+    ProcessHealth,
+    ProcessStatus,
+)
 from hesabyar.domain.settlement.ports import SettlementPostingPort
 from hesabyar.infrastructure.accounting.tryton.adapter import TrytonAccountingAdapter
 from hesabyar.infrastructure.accounting.tryton.client import TrytonRestClient
@@ -166,6 +174,7 @@ from hesabyar.infrastructure.events.store_secrets import RegistryWebhookSecretSt
 from hesabyar.infrastructure.files.local_scan_store import LocalChequeScanStore
 from hesabyar.infrastructure.gateways.factory import GatewayClientFactory
 from hesabyar.infrastructure.moadian.simulator import DeterministicMoadianSimulator
+from hesabyar.infrastructure.monitoring import HttpxMcpHealthProber, WebhookAlertSender
 from hesabyar.infrastructure.persistence.postgres.bank_repository import (
     SqlAlchemyBankRepository,
 )
@@ -198,6 +207,10 @@ from hesabyar.infrastructure.persistence.postgres.manual_import_repository impor
 )
 from hesabyar.infrastructure.persistence.postgres.moadian_repository import SqlAlchemyMoadianRepository
 from hesabyar.infrastructure.persistence.postgres.models import EngineCompanyModel
+from hesabyar.infrastructure.persistence.postgres.monitoring_repository import (
+    JobRegistryBackupStatusSource,
+    SqlAlchemyMonitoringRepository,
+)
 from hesabyar.infrastructure.persistence.postgres.packaging_repository import (
     SqlAlchemyPackagingRepository,
 )
@@ -966,10 +979,20 @@ def get_event_ingest_service(
 
     US-511: HMAC secrets come from the store registry (decrypted
     through the vault) instead of the F1 no-secrets default.
+
+    US-701: the webhook replay window comes from settings — the
+    ingest service enforces it for new webhook events only (manual
+    entries and the polling/sync path are exempt by design).
     """
     registry = SqlAlchemyIntegrationsRepository(session)
     secrets = RegistryWebhookSecretStore(registry, _webhook_vault_or_none(settings))
-    return EventIngestService(inbox, idempotency, secrets, job_queue)
+    return EventIngestService(
+        inbox,
+        idempotency,
+        secrets,
+        job_queue,
+        max_event_age_hours=settings.events.webhook_max_event_age_hours,
+    )
 
 
 def get_store_sync_service(
@@ -2094,3 +2117,95 @@ def get_rule_engine_service(
         review_audit=queue_repository,
     )
     return RuleEngineService(repository, executor=executor)
+
+
+class _HealthServiceChecks:
+    """Adapt ``HealthService`` (ComponentStatus) to the monitoring port (ProcessHealth)."""
+
+    def __init__(self, health: HealthService) -> None:
+        self._health = health
+
+    def check_database(self) -> ProcessHealth:
+        """Probe the HesabYar database via the existing health service."""
+        result = self._health.check_database()
+        return ProcessHealth(
+            name="database",
+            status=_component_status(result.status),
+            detail=result.detail,
+            checked_at=datetime.datetime.now(datetime.UTC),
+        )
+
+    def check_tryton(self) -> ProcessHealth:
+        """Probe the Tryton adapter via the existing health service."""
+        result = self._health.check_tryton()
+        return ProcessHealth(
+            name="tryton",
+            status=_component_status(result.status),
+            detail=result.detail,
+            checked_at=datetime.datetime.now(datetime.UTC),
+        )
+
+
+def _component_status(value: str) -> ProcessStatus:
+    if value == "ok":
+        return ProcessStatus.OK
+    if value == "error":
+        return ProcessStatus.ERROR
+    return ProcessStatus.UNKNOWN
+
+
+def get_monitoring_repository(
+    session: Session = Depends(get_db_session),
+) -> SqlAlchemyMonitoringRepository:
+    """Build the SQLAlchemy monitoring repository for this request."""
+    return SqlAlchemyMonitoringRepository(session)
+
+
+def get_monitoring_service(
+    settings: AppSettings = Depends(get_settings_dep),
+    session: Session = Depends(get_db_session),
+    repository: SqlAlchemyMonitoringRepository = Depends(get_monitoring_repository),
+    sms_repository: SqlAlchemySmsRepository = Depends(get_sms_repository),
+    vault: CredentialVaultPort | None = Depends(get_credential_vault),
+    health: HealthService = Depends(get_health_service),
+) -> MonitoringService:
+    """Build the monitoring service for this request (override point for tests).
+
+    Thresholds come from settings (the inbox-stale threshold from
+    ``events.inbox_stale_hours`` — one source of truth, shared with
+    the US-501 staleness job). The backup source reads the US-560 job
+    registry (``JobRegistryBackupStatusSource`` — the US-703 + US-704
+    integration): the ``backup.databases`` job backs up both
+    databases in one run, so its latest run IS the backup status.
+    No email sender is wired yet (the F3 email provider is not
+    built) — email attempts are logged as skipped.
+    """
+    monitoring = settings.monitoring
+    thresholds = MonitoringThresholds(
+        inbox_stale_hours=settings.events.inbox_stale_hours,
+        worker_lag_minutes=monitoring.worker_lag_minutes,
+        token_warning_days=monitoring.token_warning_days,
+        token_critical_days=monitoring.token_critical_days,
+        webhook_failures_24h=monitoring.webhook_failures_24h,
+        error_rate_5xx=monitoring.error_rate_5xx,
+        error_rate_min_requests=monitoring.error_rate_min_requests,
+        backup_max_age_hours=monitoring.backup_max_age_hours,
+    )
+    return MonitoringService(
+        repository,
+        thresholds=thresholds,
+        sms_repository=sms_repository,
+        client_factory=DefaultSmsClientFactory(),
+        vault=vault,
+        email=None,
+        webhook_sender=WebhookAlertSender(),
+        backup_source=JobRegistryBackupStatusSource(
+            session, max_age_hours=monitoring.backup_max_age_hours
+        ),
+        mcp_prober=HttpxMcpHealthProber(
+            settings.mcp.public_url,
+            timeout_seconds=monitoring.mcp_probe_timeout_seconds,
+        ),
+        health_checks=_HealthServiceChecks(health),
+        request_metrics=request_metrics,
+    )

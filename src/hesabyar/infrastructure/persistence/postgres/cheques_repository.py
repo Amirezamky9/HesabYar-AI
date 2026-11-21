@@ -13,8 +13,10 @@ import datetime
 from collections.abc import Sequence
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from hesabyar.domain.cheques.errors import ChequeDuplicateError
 from hesabyar.domain.cheques.models import (
     BounceDestination,
     Cheque,
@@ -274,8 +276,29 @@ class SqlAlchemyChequeRepository(ChequeRepositoryPort):
     def create(self, cheque: Cheque) -> Cheque:
         row = _row_from_cheque(cheque, ChequeModel(id=cheque.id))
         row.created_at = cheque.created_at
-        self._session.add(row)
-        self._session.flush()
+        try:
+            with self._session.begin_nested():
+                self._session.add(row)
+                self._session.flush()
+        except IntegrityError:
+            # Lost the race on the live-sayad partial unique index (a
+            # concurrent registration of the same leaf committed
+            # first): the savepoint rollback keeps the session usable,
+            # so re-read the winner and surface the typed duplicate
+            # error instead of a raw IntegrityError (which the REST
+            # layer would 500 on — the service's pre-check cannot see
+            # an uncommitted rival). A violation no live row explains
+            # (e.g. a UUID PK collision) still re-raises.
+            existing = self.get_by_sayad_id(
+                cheque.sayad_id,
+                tenant_id=cheque.tenant_id,
+                installation_id=cheque.installation_id,
+            )
+            if existing is None:
+                raise
+            raise ChequeDuplicateError(
+                cheque.sayad_id, existing_cheque_id=existing.id
+            ) from None
         return _cheque_from_row(row)
 
     def get(

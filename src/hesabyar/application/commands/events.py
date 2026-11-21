@@ -31,6 +31,7 @@ from __future__ import annotations
 import dataclasses
 import datetime
 import json
+import logging
 import uuid
 from dataclasses import dataclass
 from typing import Literal, Protocol
@@ -71,11 +72,13 @@ from hesabyar.domain.events.errors import (
     EventNotFoundError,
     EventNotReprocessableError,
     EventSignatureError,
+    EventTooOldError,
     IdempotencyConflictError,
     InvalidEventEnvelopeError,
     InvalidStoreAmountError,
     MappingUnresolvedError,
 )
+from hesabyar.domain.events.manual_entries import MANUAL_SOURCE_SYSTEM
 from hesabyar.domain.events.models import (
     AutomationDecision,
     AutomationDecisionKind,
@@ -125,6 +128,8 @@ from hesabyar.domain.events.store_webhooks import (
     resolve_header_event_types,
     validate_store_payload,
 )
+
+logger = logging.getLogger(__name__)
 
 #: Outbox event type for a processed inbox event (§10.3 step 9).
 EVENT_PROCESSED_OUTBOX_TYPE = "events.processed"
@@ -355,11 +360,19 @@ class EventIngestService:
         idempotency: EventIdempotencyPort,
         secrets: WebhookSecretPort,
         job_queue: JobQueuePort,
+        *,
+        max_event_age_hours: int | None = None,
     ) -> None:
         self._inbox = inbox
         self._idempotency = idempotency
         self._secrets = secrets
         self._job_queue = job_queue
+        # US-701 replay window: None (or 0) disables the freshness
+        # check. The production wiring (dependencies.py) always passes
+        # settings.events.webhook_max_event_age_hours; direct
+        # construction (unit tests, scripts) opts out by default so
+        # fixed-date fixtures stay valid.
+        self._max_event_age_hours = max_event_age_hours
 
     def verify(self, request: IncomingEvent, installation_id: str | None = None) -> VerifiedEvent:
         """Verify one incoming event: envelope + type + (when configured) HMAC.
@@ -442,6 +455,25 @@ class EventIngestService:
         """
         verified = self.verify(request, installation_id)
         event = verified.event
+        # US-701: manual entries share this path but are not webhooks —
+        # they are operator-authenticated, carry no signature by design,
+        # and may legitimately describe old business events — so neither
+        # the unsigned warning nor the replay window applies to them.
+        is_manual = event.source_system == MANUAL_SOURCE_SYSTEM
+        if not verified.signature_verified and not is_manual:
+            # The skip is no longer silent: an unsigned event still
+            # ingests (a store without a configured secret cannot sign),
+            # but the gap is visible in the logs for the operator.
+            logger.warning(
+                "Ingesting unsigned webhook event %s/%s/%s: no webhook "
+                "secret is configured for this store, so the signature "
+                "check was skipped.",
+                event.source_system,
+                event.source_store_id,
+                event.source_event_id,
+            )
+        if not is_manual:
+            self._reject_stale_new_event(event)
         primary_status: Literal["created", "duplicate"] | None = None
         primary_event: InboxEvent | None = None
         derived_events: list[InboxEvent] = []
@@ -498,6 +530,41 @@ class EventIngestService:
             signature_verified=signature_verified,
             signature_note=verification_note,
         )
+
+    def _reject_stale_new_event(self, event: CanonicalEvent) -> None:
+        """Replay-window check (US-701): reject a NEW event older than the window.
+
+        Only NEW events are checked: an event already in the inbox
+        replays as a duplicate whatever its age, so a store that
+        redelivers after an outage is never punished for the delay.
+        ``occurred_at`` is inside the signed body, so a replay
+        attacker cannot refresh it without the store's secret. A
+        future-dated event (store clock skew) is never stale. The
+        recovery path for a genuinely missed old event is the
+        polling/sync backfill (``ingest_verified``), which never
+        applies this check.
+        """
+        if not self._max_event_age_hours:
+            return
+        known = self._inbox.get_by_source_event(event.source_system, event.source_store_id, event.source_event_id)
+        if known is not None:
+            return
+        age = _now() - event.occurred_at
+        if age > datetime.timedelta(hours=self._max_event_age_hours):
+            raise EventTooOldError(
+                f"Event {event.source_system}/{event.source_store_id}/"
+                f"{event.source_event_id} occurred "
+                f"{event.occurred_at.isoformat()} and is older than the "
+                f"{self._max_event_age_hours}-hour webhook replay window; "
+                "re-deliver it through a sync/backfill instead.",
+                details={
+                    "source_system": event.source_system,
+                    "source_store_id": event.source_store_id,
+                    "source_event_id": event.source_event_id,
+                    "occurred_at": event.occurred_at.isoformat(),
+                    "max_event_age_hours": self._max_event_age_hours,
+                },
+            )
 
     def _ingest_one(
         self,

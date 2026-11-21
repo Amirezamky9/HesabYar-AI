@@ -27,6 +27,8 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from contextlib import contextmanager
+from typing import Iterator
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -43,6 +45,7 @@ from hesabyar.application.commands.installments_finance import InstallmentFinanc
 from hesabyar.application.commands.integrations import PolicyGateService, StoreService
 from hesabyar.application.commands.invoices import InvoiceDraftService
 from hesabyar.application.commands.journals import JournalDraftService
+from hesabyar.application.commands.monitoring import MonitoringService
 from hesabyar.application.commands.packaging import PackagingCommandService
 from hesabyar.application.commands.policy_gate import RegistryPolicyGate
 from hesabyar.application.commands.recurring import RecurringGenerationService
@@ -54,6 +57,7 @@ from hesabyar.application.commands.sms import SmsReminderService
 from hesabyar.application.commands.store_events import StoreDraftBuilder, StoreMappingResolver
 from hesabyar.application.commands.sync import StoreSyncService
 from hesabyar.domain.events.ports import JobQueuePort
+from hesabyar.domain.monitoring.models import MonitoringThresholds
 from hesabyar.infrastructure.accounting.tryton.adapter import TrytonAccountingAdapter
 from hesabyar.infrastructure.accounting.tryton.client import TrytonRestClient
 from hesabyar.infrastructure.accounting.tryton.fiscal_period_checker import (
@@ -61,6 +65,11 @@ from hesabyar.infrastructure.accounting.tryton.fiscal_period_checker import (
 )
 from hesabyar.infrastructure.auth.credential_vault import FernetCredentialVault
 from hesabyar.infrastructure.config import AppSettings
+from hesabyar.infrastructure.events.backup_queue import (
+    BACKUP_QUEUE,
+    BackupWorkerFactory,
+    BackupWorkerHandle,
+)
 from hesabyar.infrastructure.events.cheque_queue import (
     CHEQUE_QUEUE,
     ChequeWorkerFactory,
@@ -70,6 +79,10 @@ from hesabyar.infrastructure.events.defaults import (
     InboxReviewQueueAdapter,
     InProcessOutboxPublisher,
     NoWebhookSecretStore,
+)
+from hesabyar.infrastructure.events.monitoring_queue import (
+    MonitoringWorkerFactory,
+    MonitoringWorkerHandle,
 )
 from hesabyar.infrastructure.events.packaging_queue import (
     PACKAGING_QUEUE,
@@ -110,6 +123,9 @@ from hesabyar.infrastructure.events.sms_queue import (
     SmsWorkerHandle,
 )
 from hesabyar.infrastructure.files.local_scan_store import LocalChequeScanStore
+from hesabyar.infrastructure.monitoring import HttpxMcpHealthProber, WebhookAlertSender
+from hesabyar.infrastructure.operations.pg_tools import PgDumpRestoreRunner
+from hesabyar.infrastructure.operations.restore_drill import ScratchEngineFactory
 from hesabyar.infrastructure.persistence.postgres.cashbox_repository import (
     SqlAlchemyCashBoxRepository,
 )
@@ -131,6 +147,10 @@ from hesabyar.infrastructure.persistence.postgres.integrations_repository import
     SqlAlchemyIntegrationsRepository,
 )
 from hesabyar.infrastructure.persistence.postgres.models import EngineCompanyModel
+from hesabyar.infrastructure.persistence.postgres.monitoring_repository import (
+    JobRegistryBackupStatusSource,
+    SqlAlchemyMonitoringRepository,
+)
 from hesabyar.infrastructure.persistence.postgres.packaging_repository import (
     SqlAlchemyPackagingRepository,
 )
@@ -618,6 +638,55 @@ def build_scheduler_factory(
     return factory
 
 
+def build_backup_factory(settings: AppSettings) -> BackupWorkerFactory:
+    """Build a factory producing one backup handle per job run (US-703).
+
+    The handle carries settings + the pg tools; the backup/drill
+    services are built fresh on every run (a rotated key or endpoint
+    takes effect without a worker restart). The engine factory opens
+    a REST client for a SCRATCH Tryton database by name — the same
+    trytond serves it, and the restored database already contains
+    the REST application key, so the same API key works. The client
+    is closed when the drill's check leaves the context.
+    """
+    backup = settings.backup
+    hesabyar_url = backup.hesabyar_database_url or settings.database.url
+    dumper = PgDumpRestoreRunner(
+        pg_dump_path=backup.pg_dump_path,
+        pg_restore_path=backup.pg_restore_path,
+        timeout_seconds=backup.command_timeout_seconds,
+    )
+    tryton = settings.tryton
+
+    @contextmanager
+    def engine_factory(database: str) -> Iterator[TrytonAccountingAdapter]:
+        client = TrytonRestClient(
+            tryton.base_url,
+            database,
+            tryton.api_key,
+            timeout=tryton.timeout_seconds,
+        )
+        try:
+            yield TrytonAccountingAdapter(client)
+        finally:
+            client.close()
+
+    factory: ScratchEngineFactory = engine_factory
+
+    def backup_factory() -> BackupWorkerHandle:
+        return BackupWorkerHandle(
+            settings=backup,
+            dumper=dumper,
+            engine_factory=factory,
+            hesabyar_database_url=hesabyar_url,
+            tryton_database_url=backup.tryton_database_url,
+            commit=lambda: None,
+            close=lambda: None,
+        )
+
+    return backup_factory
+
+
 def build_job_run_recorder(settings: AppSettings) -> JobRunRecorder:
     """Build the run recorder (US-560): one fresh session per registry op.
 
@@ -655,6 +724,82 @@ def build_job_run_recorder(settings: AppSettings) -> JobRunRecorder:
 
     factory: RecorderFactory = recorder_factory
     return JobRunRecorder(factory)
+
+
+def build_monitoring_factory(settings: AppSettings) -> MonitoringWorkerFactory:
+    """Build a factory producing one monitoring handle per evaluation run (US-704).
+
+    Shares the same pooled engine pattern as the other factories:
+    each job run gets a fresh session, closed afterwards. The
+    evaluation needs the credential vault (to decrypt SMS provider
+    API keys for alert dispatch) and the MCP prober (the worker can
+    probe the MCP server's /health); it has no health checks (the
+    DB/Tryton probes live in the REST layer) and no request metrics
+    (the 5xx counters live in the API process) — see
+    ``hesabyar.infrastructure.events.monitoring_queue``. Thresholds
+    mirror ``get_monitoring_service`` (the REST wiring); keep both
+    mappings in sync. No email sender is wired yet (the F3 email
+    provider is not built) — email attempts are logged as skipped.
+    """
+    engine = create_engine(
+        settings.database.sqlalchemy_url,
+        pool_size=settings.database.pool_size,
+        max_overflow=settings.database.max_overflow,
+        pool_timeout=settings.database.pool_timeout_seconds,
+    )
+    session_factory = sessionmaker(bind=engine)
+    key = settings.auth.credentials_encryption_key
+    vault: FernetCredentialVault | None = None
+    if key is not None:
+        try:
+            vault = FernetCredentialVault(key)
+        except ValueError:
+            logger.error(
+                "Invalid credential-encryption key: SMS alert dispatch "
+                "will fail closed until it is fixed."
+            )
+    monitoring = settings.monitoring
+    thresholds = MonitoringThresholds(
+        inbox_stale_hours=settings.events.inbox_stale_hours,
+        worker_lag_minutes=monitoring.worker_lag_minutes,
+        token_warning_days=monitoring.token_warning_days,
+        token_critical_days=monitoring.token_critical_days,
+        webhook_failures_24h=monitoring.webhook_failures_24h,
+        error_rate_5xx=monitoring.error_rate_5xx,
+        error_rate_min_requests=monitoring.error_rate_min_requests,
+        backup_max_age_hours=monitoring.backup_max_age_hours,
+    )
+
+    def factory() -> MonitoringWorkerHandle:
+        session = session_factory()
+        service = MonitoringService(
+            SqlAlchemyMonitoringRepository(session),
+            thresholds=thresholds,
+            sms_repository=SqlAlchemySmsRepository(session),
+            client_factory=DefaultSmsClientFactory(),
+            vault=vault,
+            email=None,
+            webhook_sender=WebhookAlertSender(),
+            backup_source=JobRegistryBackupStatusSource(
+                session, max_age_hours=monitoring.backup_max_age_hours
+            ),
+            mcp_prober=HttpxMcpHealthProber(
+                settings.mcp.public_url,
+                timeout_seconds=monitoring.mcp_probe_timeout_seconds,
+            ),
+            health_checks=None,
+            request_metrics=None,
+        )
+
+        def commit() -> None:
+            session.commit()
+
+        def close() -> None:
+            session.close()
+
+        return MonitoringWorkerHandle(service=service, commit=commit, close=close)
+
+    return factory
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -724,6 +869,11 @@ def main(argv: list[str] | None = None) -> int:
         store_sync_cron=settings.scheduler.store_sync_cron,
         staleness_cron=settings.scheduler.staleness_cron,
         recurring_generation_cron=settings.scheduler.recurring_generation_cron,
+        backup_factory=build_backup_factory(settings),
+        backup_cron=settings.backup.backup_cron,
+        restore_drill_cron=settings.backup.restore_drill_cron,
+        monitoring_factory=build_monitoring_factory(settings),
+        monitoring_evaluation_cron=settings.monitoring.evaluation_cron,
         recorder=build_job_run_recorder(settings),
     )
     with app.open():
@@ -748,6 +898,7 @@ def main(argv: list[str] | None = None) -> int:
                 SMS_QUEUE,
                 REMINDERS_QUEUE,
                 SCHEDULER_QUEUE,
+                BACKUP_QUEUE,
             ],
             settings.events.worker_sweep_cron,
             settings.packaging.supply_check_cron,
@@ -762,6 +913,7 @@ def main(argv: list[str] | None = None) -> int:
                 SMS_QUEUE,
                 REMINDERS_QUEUE,
                 SCHEDULER_QUEUE,
+                BACKUP_QUEUE,
             ]
         )
     return 0

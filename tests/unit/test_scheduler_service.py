@@ -219,14 +219,15 @@ def test_list_jobs_seeds_the_defaults() -> None:
     service = _service(registry)
     jobs = service.list_jobs()
     assert [job.definition.id for job in jobs] == [job.id for job in DEFAULT_JOBS]
-    # 10 jobs: the 8 US-560 defaults + reminders.daily (US-564) +
-    # scheduler.recurring_generation (US-563).
-    assert len(jobs) == 10
+    # 13 jobs: the 8 US-560 defaults + reminders.daily (US-564) +
+    # scheduler.recurring_generation (US-563) + backup.databases and
+    # backup.restore_drill (US-703) + monitoring.evaluate (US-704).
+    assert len(jobs) == 13
     # A second list does not duplicate or overwrite (an operator's
     # disable survives a re-seed).
     service.set_enabled("settlement.tick", enabled=False)
     jobs = service.list_jobs()
-    assert len(jobs) == 10
+    assert len(jobs) == 13
     tick = next(job for job in jobs if job.definition.id == "settlement.tick")
     assert not tick.definition.enabled
 

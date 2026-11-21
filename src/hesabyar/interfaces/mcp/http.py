@@ -21,6 +21,10 @@ protections:
 - **TLS** — :func:`serve_streamable_http` passes the configured
   certificate/key to uvicorn when set; production MUST serve behind
   TLS (directly or via a terminating proxy).
+- **Health** — :class:`HealthCheckMiddleware` answers ``GET /health``
+  (US-704): the MCP process's own liveness probe, unauthenticated
+  like the REST ``/health`` (threat model A8 — generic details only),
+  outside the rate limiter so probes are never throttled.
 
 No legacy HTTP+SSE transport is built (spec §13.2).
 """
@@ -35,6 +39,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from hesabyar import __version__
 from hesabyar.infrastructure.auth.keys import extract_key_prefix
 from hesabyar.infrastructure.config import AppSettings
 from hesabyar.interfaces.mcp.rate_limit import WINDOW_SECONDS, RateLimiter
@@ -94,11 +99,54 @@ def _rate_limit_key(scope: Scope) -> str:
     return "ip:unknown"
 
 
+class HealthCheckMiddleware:
+    """Pure-ASGI liveness probe for the MCP server (US-704).
+
+    ``GET /health`` → 200 ``{"status": "ok", "service": "hesabyar-mcp",
+    "version": ...}`` — the process is up; no dependency is checked.
+    Unauthenticated by design (threat model A8: the REST ``/health``
+    is public the same way) and outside the rate limiter, so health
+    probes are never throttled. Everything else passes through.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self._app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if (
+            scope["type"] == "http"
+            and scope.get("method") == "GET"
+            and scope.get("path") == "/health"
+        ):
+            body = json.dumps(
+                {
+                    "status": "ok",
+                    "service": "hesabyar-mcp",
+                    "version": __version__,
+                }
+            ).encode("utf-8")
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [
+                        (b"content-type", b"application/json"),
+                        (b"content-length", str(len(body)).encode("ascii")),
+                    ],
+                }
+            )
+            await send({"type": "http.response.body", "body": body})
+            return
+        await self._app(scope, receive, send)
+
+
 def build_streamable_http_app(server: MCPServer[Any], settings: AppSettings) -> ASGIApp:
     """Build the Streamable HTTP ASGI app for ``server``.
 
     The SDK app handles MCP sessions + bearer auth; this function adds
-    the transport-security settings and the rate-limit wrapper.
+    the transport-security settings, the rate-limit wrapper and the
+    unauthenticated ``GET /health`` probe (outermost, so probes are
+    never rate-limited).
     """
     mcp_settings = settings.mcp
     app = server.streamable_http_app(
@@ -114,7 +162,7 @@ def build_streamable_http_app(server: MCPServer[Any], settings: AppSettings) -> 
         host=mcp_settings.host,
     )
     limiter = RateLimiter(mcp_settings.rate_limit_per_minute)
-    return RateLimitMiddleware(app, limiter)
+    return HealthCheckMiddleware(RateLimitMiddleware(app, limiter))
 
 
 def serve_streamable_http(

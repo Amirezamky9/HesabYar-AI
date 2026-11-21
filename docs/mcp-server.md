@@ -548,6 +548,11 @@ tokens issued for another resource.
 - Rate limiting is per-process (in-memory). The MCP server is a
   single-process deployment (one installation per store, spec §15.1);
   a multi-worker deployment would need a shared limiter.
+  `RateLimiter.allow` is thread-safe (US-702): the
+  check-and-increment is one locked critical section, so a
+  concurrent burst admits exactly the limit per key per window —
+  past-budget requests get 429 + `Retry-After`, never a 5xx
+  (`tests/mcp/test_mcp_rate_limit_load_us702.py`).
 
 ## Audit
 

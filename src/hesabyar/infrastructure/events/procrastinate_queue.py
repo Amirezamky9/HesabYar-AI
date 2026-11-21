@@ -18,7 +18,10 @@ US-560 registers three more periodic jobs on the same app (the
 ``scheduler`` queue): the dunning sweep, the store sync, and the
 inbox staleness alert — see
 ``hesabyar.infrastructure.events.scheduler_queue``. US-563 adds a
-fourth on the same queue: the recurring generator. Every periodic
+fourth on the same queue: the recurring generator. US-703 adds two
+more on the ``backup`` queue: the daily database backup and the
+monthly restore drill — see
+``hesabyar.infrastructure.events.backup_queue``. Every periodic
 job is also a registry row (``scheduled_jobs``) with a Jalali-aware
 schedule; the recorder gates each run (enabled? scheduled today?)
 and records its outcome — see ``docs/scheduler.md``.
@@ -48,10 +51,21 @@ from procrastinate.connector import BaseAsyncConnector, BaseConnector
 
 from hesabyar.application.commands.events import EventWorker
 from hesabyar.domain.scheduler.schedules import tehran_today
+from hesabyar.infrastructure.events.backup_queue import (
+    BACKUP_CRON,
+    RESTORE_DRILL_CRON,
+    BackupWorkerFactory,
+    register_backup_tasks,
+)
 from hesabyar.infrastructure.events.cheque_queue import (
     DAILY_CRON,
     ChequeWorkerFactory,
     register_cheque_tasks,
+)
+from hesabyar.infrastructure.events.monitoring_queue import (
+    EVALUATION_CRON,
+    MonitoringWorkerFactory,
+    register_monitoring_tasks,
 )
 from hesabyar.infrastructure.events.packaging_queue import (
     SUPPLY_CHECK_CRON,
@@ -141,6 +155,11 @@ def create_event_app(
     store_sync_cron: str = STORE_SYNC_CRON,
     staleness_cron: str = INBOX_STALENESS_CRON,
     recurring_generation_cron: str = RECURRING_GENERATION_CRON,
+    backup_factory: BackupWorkerFactory | None = None,
+    backup_cron: str = BACKUP_CRON,
+    restore_drill_cron: str = RESTORE_DRILL_CRON,
+    monitoring_factory: MonitoringWorkerFactory | None = None,
+    monitoring_evaluation_cron: str = EVALUATION_CRON,
     recorder: JobRunRecorder | None = None,
 ) -> procrastinate.App:
     """Build the Procrastinate app with the event-platform tasks.
@@ -158,8 +177,12 @@ def create_event_app(
     reminder job (US-564) is registered too; when
     ``scheduler_factory`` is given, the four scheduled jobs
     (dunning sweep, store sync, inbox staleness, recurring
-    generation) are registered too. The API process
-    (``create_defer_app``) passes none of them.
+<<<<<<< HEAD
+    generation) are registered too; when ``backup_factory`` is
+    given, the two backup jobs (daily backup, monthly restore
+    drill) are registered too; when ``monitoring_factory`` is
+    given, the monitoring evaluation job (US-704) is registered
+    too. The API process (``create_defer_app``) passes none of them.
 
     When ``recorder`` is given (the worker process), every periodic
     task is gated (enabled? scheduled today?) and recorded in the
@@ -264,6 +287,23 @@ def create_event_app(
             store_sync_cron=store_sync_cron,
             staleness_cron=staleness_cron,
             recurring_generation_cron=recurring_generation_cron,
+        )
+
+    if backup_factory is not None:
+        register_backup_tasks(
+            app,
+            backup_factory,
+            backup_cron=backup_cron,
+            restore_drill_cron=restore_drill_cron,
+            recorder=recorder,
+        )
+
+    if monitoring_factory is not None:
+        register_monitoring_tasks(
+            app,
+            monitoring_factory,
+            evaluation_cron=monitoring_evaluation_cron,
+            recorder=recorder,
         )
 
     return app

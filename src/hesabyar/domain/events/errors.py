@@ -74,6 +74,21 @@ class WebhookVaultUnavailableError(EventError):
         super().__init__(message, code="EVENT_WEBHOOK_VAULT_UNAVAILABLE", details=details)
 
 
+class EventTooOldError(EventError):
+    """Raised when a NEW webhook event is older than the replay window (US-701).
+
+    ``occurred_at`` is inside the signed body, so a replay attacker
+    cannot refresh it without the store's secret — but nothing
+    stopped a captured signed payload for a never-delivered event
+    from being replayed arbitrarily late. The ingest service rejects
+    such events; re-deliveries of already-stored events still replay
+    as duplicates, and the polling/sync path never applies this check.
+    """
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__(message, code="EVENT_TOO_OLD", details=details)
+
+
 class IdempotencyConflictError(EventError):
     """Raised when a key is reused with a different payload hash (§10.4).
 

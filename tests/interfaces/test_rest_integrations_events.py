@@ -14,6 +14,7 @@ settings are deleted by the unique source system.
 
 from __future__ import annotations
 
+import datetime
 import json
 import os
 import uuid
@@ -140,6 +141,10 @@ def _auth(secret: str) -> dict[str, str]:
 
 
 def _ingest_body(world: World, **overrides: object) -> dict:
+    # US-701: the production wiring enforces the webhook replay window
+    # (168h), so ingested events must be fresh — the shared fixture's
+    # fixed 2026-11-17 occurred_at would age out of the window.
+    overrides.setdefault("occurred_at", datetime.datetime.now(datetime.UTC).isoformat())
     return raw_envelope(source_system=world.source_system, **overrides)  # type: ignore[arg-type]
 
 

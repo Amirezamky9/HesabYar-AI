@@ -31,11 +31,17 @@ class Environment(StrEnum):
         return self == Environment.TEST
 
 
+# Dev-only database URL for the local test install. It carries a
+# well-known password; production MUST override it (enforced by
+# AppSettings validation, US-701).
+DEV_DATABASE_URL = "postgresql://hesabyar:hesabyar_pass@127.0.0.1:15445/hesabyar_test"
+
+
 class DatabaseSettings(BaseModel):
     """PostgreSQL 16+ database configuration."""
 
     url: str = Field(
-        default="postgresql://hesabyar:hesabyar_pass@127.0.0.1:15445/hesabyar_test",
+        default=DEV_DATABASE_URL,
         description="PostgreSQL connection URI with psycopg driver",
     )
     pool_size: int = Field(default=5, ge=1, le=100, description="SQLAlchemy connection pool size")
@@ -57,6 +63,12 @@ class DatabaseSettings(BaseModel):
         return url
 
 
+# Dev-only Tryton application key for the local test database. It is
+# a well-known value (documented in docs/dev-setup.md); production
+# MUST override it (enforced by AppSettings validation, US-701).
+DEV_TRYTON_API_KEY = "hesabyar-dev-rest-key"
+
+
 class TrytonSettings(BaseModel):
     """Tryton accounting-engine connection settings (REST API).
 
@@ -75,7 +87,7 @@ class TrytonSettings(BaseModel):
         description="Tryton database name",
     )
     api_key: str = Field(
-        default="hesabyar-dev-rest-key",
+        default=DEV_TRYTON_API_KEY,
         description="Tryton user-application key for the REST API (dev default only)",
     )
     timeout_seconds: float = Field(
@@ -156,6 +168,19 @@ class EventPlatformSettings(BaseModel):
         default=30,
         ge=1,
         description="How long a completed idempotency record is kept for replays",
+    )
+    webhook_max_event_age_hours: int = Field(
+        default=168,
+        ge=0,
+        description=(
+            "Webhook replay window (US-701): a NEW webhook event whose "
+            "occurred_at is older than this is rejected (422 EVENT_TOO_OLD) "
+            "— a captured signed payload for an event that was never "
+            "delivered cannot be replayed arbitrarily late. Re-deliveries "
+            "of already-stored events still replay as duplicates, and the "
+            "polling/sync path (ingest_verified) never applies this check "
+            "— backfills are legitimately old. 0 disables the check."
+        ),
     )
 
 
@@ -244,6 +269,200 @@ class FilestoreSettings(BaseModel):
         default="filestore",
         description="Directory holding downloaded files (cheque leaf scans)",
     )
+
+
+class BackupSettings(BaseModel):
+    """S3 backups + restore drills (US-703, spec §15.4 / §17 phase 7).
+
+    Env overrides use the ``HESABYAR_BACKUP__`` prefix, e.g.
+    ``HESABYAR_BACKUP__ENDPOINT_URL``.
+
+    The S3 destination decision is UNVERIFIED (phased design §1.3
+    phase 7: Iran-hosted S3-compatible vs S3 with non-Iranian
+    egress): NOTHING here names a provider or defaults an endpoint,
+    region or bucket — the operator configures all of them, and the
+    backup job fails closed (recorded failure + review item) until
+    they do. ``local_directory`` is the dev/CI backend (a plain
+    directory on disk); exactly one backend may be configured.
+
+    ``tryton_database_url`` has NO default and cannot be derived:
+    HesabYar otherwise never knows the Tryton database's DSN (it
+    talks REST). The operator supplies it — it is the backup
+    procedure's DSN, used ONLY by pg_dump/pg_restore in the
+    operations layer, never by application code (see
+    docs/backup-restore.md for the §19.2 operational exception).
+    """
+
+    endpoint_url: str | None = Field(
+        default=None,
+        description=(
+            "S3-compatible endpoint URL (e.g. https://s3.example.com), "
+            "no trailing slash. No default — the destination decision "
+            "is unverified; the operator configures it."
+        ),
+    )
+    bucket: str | None = Field(
+        default=None,
+        description="S3-compatible bucket name (required with endpoint_url).",
+    )
+    region: str | None = Field(
+        default=None,
+        description=(
+            "S3 signing region (required with endpoint_url; SigV4 needs "
+            "one — no region is guessed)."
+        ),
+    )
+    access_key_id: str | None = Field(
+        default=None,
+        description="S3 access key id (required with endpoint_url).",
+    )
+    secret_access_key: str | None = Field(
+        default=None,
+        description="S3 secret access key (required with endpoint_url; never logged).",
+    )
+    local_directory: str | None = Field(
+        default=None,
+        description=(
+            "Local directory backend (dev/CI): backups are files under "
+            "this directory. Mutually exclusive with endpoint_url."
+        ),
+    )
+    key_prefix: str = Field(
+        default="hesabyar-backups",
+        description=(
+            "Object-key prefix (one per installation — spec §15.1: "
+            "independent backup prefix per store)."
+        ),
+    )
+    encryption_key: str | None = Field(
+        default=None,
+        description=(
+            "Fernet key (URL-safe base64, 32 bytes) encrypting backup "
+            "archives at rest. No dev default: when unset, backups fail "
+            "closed. Generate with Fernet.generate_key() and set via "
+            "HESABYAR_BACKUP__ENCRYPTION_KEY. Rotation is a manual "
+            "procedure (docs/backup-restore.md) — no tooling, the same "
+            "as the credential vault (threat model A6)."
+        ),
+    )
+    hesabyar_database_url: str | None = Field(
+        default=None,
+        description=(
+            "PostgreSQL DSN pg_dump uses for the HesabYar database. "
+            "Defaults to the application's database URL when unset."
+        ),
+    )
+    tryton_database_url: str | None = Field(
+        default=None,
+        description=(
+            "PostgreSQL DSN pg_dump/pg_restore use for the Tryton "
+            "database. No default — the operator supplies it. Used "
+            "ONLY by the backup/restore operations layer."
+        ),
+    )
+    hesabyar_admin_database_url: str | None = Field(
+        default=None,
+        description=(
+            "Maintenance-DB DSN (a role with CREATEDB) the restore "
+            "drill uses to create/drop HesabYar scratch databases. "
+            "Defaults to hesabyar_database_url with the database "
+            "name replaced by 'postgres'."
+        ),
+    )
+    tryton_admin_database_url: str | None = Field(
+        default=None,
+        description=(
+            "Maintenance-DB DSN (a role with CREATEDB) the restore "
+            "drill uses to create/drop Tryton scratch databases. "
+            "Defaults to tryton_database_url with the database "
+            "name replaced by 'postgres'."
+        ),
+    )
+    retention_days: int = Field(
+        default=30,
+        ge=1,
+        description="Daily backups are kept at least this long.",
+    )
+    monthly_keep_count: int = Field(
+        default=12,
+        ge=0,
+        description=(
+            "How many monthly restore points (newest backup per Jalali "
+            "month) pruning keeps past the daily window. 0 keeps none."
+        ),
+    )
+    backup_cron: str = Field(
+        default="30 22 * * *",
+        description=(
+            "Procrastinate cron for the daily backup job "
+            "(02:00 Tehran; backups run on Friday too)."
+        ),
+    )
+    restore_drill_cron: str = Field(
+        default="30 23 * * *",
+        description=(
+            "Procrastinate cron for the restore drill (03:00 Tehran, "
+            "fired daily — the registry's Jalali-monthly gate runs it "
+            "on the 1st of each month)."
+        ),
+    )
+    pg_dump_path: str = Field(
+        default="pg_dump",
+        description="pg_dump binary (override when it is not on PATH).",
+    )
+    pg_restore_path: str = Field(
+        default="pg_restore",
+        description="pg_restore binary (override when it is not on PATH).",
+    )
+    command_timeout_seconds: int = Field(
+        default=1800,
+        ge=60,
+        description="Timeout for one pg_dump / pg_restore run.",
+    )
+    max_dump_bytes: int = Field(
+        default=512 * 1024 * 1024,
+        ge=1024,
+        description=(
+            "Fail-closed size guard: a dump larger than this is refused "
+            "rather than held in memory for Fernet encryption (Fernet "
+            "encrypts whole buffers; streaming encryption is future work)."
+        ),
+    )
+    max_external_refs_checked: int = Field(
+        default=200,
+        ge=1,
+        description=(
+            "How many external-id-map rows the drill's cross-database "
+            "orphan check verifies against the scratch engine (bounds "
+            "the REST calls; the rest are reported as unchecked)."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _validate_backend(self) -> Self:
+        if self.endpoint_url is not None and self.local_directory is not None:
+            raise ValueError(
+                "Configure exactly one backup backend: HESABYAR_BACKUP__ENDPOINT_URL "
+                "(S3-compatible) or HESABYAR_BACKUP__LOCAL_DIRECTORY (local files), "
+                "not both."
+            )
+        if self.endpoint_url is not None:
+            missing = [
+                name
+                for name, value in (
+                    ("bucket", self.bucket),
+                    ("region", self.region),
+                    ("access_key_id", self.access_key_id),
+                    ("secret_access_key", self.secret_access_key),
+                )
+                if not value
+            ]
+            if missing:
+                raise ValueError(
+                    "HESABYAR_BACKUP__ENDPOINT_URL is set but these S3 settings "
+                    f"are missing: {', '.join(missing)}."
+                )
+        return self
 
 
 class McpSettings(BaseModel):
@@ -335,6 +554,69 @@ class McpSettings(BaseModel):
     )
 
 
+class MonitoringSettings(BaseModel):
+    """Monitoring + alerting (US-704) tunables.
+
+    Env overrides use the ``HESABYAR_MONITORING__`` prefix, e.g.
+    ``HESABYAR_MONITORING__TOKEN_WARNING_DAYS=7``. The inbox-stale
+    threshold is NOT duplicated here: the rules read
+    ``events.inbox_stale_hours`` (one source of truth, shared with
+    the US-501 staleness job).
+    """
+
+    worker_lag_minutes: int = Field(
+        default=10,
+        ge=1,
+        description=(
+            "A worker whose last recorded sweep is older than this "
+            "raises the worker-lag alert (the sweep runs every minute)"
+        ),
+    )
+    token_warning_days: int = Field(
+        default=14,
+        ge=1,
+        description="Tokens expiring within this many days raise a warning alert",
+    )
+    token_critical_days: int = Field(
+        default=3,
+        ge=0,
+        description="Tokens expiring within this many days raise a critical alert",
+    )
+    webhook_failures_24h: int = Field(
+        default=5,
+        ge=1,
+        description="Failed webhook attempts in 24h at or above this raise the alert",
+    )
+    error_rate_5xx: float = Field(
+        default=0.05,
+        ge=0.0,
+        le=1.0,
+        description="5xx rate (server errors / total requests) at or above this alerts",
+    )
+    error_rate_min_requests: int = Field(
+        default=100,
+        ge=1,
+        description="Minimum requests before the 5xx-rate rule can fire (no alert on 1/2)",
+    )
+    backup_max_age_hours: int = Field(
+        default=26,
+        ge=1,
+        description=(
+            "A database with no successful backup within this long "
+            "raises the stale-backup alert (daily backups + 2h slack)"
+        ),
+    )
+    evaluation_cron: str = Field(
+        default="*/15 * * * *",
+        description="Procrastinate cron for the monitoring evaluation job (UTC)",
+    )
+    mcp_probe_timeout_seconds: float = Field(
+        default=5.0,
+        ge=0.5,
+        description="Timeout for the MCP /health probe (same default as the other health checks)",
+    )
+
+
 class AppSettings(BaseSettings):
     """Application-level configuration loaded from environment variables."""
 
@@ -366,6 +648,13 @@ class AppSettings(BaseSettings):
     mcp: McpSettings = Field(
         default_factory=McpSettings, description="MCP server settings"
     )
+    backup: BackupSettings = Field(
+        default_factory=BackupSettings, description="Backup + restore-drill settings"
+    )
+    monitoring: MonitoringSettings = Field(
+        default_factory=MonitoringSettings,
+        description="Monitoring + alerting settings",
+    )
     database_url: str | None = Field(
         default=None,
         validation_alias="HESABYAR_DATABASE_URL",
@@ -388,11 +677,29 @@ class AppSettings(BaseSettings):
         return self
 
     @model_validator(mode="after")
-    def _reject_dev_pepper_in_production(self) -> Self:
-        if self.env.is_production and self.auth.api_key_pepper == DEV_API_KEY_PEPPER:
+    def _reject_dev_defaults_in_production(self) -> Self:
+        # US-701: the guard used to cover only the pepper. A production
+        # deploy that forgot the Tryton key or the database URL would
+        # silently run against the well-known dev credentials (the dev
+        # Tryton key is a published value; the dev DB URL carries a
+        # well-known password), so all three dev defaults are refused.
+        if not self.env.is_production:
+            return self
+        if self.auth.api_key_pepper == DEV_API_KEY_PEPPER:
             raise ValueError(
                 "HESABYAR_AUTH__API_KEY_PEPPER must be set to a random value "
                 "in production; the dev default is not allowed."
+            )
+        if self.tryton.api_key == DEV_TRYTON_API_KEY:
+            raise ValueError(
+                "HESABYAR_TRYTON__API_KEY must be set to the production "
+                "Tryton application key in production; the dev default "
+                "is not allowed."
+            )
+        if self.database.url == DEV_DATABASE_URL:
+            raise ValueError(
+                "HESABYAR_DATABASE__URL must be set to the production "
+                "database in production; the dev default is not allowed."
             )
         return self
 

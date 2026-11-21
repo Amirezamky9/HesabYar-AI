@@ -356,7 +356,7 @@ def _serve_png(tmp_path) -> tuple[str, threading.Thread]:
 
 def test_scan_store_downloads_into_filestore(tmp_path) -> None:
     url, _ = _serve_png(tmp_path)
-    store = LocalChequeScanStore(tmp_path / "filestore")
+    store = LocalChequeScanStore(tmp_path / "filestore", allow_private_hosts=True)
     ref = store.store_scan(sayad_id="1234567890123456", scan_url=url)
     assert ref.startswith("cheques/1234567890123456-")
     assert ref.endswith(".png")
@@ -365,7 +365,7 @@ def test_scan_store_downloads_into_filestore(tmp_path) -> None:
 
 def test_scan_store_rejects_bad_content_type(tmp_path) -> None:
     url, _ = _serve_png(tmp_path)
-    store = LocalChequeScanStore(tmp_path / "filestore")
+    store = LocalChequeScanStore(tmp_path / "filestore", allow_private_hosts=True)
     with pytest.raises(ChequeScanDownloadError):
         store.store_scan(sayad_id="1234567890123456", scan_url=url.replace("scan.png", "missing.png"))
     with pytest.raises(ChequeScanDownloadError):
@@ -477,7 +477,7 @@ def test_register_site_idempotent_replay_and_conflict() -> None:
 def test_register_site_downloads_scan_best_effort(tmp_path) -> None:
     url, _ = _serve_png(tmp_path)
     world = _world()
-    service = _service(world, scan_store=LocalChequeScanStore(tmp_path / "filestore"))
+    service = _service(world, scan_store=LocalChequeScanStore(tmp_path / "filestore", allow_private_hosts=True))
     cheque = _register_site(service, scan_url=url)
     assert cheque.scan_filestore_ref is not None
     assert cheque.scan_filestore_ref.startswith("cheques/1234567890123456-")
@@ -486,7 +486,7 @@ def test_register_site_downloads_scan_best_effort(tmp_path) -> None:
 
 def test_register_site_scan_failure_never_fails_intake(tmp_path) -> None:
     world = _world()
-    service = _service(world, scan_store=LocalChequeScanStore(tmp_path / "filestore"))
+    service = _service(world, scan_store=LocalChequeScanStore(tmp_path / "filestore", allow_private_hosts=True))
     cheque = _register_site(
         service, scan_url="http://127.0.0.1:1/scan.png"
     )

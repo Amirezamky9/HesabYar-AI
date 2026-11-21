@@ -107,6 +107,14 @@ def _interval(minutes: int) -> JobSchedule:
     return JobSchedule(kind=ScheduleKind.INTERVAL, interval_minutes=minutes)
 
 
+def _monthly(day: int, hour: int, minute: int) -> JobSchedule:
+    return JobSchedule(
+        kind=ScheduleKind.JALALI_MONTHLY,
+        time_of_day=datetime.time(hour, minute),
+        jalali_day=day,
+    )
+
+
 #: The recurring-generation job id (US-563): the daily run that
 #: generates due recurring invoices/journals as drafts. Defined here
 #: (not in the queue module) so the generator service can file its
@@ -194,6 +202,43 @@ DEFAULT_JOBS: tuple[JobDefinition, ...] = (
         description=(
             "Recurring generation: every due recurring invoice/journal "
             "occurrence becomes a draft in the engine (US-563)."
+        ),
+    ),
+    JobDefinition(
+        id="backup.databases",
+        queue="backup",
+        # Backups run on Friday too (skip_friday=False): data loss
+        # does not take the weekend off, and a Friday gap would leave
+        # the weekend unprotected.
+        schedule=_daily(2, 0, skip_friday=False),
+        description=(
+            "Database backups: pg_dump both databases (HesabYar + "
+            "Tryton), encrypt, upload to the configured S3-compatible "
+            "destination, prune expired backups (US-703)."
+        ),
+    ),
+    JobDefinition(
+        id="backup.restore_drill",
+        queue="backup",
+        # Jalali-monthly on the 1st: the Procrastinate cron fires
+        # daily at 03:00 Tehran and the recorder's gate runs it only
+        # on the 1st (monthly jobs never skip Friday — skipping would
+        # lose the whole month).
+        schedule=_monthly(1, 3, 0),
+        description=(
+            "Restore drill: restore the newest backup pair into "
+            "scratch databases and reconcile (Alembic heads, orphaned "
+            "documents, settlement tranches, trial balance) (US-703)."
+        ),
+    ),
+    JobDefinition(
+        id="monitoring.evaluate",
+        queue="scheduler",
+        schedule=_interval(15),
+        description=(
+            "Monitoring evaluation: evaluate the alert rules, persist "
+            "newly fired alerts and dispatch them down the configured "
+            "channels (US-704)."
         ),
     ),
 )

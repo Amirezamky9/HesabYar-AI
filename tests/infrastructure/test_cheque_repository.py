@@ -18,9 +18,9 @@ from collections.abc import Generator
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
+from hesabyar.domain.cheques.errors import ChequeDuplicateError
 from hesabyar.domain.cheques.models import (
     Cheque,
     ChequeSettings,
@@ -178,9 +178,14 @@ def test_save_missing_row_raises(repository: SqlAlchemyChequeRepository) -> None
 
 
 def test_live_sayad_id_is_unique(repository: SqlAlchemyChequeRepository) -> None:
-    _create(repository)
-    with pytest.raises(IntegrityError):
+    created = _create(repository)
+    # US-702: the repository translates the unique-index violation
+    # into the typed duplicate error (with the winner's id) instead
+    # of leaking a raw IntegrityError to the caller.
+    with pytest.raises(ChequeDuplicateError) as excinfo:
         _create(repository)
+    assert excinfo.value.details is not None
+    assert excinfo.value.details["existing_cheque_id"] == created.id
 
 
 def test_expired_sayad_id_may_be_reregistered(

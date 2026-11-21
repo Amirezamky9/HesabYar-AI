@@ -142,6 +142,19 @@ ORM object ever appears in a response.
 | `POST /api/v1/mcp/clients/{client_id}/rotate` | `api_keys:manage` | Rotate the client's key + the one-time secret. Revoked → 409 `MCP_CLIENT_REVOKED`. |
 | `POST /api/v1/mcp/clients/{client_id}/revoke` | `api_keys:manage` | Revoke the client's key (optional `reason`). Idempotent. |
 | `GET /api/v1/mcp/audit` | `api_keys:manage` | The `ai_access_audit` log, keyset-paginated. Filters: `client`, `kind`, `outcome`, `tool`, `company`, `from`, `to`, `sort`. |
+| `GET /api/v1/monitoring/overview` | `monitoring:read` | The monitoring snapshot: processes, queues, tokens, backups, 5xx rate (US-704; see `docs/monitoring.md`). |
+| `GET /api/v1/monitoring/alerts` | `monitoring:read` | Fired alerts, newest first. Filters: `status`, `rule`, `limit` (1–200, default 50). |
+| `POST /api/v1/monitoring/alerts/{alert_id}/acknowledge` | `monitoring:manage` | Acknowledge an alert. Unknown id → 404 `MONITORING_NOT_FOUND`. |
+| `POST /api/v1/monitoring/alerts/{alert_id}/resolve` | `monitoring:manage` | Resolve an alert. Unknown id → 404 `MONITORING_NOT_FOUND`. |
+| `POST /api/v1/monitoring/evaluate` | `monitoring:manage` | Run the alert evaluation now (the worker runs it every 15 min; this is the manual trigger — and the only way the 5xx rule fires). |
+| `GET /api/v1/monitoring/channels` | `monitoring:read` | Configured alert channels, oldest first. |
+| `POST /api/v1/monitoring/channels` | `monitoring:manage` | Create a channel (201). An SMS channel defaults to the caller's installation. Bad payload → 422 `MONITORING_VALIDATION_FAILED`. |
+| `PUT /api/v1/monitoring/channels/{channel_id}` | `monitoring:manage` | Replace a channel (full replace). Unknown id → 404 `MONITORING_NOT_FOUND`. |
+| `DELETE /api/v1/monitoring/channels/{channel_id}` | `monitoring:manage` | Delete a channel (204). Unknown id → 404 `MONITORING_NOT_FOUND`. |
+| `GET /api/v1/monitoring/tokens` | `monitoring:read` | Configured token records, oldest first. |
+| `POST /api/v1/monitoring/tokens` | `monitoring:manage` | Create a token record (201). Past expiry → 422 `MONITORING_VALIDATION_FAILED`. |
+| `PUT /api/v1/monitoring/tokens/{record_id}` | `monitoring:manage` | Replace a token record (full replace). Unknown id → 404 `MONITORING_NOT_FOUND`. |
+| `DELETE /api/v1/monitoring/tokens/{record_id}` | `monitoring:manage` | Delete a token record (204). Unknown id → 404 `MONITORING_NOT_FOUND`. |
 
 (Phases 4–5 endpoints — standards, tax, Moadian, compliance, events,
 integrations, review queue — are documented in their own docs; see
@@ -439,6 +452,12 @@ Unhandled exceptions return a generic 500 (`INTERNAL_ERROR`, "An
 unexpected error occurred. Please retry later."); the traceback is
 logged server-side only. No stack trace, DB URL, credential, or Tryton
 internal ever appears in a response.
+
+Request bodies are capped at 20 MiB (`RequestSizeLimitMiddleware`,
+`MAX_REQUEST_BODY_BYTES`); a larger body is rejected with 413
+`REQUEST_BODY_TOO_LARGE` before it is parsed. The cap covers the
+largest legitimate upload (a 10 MiB file as ~13.4 MiB base64 plus JSON
+overhead).
 
 ## Admin guard: scoped API-key auth (US-103)
 

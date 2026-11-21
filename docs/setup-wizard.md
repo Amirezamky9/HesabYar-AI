@@ -375,6 +375,17 @@ dashboard wizard. It stays as the dev-seeding tool.
    `template` field (§5).
 6. Deferred, not dropped: `account.update_chart` support (§4.5).
 
+> **US-706 update:** step 4's "verify the full flow against a
+> scratch database" now exists as the CI install scenario
+> (`tests/contract/test_fresh_install_us706.py`): it provisions a
+> fresh company (steps 1–7 of §1) over REST, then runs the first
+> order → invoice → payment → settlement and asserts the trial
+> balance balances. The dashboard wizard UI itself (the "build the
+> wizard flow" half of step 4) is still not built — the dashboard
+> shows the installed state read-only (setup-status tab), and
+> provisioning remains an operator procedure
+> (`docs/deployment-iran.md` §6).
+
 ## 8. Sources
 
 - Official docs: REST client guide

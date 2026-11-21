@@ -25,8 +25,10 @@ FastAPI dependencies in `src/hesabyar/interfaces/rest/dependencies.py`.
 | --- | --- | --- |
 | API-key pepper | `HESABYAR_AUTH__API_KEY_PEPPER` | `hesabyar-dev-pepper-do-not-use-in-production` (dev only) |
 
-Production **refuses to start** with the dev pepper
-(`AppSettings` validation). Rotating the pepper invalidates every stored
+Production **refuses to start** with any of the dev defaults — the dev
+pepper, the dev Tryton key (`DEV_TRYTON_API_KEY`), or the dev database
+URL (`DEV_DATABASE_URL`) — under `AppSettings` validation (US-701).
+Rotating the pepper invalidates every stored
 key hash, so treat it as a long-lived secret: generate one random value
 per installation and keep it in the secret manager.
 

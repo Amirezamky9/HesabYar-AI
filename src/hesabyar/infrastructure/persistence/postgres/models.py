@@ -11421,3 +11421,303 @@ class McpAuthorizedClientModel(Base):
             f"McpAuthorizedClientModel(id={self.id!r}, tenant_id={self.tenant_id!r}, "
             f"name={self.name!r}, revoked_at={self.revoked_at!r})"
         )
+
+
+class MonitoringAlertModel(Base):
+    """One fired monitoring alert (US-704, Phase 7).
+
+    Maps to the 'monitoring_alerts' table. Tenantless by design: an
+    alert is an operator-surface record (like ``scheduled_jobs``) —
+    inbox staleness, worker lag and the 5xx rate are installation-
+    wide, not tenant-scoped. ``dedup_key`` is stable per firing
+    condition; the partial unique index on firing rows (open /
+    acknowledged) is the race backstop for concurrent evaluations —
+    the service checks first, the index refuses second.
+    """
+
+    __tablename__ = "monitoring_alerts"
+    __table_args__ = (
+        CheckConstraint(
+            "rule IN ('inbox_stale', 'worker_lag', 'token_expiring', "
+            "'settlement_drift', 'webhook_failed', 'backup_failed', 'error_rate_5xx')",
+            name="ck_monitoring_alerts_rule",
+        ),
+        CheckConstraint(
+            "severity IN ('info', 'warning', 'critical')",
+            name="ck_monitoring_alerts_severity",
+        ),
+        CheckConstraint(
+            "status IN ('open', 'acknowledged', 'resolved')",
+            name="ck_monitoring_alerts_status",
+        ),
+        Index(
+            "uq_monitoring_alerts_dedup_firing",
+            "dedup_key",
+            unique=True,
+            postgresql_where=text("status IN ('open', 'acknowledged')"),
+        ),
+        Index("ix_monitoring_alerts_status_fired", "status", "fired_at"),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+        comment="UUID primary key",
+    )
+    rule: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        comment="Alert rule: 'inbox_stale', 'worker_lag', 'token_expiring', "
+        "'settlement_drift', 'webhook_failed', 'backup_failed' or 'error_rate_5xx'",
+    )
+    severity: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        comment="Alert severity: 'info', 'warning' or 'critical'",
+    )
+    status: Mapped[str] = mapped_column(
+        String(16),
+        default="open",
+        nullable=False,
+        comment="Alert lifecycle: 'open', 'acknowledged' or 'resolved'",
+    )
+    title_fa: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        comment="Persian alert title",
+    )
+    message_fa: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        comment="Persian alert message (counts in Persian digits, money in Rial)",
+    )
+    dedup_key: Mapped[str] = mapped_column(
+        String(256),
+        nullable=False,
+        comment="Stable dedup key per firing condition (per rule, or per rule + subject)",
+    )
+    runbook_ref: Mapped[str | None] = mapped_column(
+        String(512),
+        nullable=True,
+        comment="Documentation reference (docs/monitoring.md section), not a URL",
+    )
+    context: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        comment="Rule context (JSONB: counts, amounts in Rial, ids — never secrets)",
+    )
+    fired_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="When the alert fired (UTC)",
+    )
+    acknowledged_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Acknowledgement timestamp (UTC); NULL until acknowledged",
+    )
+    acknowledged_by: Mapped[str | None] = mapped_column(
+        String(128),
+        nullable=True,
+        comment="Operator (API client name) that acknowledged the alert",
+    )
+    resolved_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Resolution timestamp (UTC); NULL until resolved",
+    )
+    resolved_by: Mapped[str | None] = mapped_column(
+        String(128),
+        nullable=True,
+        comment="Operator (API client name) that resolved the alert",
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Row creation timestamp (UTC)",
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        onupdate=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Last-modified timestamp (UTC)",
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"MonitoringAlertModel(id={self.id!r}, rule={self.rule!r}, "
+            f"severity={self.severity!r}, status={self.status!r})"
+        )
+
+
+class MonitoringAlertChannelModel(Base):
+    """One configured alert channel (US-704, Phase 7).
+
+    Maps to the 'monitoring_alert_channels' table. Tenantless by
+    design (operator surface, like ``scheduled_jobs``).
+    ``installation_id`` is the installation whose SMS registry sends
+    for SMS channels (the SMS registry is installation-scoped); it is
+    a plain value, no FK until the installations table lands (same as
+    ``inbox_events.installation_id``). ``target`` is a mobile number
+    (SMS), an email address (email) or an https URL (webhook — the
+    URL itself is the secret, like a Slack webhook URL).
+    """
+
+    __tablename__ = "monitoring_alert_channels"
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('sms', 'email', 'webhook')",
+            name="ck_monitoring_alert_channels_kind",
+        ),
+        CheckConstraint(
+            "min_severity IN ('info', 'warning', 'critical')",
+            name="ck_monitoring_alert_channels_min_severity",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+        comment="UUID primary key",
+    )
+    kind: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        comment="Channel kind: 'sms', 'email' or 'webhook'",
+    )
+    name: Mapped[str] = mapped_column(
+        String(128),
+        nullable=False,
+        comment="Operator-facing channel name",
+    )
+    target: Mapped[str] = mapped_column(
+        String(512),
+        nullable=False,
+        comment="Destination: mobile number (SMS), email address (email), https URL (webhook)",
+    )
+    enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        comment="False stops dispatch on this channel (the config stays)",
+    )
+    min_severity: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="warning",
+        comment="Only alerts at or above this severity go out on this channel",
+    )
+    provider_key: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        comment="SMS registry key (kavenegar / sms_ir / simulator) for SMS channels",
+    )
+    installation_id: Mapped[str | None] = mapped_column(
+        String(36),
+        nullable=True,
+        comment="Installation whose SMS registry sends (SMS channels only; plain value, no FK)",
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Row creation timestamp (UTC)",
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        onupdate=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Last-modified timestamp (UTC)",
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"MonitoringAlertChannelModel(id={self.id!r}, kind={self.kind!r}, "
+            f"name={self.name!r}, enabled={self.enabled!r})"
+        )
+
+
+class MonitoringTokenRecordModel(Base):
+    """One configured token record (US-704, Phase 7).
+
+    Maps to the 'monitoring_token_records' table. Tenantless by
+    design (operator surface). A token the operator tells HesabYar
+    about — the Fintech OAuth token first (no live token exists yet,
+    the ۵ت remainder is deferred): the expiry alert fires from
+    ``expires_at``, and ``rotation_runbook_ref`` names the doc
+    section that tells the operator how to rotate it. API keys are
+    NOT recorded here: they are read live from ``api_keys``.
+    """
+
+    __tablename__ = "monitoring_token_records"
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('fintech', 'other')",
+            name="ck_monitoring_token_records_kind",
+        ),
+        Index("ix_monitoring_token_records_enabled_expires", "enabled", "expires_at"),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+        comment="UUID primary key",
+    )
+    kind: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        comment="Token kind: 'fintech' or 'other'",
+    )
+    label: Mapped[str] = mapped_column(
+        String(128),
+        nullable=False,
+        comment="Operator-facing token label (rendered verbatim in alerts)",
+    )
+    expires_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        comment="Token expiry (UTC); the alert fires from this + the day thresholds",
+    )
+    rotation_runbook_ref: Mapped[str | None] = mapped_column(
+        String(512),
+        nullable=True,
+        comment="Documentation reference for the rotation procedure",
+    )
+    enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        comment="False stops expiry alerts for this token (the record stays)",
+    )
+    notes: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="Operator notes (never credential material)",
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Row creation timestamp (UTC)",
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        onupdate=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Last-modified timestamp (UTC)",
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"MonitoringTokenRecordModel(id={self.id!r}, kind={self.kind!r}, "
+            f"label={self.label!r}, expires_at={self.expires_at!r})"
+        )

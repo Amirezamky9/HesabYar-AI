@@ -20,7 +20,7 @@ Two tables (migration 0035):
   `triggered_by` (`schedule` / `manual`), `summary` (JSONB),
   `error`, `duration_ms`.
 
-The registry is **closed**: the 10 jobs in
+The registry is **closed**: the 12 jobs in
 `hesabyar.domain.scheduler.models.DEFAULT_JOBS` are the whole
 catalog. They are seeded by `ensure_defaults` (insert missing only
 — it never overwrites an operator's enable/disable), in list order,
@@ -46,6 +46,9 @@ mismatch fails CI.
 | `scheduler.inbox_staleness` | `scheduler` | every 60 min | Inbox staleness alert (US-501): events stuck in `received`/`processing` > 24 h |
 | `reminders.daily` | `reminders` | daily 08:30 | Daily reminders (US-564): cheque due-soon, overdue installments, uncounted cash boxes, eNamad expiry — in-app + email + SMS via the US-544 registry; see `docs/reminders.md` |
 | `scheduler.recurring_generation` | `scheduler` | daily 07:30 | Recurring invoice/journal generation (US-563): generate each due occurrence as a draft; see `docs/recurring.md` |
+| `backup.databases` | `backup` | daily 02:00, Friday included | Database backups (US-703): pg_dump both databases, encrypt, upload to the configured S3-compatible destination, prune; see `docs/backup-restore.md` |
+| `backup.restore_drill` | `backup` | Jalali 1st, 03:00 | Restore drill (US-703): restore the newest backup pair into scratch databases and reconcile (Alembic heads, orphaned documents, settlement tranches, trial balance). The Procrastinate cron fires daily; the recorder's Jalali-monthly gate runs it on the 1st only. |
+| `monitoring.evaluate` | `scheduler` | every 15 min | Monitoring evaluation (US-704): evaluate the alert rules, persist newly fired alerts and dispatch them down the configured channels; see `docs/monitoring.md` |
 
 On-demand endpoints keep working — the schedule **adds** to them,
 it does not replace them (`POST /dunning/run`,
@@ -155,10 +158,12 @@ Semantics:
 - A failed manual trigger returns the failed run record (HTTP 200
   with `outcome: failed`), not an exception.
 - Triggering a job with no runner wired in the REST process
-  returns 503 `SCHEDULED_JOB_NOT_RUNNABLE`. All ten jobs
-  currently have runners there (`build_job_runners`), so every
-  job is triggerable on demand; the 503 exists for future jobs
-  whose work only makes sense in the worker.
+  returns 503 `SCHEDULED_JOB_NOT_RUNNABLE`. Ten of the twelve jobs
+  have runners there (`build_job_runners`); the two backup jobs
+  (`backup.databases`, `backup.restore_drill`) deliberately do
+  not — backups only make sense in the worker (they need pg_dump
+  + the object store), so a manual backup/drill runs via
+  `scripts/backup.py` instead (see `docs/backup-restore.md` §7).
 - Unknown job id: 404 `SCHEDULED_JOB_NOT_FOUND`.
 
 ## Configuration

@@ -112,6 +112,9 @@ def test_list_jobs(api: TestClient) -> None:
         "scheduler.inbox_staleness",
         "reminders.daily",
         "scheduler.recurring_generation",
+        "backup.databases",
+        "backup.restore_drill",
+        "monitoring.evaluate",
     ]
     tick = next(job for job in jobs if job["id"] == "settlement.tick")
     assert tick["queue"] == "settlement"

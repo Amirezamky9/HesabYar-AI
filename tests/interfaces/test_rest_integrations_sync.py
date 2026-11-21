@@ -363,6 +363,9 @@ def test_webhook_then_sync_dedups(api: TestClient, world: World) -> None:
         source_store_id="store-1",
         source_event_id="evt-1",
         payload={"total_amount": 175000},
+        # US-701: the production wiring enforces the webhook replay
+        # window (168h), so the event must be fresh.
+        occurred_at=datetime.datetime.now(datetime.UTC).isoformat(),
     )
     raw_body = json.dumps(envelope).encode("utf-8")
     ingested = api.post(

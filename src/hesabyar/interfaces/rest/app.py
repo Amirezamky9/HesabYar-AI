@@ -25,7 +25,11 @@ from hesabyar.interfaces.rest.errors import (
     unhandled_exception_handler,
     validation_exception_handler,
 )
-from hesabyar.interfaces.rest.middleware import RequestIdMiddleware
+from hesabyar.interfaces.rest.middleware import (
+    RequestIdMiddleware,
+    RequestMetricsMiddleware,
+    RequestSizeLimitMiddleware,
+)
 from hesabyar.interfaces.rest.routers.accounting import router as accounting_router
 from hesabyar.interfaces.rest.routers.audit import router as audit_router
 from hesabyar.interfaces.rest.routers.bank import router as bank_router
@@ -44,6 +48,7 @@ from hesabyar.interfaces.rest.routers.journals import router as journals_router
 from hesabyar.interfaces.rest.routers.manual_entries import router as manual_entries_router
 from hesabyar.interfaces.rest.routers.mcp import router as mcp_router
 from hesabyar.interfaces.rest.routers.moadian import router as moadian_router
+from hesabyar.interfaces.rest.routers.monitoring import router as monitoring_router
 from hesabyar.interfaces.rest.routers.packaging import router as packaging_router
 from hesabyar.interfaces.rest.routers.payments import router as payments_router
 from hesabyar.interfaces.rest.routers.recurring import router as recurring_router
@@ -73,7 +78,13 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         ),
         version=__version__,
     )
+    # Order matters: Starlette runs the LAST-added middleware outermost,
+    # so the size limiter is added first — the request-id middleware
+    # wraps it and 413 responses still carry an X-Request-ID. The
+    # metrics middleware is outermost so it counts every response.
+    app.add_middleware(RequestSizeLimitMiddleware)
     app.add_middleware(RequestIdMiddleware)
+    app.add_middleware(RequestMetricsMiddleware)
     app.add_exception_handler(StarletteHTTPException, http_exception_handler)
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
     app.add_exception_handler(Exception, unhandled_exception_handler)
@@ -106,6 +117,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     app.include_router(rules_router, prefix="/api/v1")
     app.include_router(recurring_router, prefix="/api/v1")
     app.include_router(mcp_router, prefix="/api/v1")
+    app.include_router(monitoring_router, prefix="/api/v1")
     if settings is not None:
         app.dependency_overrides[get_settings_dep] = lambda: settings
     return app

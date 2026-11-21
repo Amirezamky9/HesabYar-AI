@@ -11,6 +11,7 @@ running end-to-end through the worker.
 from __future__ import annotations
 
 import datetime
+from pathlib import Path
 
 import pytest
 from procrastinate.testing import InMemoryConnector
@@ -22,11 +23,26 @@ from hesabyar.application.commands.events import (
 )
 from hesabyar.application.commands.review_queue import ReviewQueueCommandService
 from hesabyar.application.commands.scheduled_jobs import ScheduledJobsService
+from hesabyar.domain.backup.ports import DumpResult, PgToolsInfo
 from hesabyar.domain.events.models import InboxEventStatus
 from hesabyar.domain.scheduler.models import DEFAULT_JOBS, JobOutcome
 from hesabyar.domain.scheduler.schedules import ScheduleKind
+from hesabyar.infrastructure.auth.credential_vault import generate_encryption_key
+from hesabyar.infrastructure.config import BackupSettings
+from hesabyar.infrastructure.events.backup_queue import (
+    BACKUP_CRON,
+    BACKUP_QUEUE,
+    BACKUP_TASK,
+    RESTORE_DRILL_CRON,
+    RESTORE_DRILL_TASK,
+    BackupWorkerHandle,
+)
 from hesabyar.infrastructure.events.cheque_queue import DAILY_CRON, DAILY_TASK
 from hesabyar.infrastructure.events.defaults import InProcessOutboxPublisher
+from hesabyar.infrastructure.events.monitoring_queue import (
+    EVALUATION_CRON,
+    MONITORING_EVALUATE_TASK,
+)
 from hesabyar.infrastructure.events.packaging_queue import (
     SUPPLY_CHECK_CRON,
     SUPPLY_CHECK_TASK,
@@ -109,6 +125,9 @@ JOB_CRONS = {
     INBOX_STALENESS_TASK: INBOX_STALENESS_CRON,
     REMINDERS_DAILY_TASK: REMINDERS_DAILY_CRON,
     RECURRING_GENERATION_TASK: RECURRING_GENERATION_CRON,
+    BACKUP_TASK: BACKUP_CRON,
+    RESTORE_DRILL_TASK: RESTORE_DRILL_CRON,
+    MONITORING_EVALUATE_TASK: EVALUATION_CRON,
 }
 
 
@@ -136,6 +155,60 @@ def _make_worker(inbox: FakeInboxRepository, outbox: FakeOutboxRepository) -> Ev
 def _worker_factory(inbox: FakeInboxRepository, outbox: FakeOutboxRepository) -> WorkerHandle:
     return WorkerHandle(
         worker=_make_worker(inbox, outbox), commit=lambda: None, close=lambda: None
+    )
+
+
+class _BackupFakeDumper:
+    """Dumps fixed bytes per database; records the dump calls (US-703)."""
+
+    def __init__(self, calls: list[str]) -> None:
+        self.calls = calls
+
+    def check_tools(self) -> PgToolsInfo:
+        return PgToolsInfo(
+            pg_dump_path="pg_dump",
+            pg_dump_version="16.4",
+            pg_restore_path="pg_restore",
+            pg_restore_version="16.4",
+        )
+
+    def dump(self, database_url: str) -> DumpResult:
+        self.calls.append(database_url)
+        database = database_url.rsplit("/", 1)[-1]
+        return DumpResult(
+            data=f"pg_dump of {database}".encode(),
+            pg_dump_version="16.4",
+            database=database,
+        )
+
+    def restore(self, database_url: str, data: bytes, *, no_owner: bool) -> None:
+        raise NotImplementedError
+
+    def create_database(self, admin_url: str, name: str) -> None:
+        raise NotImplementedError
+
+    def drop_database(self, admin_url: str, name: str) -> None:
+        raise NotImplementedError
+
+
+def _backup_factory(
+    tmp_path: Path,
+    dumps: list[str] | None = None,
+    commits: list[int] | None = None,
+    closes: list[int] | None = None,
+) -> BackupWorkerHandle:
+    """A backup handle writing encrypted backups into ``tmp_path`` (US-703)."""
+    return BackupWorkerHandle(
+        settings=BackupSettings(
+            local_directory=str(tmp_path),
+            encryption_key=generate_encryption_key(),
+        ),
+        dumper=_BackupFakeDumper(dumps if dumps is not None else []),  # type: ignore[arg-type]
+        engine_factory=None,
+        hesabyar_database_url="postgresql://u:p@h/hesabyar_test",
+        tryton_database_url="postgresql://u:p@h/hesabyar_tryton_test",
+        commit=lambda: (commits if commits is not None else []).append(1),
+        close=lambda: (closes if closes is not None else []).append(1),
     )
 
 
@@ -188,6 +261,31 @@ def test_scheduler_tasks_are_registered_under_their_contract_names() -> None:
     # The one-shot task is NOT a registry job (no schedule).
     assert PROCESS_EVENT_TASK in app.tasks
     assert PROCESS_EVENT_TASK not in {job.id for job in DEFAULT_JOBS}
+
+
+def test_backup_tasks_are_registered_under_their_contract_names(tmp_path: Path) -> None:
+    inbox = FakeInboxRepository()
+    outbox = FakeOutboxRepository()
+    app = create_event_app(
+        InMemoryConnector(),
+        lambda: _worker_factory(inbox, outbox),
+        backup_factory=lambda: _backup_factory(tmp_path),
+    )
+    for task in (BACKUP_TASK, RESTORE_DRILL_TASK):
+        assert task in app.tasks
+        assert app.tasks[task].queue == BACKUP_QUEUE
+    assert BACKUP_CRON == "30 22 * * *"  # daily 02:00 Tehran
+    assert RESTORE_DRILL_CRON == "30 23 * * *"  # daily 03:00 Tehran (runs on the 1st)
+    # Both ARE registry jobs (unlike the one-shot PROCESS_EVENT_TASK).
+    assert {BACKUP_TASK, RESTORE_DRILL_TASK} <= {job.id for job in DEFAULT_JOBS}
+
+
+def test_backup_tasks_are_not_registered_without_a_backup_factory() -> None:
+    inbox = FakeInboxRepository()
+    outbox = FakeOutboxRepository()
+    app = create_event_app(InMemoryConnector(), lambda: _worker_factory(inbox, outbox))
+    assert BACKUP_TASK not in app.tasks
+    assert RESTORE_DRILL_TASK not in app.tasks
 
 
 def test_registry_schedules_match_the_procrastinate_crons() -> None:
@@ -390,6 +488,43 @@ def test_scheduler_tasks_run_through_the_worker() -> None:
     assert len(finance.calls) >= 1
     assert finance.calls[0] == (TENANT_ID, INSTALLATION_ID)
     assert commits >= 3
+    assert closes == commits
+
+
+def test_backup_task_runs_through_the_worker(tmp_path: Path) -> None:
+    """US-703: the backup task dumps both databases into the local store."""
+    inbox = FakeInboxRepository()
+    outbox = FakeOutboxRepository()
+    registry = FakeRegistry()
+    recorder, _commits = _recorder(registry)
+    dumps: list[str] = []
+    commits: list[int] = []
+    closes: list[int] = []
+    app = create_event_app(
+        InMemoryConnector(),
+        lambda: _worker_factory(inbox, outbox),
+        backup_factory=lambda: _backup_factory(tmp_path, dumps, commits, closes),
+        recorder=recorder,
+    )
+    app.tasks[BACKUP_TASK].defer()
+    app.run_worker(wait=False)
+    # Both databases were dumped (the periodic scheduler may fire the
+    # task again, so >= 1 run per target).
+    assert dumps.count("postgresql://u:p@h/hesabyar_test") >= 1
+    assert dumps.count("postgresql://u:p@h/hesabyar_tryton_test") >= 1
+    # The objects landed in the local store: one dump + one manifest
+    # per target per run.
+    files = [path for path in tmp_path.rglob("*") if path.is_file()]
+    encrypted = [path for path in files if path.suffix == ".enc"]
+    manifests = [path for path in files if path.name.endswith(".manifest.json")]
+    assert len(encrypted) >= 2
+    assert len(manifests) >= 2
+    assert {path.parent.parent.name for path in encrypted} == {"hesabyar", "tryton"}
+    # The run was recorded as a success and the handle closed.
+    runs = registry.list_runs(BACKUP_TASK)
+    assert len(runs) >= 1
+    assert all(run.outcome is JobOutcome.SUCCESS for run in runs)
+    assert len(commits) >= 1
     assert closes == commits
 
 

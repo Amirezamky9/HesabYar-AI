@@ -176,6 +176,10 @@ EXPECTED_TABLES = {
     "ai_access_audit",
     # 0041 MCP authorized-clients registry (US-606)
     "mcp_authorized_clients",
+    # 0042 monitoring alerts + channels + token records (US-704)
+    "monitoring_alerts",
+    "monitoring_alert_channels",
+    "monitoring_token_records",
 }
 
 # Design-eng §10.4 unique constraints: (table, constraint name, columns).
@@ -353,7 +357,7 @@ SECTION_10_4_CONSTRAINTS = [
     ),
 ]
 
-HEAD_REVISION = "0041"
+HEAD_REVISION = "0042"
 
 
 def _alembic_config() -> Config:
