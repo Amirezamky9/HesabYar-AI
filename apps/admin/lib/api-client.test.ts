@@ -104,7 +104,9 @@ describe("api methods", () => {
     // = 246, plus 13 Phase 5-7 bank-rules methods (US-565: CRUD 5,
     // enable/disable 2, promote/demote 2, suggestions 3, undo 1)
     // = 259, plus 6 Phase 6 MCP client methods (US-606: list/get/
-    // create/rotate/revoke clients + audit list) = 265.
+    // create/rotate/revoke clients + audit list) = 265, plus 13
+    // Phase 7 monitoring methods (US-704: overview 1, alerts 3,
+    // evaluate 1, channels 4, tokens 4) = 278.
     const methods = Object.keys(api);
     for (const name of [
       "getHealth",
@@ -393,10 +395,23 @@ describe("api methods", () => {
       "rotateMcpClient",
       "revokeMcpClient",
       "listMcpAuditEvents",
+      "getMonitoringOverview",
+      "listMonitoringAlerts",
+      "acknowledgeMonitoringAlert",
+      "resolveMonitoringAlert",
+      "evaluateMonitoring",
+      "listMonitoringChannels",
+      "createMonitoringChannel",
+      "updateMonitoringChannel",
+      "deleteMonitoringChannel",
+      "listMonitoringTokens",
+      "createMonitoringToken",
+      "updateMonitoringToken",
+      "deleteMonitoringToken",
     ]) {
       expect(methods).toContain(name);
     }
-    expect(methods).toHaveLength(265);
+    expect(methods).toHaveLength(278);
   });
 });
 

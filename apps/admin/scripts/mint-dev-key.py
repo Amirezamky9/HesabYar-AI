@@ -138,6 +138,13 @@ OPERATOR_SCOPES = [
     # api_keys:manage (managing an MCP client IS managing an API
     # key); the MCP e2e journey 403s without it.
     "api_keys:manage",
+    # Phase 7 (US-704): the monitoring panel reads the snapshot +
+    # alerts/channels/tokens (monitoring:read) and evaluates +
+    # acknowledges/resolves + writes channels/tokens
+    # (monitoring:manage); the monitoring e2e journey 403s without
+    # them.
+    "monitoring:read",
+    "monitoring:manage",
 ]
 
 

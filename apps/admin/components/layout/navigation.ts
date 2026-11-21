@@ -26,6 +26,7 @@
  */
 
 import {
+  Activity,
   ArrowLeftRight,
   BookMarked,
   BookOpen,
@@ -192,7 +193,14 @@ export const NAV_MODULES: NavModule[] = [
   },
   { id: "api", label: "مدیریت API", icon: KeyRound, comingSoon: true },
   { id: "users", label: "کاربران و دسترسی‌ها", icon: Users, comingSoon: true },
-  { id: "settings", label: "تنظیمات", icon: Settings, comingSoon: true },
+  {
+    id: "settings",
+    label: "تنظیمات",
+    icon: Settings,
+    children: [
+      { id: "monitoring", label: "پایش سیستم", href: "/monitoring", icon: Activity },
+    ],
+  },
 ];
 
 /** Persian labels for breadcrumb segments (route segment -> label). */
@@ -235,6 +243,7 @@ export const ROUTE_LABELS: Record<string, string> = {
   workflows: "گردش‌کارها",
   ai: "هوش مصنوعی و MCP",
   "mcp-clients": "کلاینت‌های MCP",
+  monitoring: "پایش سیستم",
 };
 
 /** True when the current path belongs to this module (for active state). */

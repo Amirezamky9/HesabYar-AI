@@ -179,6 +179,10 @@ export function persianApiErrorMessage(err: unknown, fallback: string): string {
         return "این پیشنهاد قبلاً بررسی شده است؛ دیگر در انتظار نیست.";
       case "BANK_RULE_NOTHING_TO_UNDO":
         return "برای این ردیف کدگذاری خودکاری وجود ندارد که بتوان آن را برگرداند.";
+      case "MONITORING_VALIDATION_FAILED":
+        return "داده‌های واردشده معتبر نیست؛ فیلدها را بررسی کنید.";
+      case "MONITORING_NOT_FOUND":
+        return "این هشدار، کانال یا توکن پیدا نشد؛ ممکن است حذف شده باشد.";
       default:
         if (err.isNotFound) return "این رکورد پیدا نشد؛ ممکن است حذف شده باشد.";
         return fallback;

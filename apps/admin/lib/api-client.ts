@@ -748,6 +748,134 @@ export interface McpAuditRowResponse {
   created_at: string;
 }
 
+// -- monitoring (US-704) ----------------------------------------------------
+
+export interface MonitoringProcessHealth {
+  name: string;
+  status: "ok" | "degraded" | "error" | "unknown";
+  detail: string | null;
+  checked_at: string | null;
+}
+
+export interface MonitoringQueueDepths {
+  inbox_received: number;
+  inbox_processing: number;
+  inbox_failed: number;
+  inbox_needs_review: number;
+  inbox_dead_lettered: number;
+  outbox_pending: number;
+  procrastinate_todo: Record<string, number> | null;
+}
+
+export interface MonitoringTokenExpiry {
+  source: "api_key" | "token_record";
+  label: string;
+  kind: "api_key" | "fintech" | "other";
+  expires_at: string;
+  days_left: number;
+  severity: "warning" | "critical" | null;
+  runbook_ref: string | null;
+  record_id: string | null;
+}
+
+export interface MonitoringBackupStatus {
+  database: "hesabyar" | "tryton";
+  status: "ok" | "failed" | "stale" | "unknown";
+  last_success_at: string | null;
+  last_attempt_at: string | null;
+  error: string | null;
+  source: string;
+}
+
+export interface MonitoringOverviewResponse {
+  generated_at: string;
+  processes: MonitoringProcessHealth[];
+  queue_depths: MonitoringQueueDepths;
+  stale_inbox_count: number;
+  oldest_unprocessed_age_minutes: number | null;
+  worker_last_sweep_at: string | null;
+  worker_lag_minutes: number | null;
+  failed_webhook_attempts_24h: number;
+  open_drift_exceptions: number;
+  drift_total_irr: number;
+  requests_total: number;
+  requests_5xx: number;
+  error_rate_5xx: number | null;
+  token_expiries: MonitoringTokenExpiry[];
+  backups: MonitoringBackupStatus[];
+}
+
+export interface MonitoringAlertResponse {
+  id: string;
+  rule: string;
+  severity: "info" | "warning" | "critical";
+  status: "open" | "acknowledged" | "resolved";
+  title_fa: string;
+  message_fa: string;
+  dedup_key: string;
+  runbook_ref: string | null;
+  context: Record<string, unknown>;
+  fired_at: string | null;
+  acknowledged_at: string | null;
+  acknowledged_by: string | null;
+  resolved_at: string | null;
+  resolved_by: string | null;
+}
+
+export interface MonitoringChannelSendResult {
+  channel_id: string;
+  kind: string;
+  status: "sent" | "skipped" | "failed";
+  detail: string | null;
+}
+
+export interface MonitoringEvaluationResponse {
+  generated_at: string;
+  fired: MonitoringAlertResponse[];
+  already_open: number;
+  dispatched: MonitoringChannelSendResult[];
+}
+
+export interface MonitoringChannelResponse {
+  id: string;
+  kind: "sms" | "email" | "webhook";
+  name: string;
+  target: string;
+  enabled: boolean;
+  min_severity: "info" | "warning" | "critical";
+  provider_key: string | null;
+  installation_id: string | null;
+}
+
+export interface MonitoringChannelRequest {
+  kind: "sms" | "email" | "webhook";
+  name: string;
+  target: string;
+  enabled?: boolean;
+  min_severity?: "info" | "warning" | "critical";
+  provider_key?: string | null;
+  installation_id?: string | null;
+}
+
+export interface MonitoringTokenRecordResponse {
+  id: string;
+  kind: "fintech" | "other";
+  label: string;
+  expires_at: string;
+  rotation_runbook_ref: string | null;
+  enabled: boolean;
+  notes: string | null;
+}
+
+export interface MonitoringTokenRecordRequest {
+  kind: "fintech" | "other";
+  label: string;
+  expires_at: string;
+  rotation_runbook_ref?: string | null;
+  enabled?: boolean;
+  notes?: string | null;
+}
+
 export interface StandardRevisionResponse {
   revision_id: string;
   title: string;
@@ -3291,7 +3419,7 @@ export async function bffRequest<T>(path: string, options: RequestOptions = {}):
 }
 
 // ---------------------------------------------------------------------------
-// Endpoint methods (246) — one per backend route
+// Endpoint methods (278) — one per backend route
 // ---------------------------------------------------------------------------
 
 export const api = {
@@ -3634,6 +3762,54 @@ export const api = {
     bffRequest<Paginated<McpAuditRowResponse>>(
       `mcp/audit${buildQuery(params as Record<string, string | number | undefined>)}`,
     ),
+
+  // -- monitoring (US-704) --------------------------------------------------
+  getMonitoringOverview: () =>
+    bffRequest<MonitoringOverviewResponse>("monitoring/overview"),
+  listMonitoringAlerts: (
+    params: { status?: string; rule?: string; limit?: number } = {},
+  ) =>
+    bffRequest<MonitoringAlertResponse[]>(
+      `monitoring/alerts${buildQuery(params as Record<string, string | number | undefined>)}`,
+    ),
+  acknowledgeMonitoringAlert: (alertId: string) =>
+    bffRequest<MonitoringAlertResponse>(
+      `monitoring/alerts/${encodeURIComponent(alertId)}/acknowledge`,
+      { method: "POST" },
+    ),
+  resolveMonitoringAlert: (alertId: string) =>
+    bffRequest<MonitoringAlertResponse>(
+      `monitoring/alerts/${encodeURIComponent(alertId)}/resolve`,
+      { method: "POST" },
+    ),
+  evaluateMonitoring: () =>
+    bffRequest<MonitoringEvaluationResponse>("monitoring/evaluate", { method: "POST" }),
+  listMonitoringChannels: () =>
+    bffRequest<MonitoringChannelResponse[]>("monitoring/channels"),
+  createMonitoringChannel: (body: MonitoringChannelRequest) =>
+    bffRequest<MonitoringChannelResponse>("monitoring/channels", { method: "POST", body }),
+  updateMonitoringChannel: (channelId: string, body: MonitoringChannelRequest) =>
+    bffRequest<MonitoringChannelResponse>(
+      `monitoring/channels/${encodeURIComponent(channelId)}`,
+      { method: "PUT", body },
+    ),
+  deleteMonitoringChannel: (channelId: string) =>
+    bffRequest<void>(`monitoring/channels/${encodeURIComponent(channelId)}`, {
+      method: "DELETE",
+    }),
+  listMonitoringTokens: () =>
+    bffRequest<MonitoringTokenRecordResponse[]>("monitoring/tokens"),
+  createMonitoringToken: (body: MonitoringTokenRecordRequest) =>
+    bffRequest<MonitoringTokenRecordResponse>("monitoring/tokens", { method: "POST", body }),
+  updateMonitoringToken: (recordId: string, body: MonitoringTokenRecordRequest) =>
+    bffRequest<MonitoringTokenRecordResponse>(
+      `monitoring/tokens/${encodeURIComponent(recordId)}`,
+      { method: "PUT", body },
+    ),
+  deleteMonitoringToken: (recordId: string) =>
+    bffRequest<void>(`monitoring/tokens/${encodeURIComponent(recordId)}`, {
+      method: "DELETE",
+    }),
 
   // -- standards registry + validation runs (US-401) ------------------------
   listStandards: (
