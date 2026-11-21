@@ -136,6 +136,12 @@ ORM object ever appears in a response.
 | `POST /api/v1/packaging/counts/{id}/confirm` | `packaging:manage` | Confirm a count (all lines must be counted). |
 | `POST /api/v1/packaging/counts/{id}/cancel` | `packaging:manage` | Cancel a count. |
 | `POST /api/v1/packaging/supply-check` | `packaging:manage` | Run the supply check now (reads the wizard's results, files reorder items). |
+| `GET /api/v1/mcp/clients` | `api_keys:manage` | List the tenant's MCP clients, newest first. `include_revoked` (default false). |
+| `POST /api/v1/mcp/clients` | `api_keys:manage` | Create an MCP client (201) + the one-time secret. See `docs/mcp-server.md` for the error shapes. |
+| `GET /api/v1/mcp/clients/{client_id}` | `api_keys:manage` | One MCP client. Other tenant → 404 `MCP_CLIENT_NOT_FOUND`. |
+| `POST /api/v1/mcp/clients/{client_id}/rotate` | `api_keys:manage` | Rotate the client's key + the one-time secret. Revoked → 409 `MCP_CLIENT_REVOKED`. |
+| `POST /api/v1/mcp/clients/{client_id}/revoke` | `api_keys:manage` | Revoke the client's key (optional `reason`). Idempotent. |
+| `GET /api/v1/mcp/audit` | `api_keys:manage` | The `ai_access_audit` log, keyset-paginated. Filters: `client`, `kind`, `outcome`, `tool`, `company`, `from`, `to`, `sort`. |
 
 (Phases 4–5 endpoints — standards, tax, Moadian, compliance, events,
 integrations, review queue — are documented in their own docs; see

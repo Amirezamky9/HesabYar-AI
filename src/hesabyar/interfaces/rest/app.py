@@ -42,6 +42,7 @@ from hesabyar.interfaces.rest.routers.invoices import router as invoices_router
 from hesabyar.interfaces.rest.routers.jobs import router as jobs_router
 from hesabyar.interfaces.rest.routers.journals import router as journals_router
 from hesabyar.interfaces.rest.routers.manual_entries import router as manual_entries_router
+from hesabyar.interfaces.rest.routers.mcp import router as mcp_router
 from hesabyar.interfaces.rest.routers.moadian import router as moadian_router
 from hesabyar.interfaces.rest.routers.packaging import router as packaging_router
 from hesabyar.interfaces.rest.routers.payments import router as payments_router
@@ -104,6 +105,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     app.include_router(jobs_router, prefix="/api/v1")
     app.include_router(rules_router, prefix="/api/v1")
     app.include_router(recurring_router, prefix="/api/v1")
+    app.include_router(mcp_router, prefix="/api/v1")
     if settings is not None:
         app.dependency_overrides[get_settings_dep] = lambda: settings
     return app

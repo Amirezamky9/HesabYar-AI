@@ -246,6 +246,95 @@ class FilestoreSettings(BaseModel):
     )
 
 
+class McpSettings(BaseModel):
+    """MCP server settings (US-601, spec §13.2/§13.8).
+
+    Env overrides use the ``HESABYAR_MCP__`` prefix, e.g.
+    ``HESABYAR_MCP__PORT=8002``. List values use JSON syntax, e.g.
+    ``HESABYAR_MCP__ALLOWED_HOSTS='["mcp.example.com:443"]'``.
+
+    ``public_url`` is the server's own public Streamable HTTP URL: it is
+    the RFC 8707 resource/audience the API-key token verifier binds
+    tokens to (``AccessToken.resource``) and the issuer URL for the
+    self-issued API-key credentials. It MUST match the URL clients use
+    to reach the server, or token verification rejects every request.
+    """
+
+    host: str = Field(
+        default="127.0.0.1",
+        description="Bind address for the Streamable HTTP transport",
+    )
+    port: int = Field(
+        default=8002,
+        ge=1,
+        le=65535,
+        description="Port for the Streamable HTTP transport (8000 is Tryton, 8001 is REST)",
+    )
+    path: str = Field(
+        default="/mcp",
+        description="Streamable HTTP endpoint path",
+    )
+    public_url: str = Field(
+        default="http://127.0.0.1:8002/mcp",
+        description=(
+            "Public Streamable HTTP URL of this server (resource/audience "
+            "for token binding). Override in production with the real URL."
+        ),
+    )
+    allowed_hosts: list[str] = Field(
+        default_factory=lambda: ["127.0.0.1:8002", "localhost:8002"],
+        description=(
+            "Host header values accepted by the DNS-rebinding protection "
+            "(SDK TransportSecuritySettings). Production must list the real host."
+        ),
+    )
+    allowed_origins: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Origin header values accepted by the DNS-rebinding protection. "
+            "An absent Origin is always allowed (non-browser clients); a "
+            "present Origin must be listed here."
+        ),
+    )
+    max_request_body_bytes: int = Field(
+        default=4 * 1024 * 1024,
+        ge=1024,
+        description="Maximum Streamable HTTP request body size in bytes (SDK default 4 MiB)",
+    )
+    rate_limit_per_minute: int = Field(
+        default=120,
+        ge=1,
+        description="Streamable HTTP requests allowed per API-key prefix per minute",
+    )
+    session_idle_timeout_seconds: float = Field(
+        default=1800.0,
+        ge=60.0,
+        description="Streamable HTTP session idle timeout in seconds (SDK default 1800)",
+    )
+    max_sessions: int = Field(
+        default=10000,
+        ge=1,
+        description="Maximum concurrent Streamable HTTP sessions (SDK default 10000)",
+    )
+    stdio_api_key: str | None = Field(
+        default=None,
+        description=(
+            "API key the stdio transport authenticates once at startup "
+            "(env HESABYAR_MCP__STDIO_API_KEY). The stdio process has no "
+            "per-request auth, so it runs as this one key's grant. Never "
+            "log or print this value."
+        ),
+    )
+    tls_certfile: str | None = Field(
+        default=None,
+        description="TLS certificate file for Streamable HTTP (production: serve behind TLS)",
+    )
+    tls_keyfile: str | None = Field(
+        default=None,
+        description="TLS private-key file for Streamable HTTP",
+    )
+
+
 class AppSettings(BaseSettings):
     """Application-level configuration loaded from environment variables."""
 
@@ -273,6 +362,9 @@ class AppSettings(BaseSettings):
     )
     filestore: FilestoreSettings = Field(
         default_factory=FilestoreSettings, description="Local filestore settings"
+    )
+    mcp: McpSettings = Field(
+        default_factory=McpSettings, description="MCP server settings"
     )
     database_url: str | None = Field(
         default=None,

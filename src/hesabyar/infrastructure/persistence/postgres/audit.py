@@ -19,7 +19,10 @@ from typing import Any
 from sqlalchemy import select, tuple_
 from sqlalchemy.orm import Session
 
-from hesabyar.infrastructure.persistence.postgres.models import AuditEventModel
+from hesabyar.infrastructure.persistence.postgres.models import (
+    AiAccessAuditModel,
+    AuditEventModel,
+)
 
 
 class AuditRecorder:
@@ -163,4 +166,83 @@ class AuditReader:
         if len(rows) > limit:
             last = rows[limit - 1]
             return rows[:limit], (last.occurred_at, last.id)
+        return rows, None
+
+
+class AiAccessAuditReader:
+    """Read-only access to the ``ai_access_audit`` table (US-606).
+
+    The MCP access log: one row per MCP call attempt (tool / resource
+    / prompt) plus ``management`` rows for client lifecycle events.
+    Queries are always tenant-scoped and paginate with true SQL
+    keyset pagination over ``(created_at, id)`` — the same contract
+    as :class:`AuditReader` (cursor encoding lives in the REST layer).
+    """
+
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def list_events(
+        self,
+        *,
+        tenant_id: str,
+        client_id: str | None = None,
+        kind: str | None = None,
+        outcome: str | None = None,
+        tool: str | None = None,
+        company_id: str | None = None,
+        occurred_from: datetime.datetime | None = None,
+        occurred_to: datetime.datetime | None = None,
+        limit: int = 50,
+        after: tuple[datetime.datetime, str] | None = None,
+        newest_first: bool = True,
+    ) -> tuple[list[AiAccessAuditModel], tuple[datetime.datetime, str] | None]:
+        """Return one page of the tenant's AI access rows plus the next position.
+
+        Filters are exact matches (``occurred_from`` / ``occurred_to``
+        are inclusive bounds on ``created_at``); ``tool`` matches the
+        tool name / resource URI / prompt name / lifecycle action
+        exactly. ``after`` is the ``(created_at, id)`` position the
+        previous page ended at; the page starts strictly after it.
+        The second return value is the position to pass back as
+        ``after`` for the next page, or None when this is the last
+        page.
+        """
+        stmt = select(AiAccessAuditModel).where(
+            AiAccessAuditModel.tenant_id == tenant_id
+        )
+        if client_id is not None:
+            stmt = stmt.where(AiAccessAuditModel.client_id == client_id)
+        if kind is not None:
+            stmt = stmt.where(AiAccessAuditModel.kind == kind)
+        if outcome is not None:
+            stmt = stmt.where(AiAccessAuditModel.outcome == outcome)
+        if tool is not None:
+            stmt = stmt.where(AiAccessAuditModel.tool == tool)
+        if company_id is not None:
+            stmt = stmt.where(AiAccessAuditModel.company_id == company_id)
+        if occurred_from is not None:
+            stmt = stmt.where(AiAccessAuditModel.created_at >= occurred_from)
+        if occurred_to is not None:
+            stmt = stmt.where(AiAccessAuditModel.created_at <= occurred_to)
+        if after is not None:
+            cursor_ts, cursor_id = after
+            key = tuple_(AiAccessAuditModel.created_at, AiAccessAuditModel.id)
+            if newest_first:
+                stmt = stmt.where(key < (cursor_ts, cursor_id))
+            else:
+                stmt = stmt.where(key > (cursor_ts, cursor_id))
+        if newest_first:
+            stmt = stmt.order_by(
+                AiAccessAuditModel.created_at.desc(), AiAccessAuditModel.id.desc()
+            )
+        else:
+            stmt = stmt.order_by(
+                AiAccessAuditModel.created_at.asc(), AiAccessAuditModel.id.asc()
+            )
+        stmt = stmt.limit(limit + 1)
+        rows = list(self.session.execute(stmt).scalars().all())
+        if len(rows) > limit:
+            last = rows[limit - 1]
+            return rows[:limit], (last.created_at, last.id)
         return rows, None

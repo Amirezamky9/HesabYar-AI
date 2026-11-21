@@ -172,6 +172,10 @@ EXPECTED_TABLES = {
     # 0039 bank auto-coding rules + suggestions (US-565)
     "bank_rules",
     "bank_rule_suggestions",
+    # 0040 AI access audit log (US-601)
+    "ai_access_audit",
+    # 0041 MCP authorized-clients registry (US-606)
+    "mcp_authorized_clients",
 }
 
 # Design-eng §10.4 unique constraints: (table, constraint name, columns).
@@ -349,7 +353,7 @@ SECTION_10_4_CONSTRAINTS = [
     ),
 ]
 
-HEAD_REVISION = "0039"
+HEAD_REVISION = "0041"
 
 
 def _alembic_config() -> Config:

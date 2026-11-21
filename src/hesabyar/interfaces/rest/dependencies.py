@@ -151,6 +151,7 @@ from hesabyar.infrastructure.auth.credential_vault import FernetCredentialVault
 from hesabyar.infrastructure.auth.errors import AuthenticationError
 from hesabyar.infrastructure.auth.identity import AuthenticatedClient
 from hesabyar.infrastructure.auth.keys import ApiKeyCrypto
+from hesabyar.infrastructure.auth.mcp_clients import McpClientService
 from hesabyar.infrastructure.auth.service import ApiKeyService
 from hesabyar.infrastructure.bank.file_readers import StatementFileReader
 from hesabyar.infrastructure.config import AppSettings, get_settings
@@ -295,6 +296,11 @@ def get_db_session(settings: AppSettings = Depends(get_settings_dep)) -> Generat
 def get_api_key_service(settings: AppSettings = Depends(get_settings_dep)) -> ApiKeyService:
     """Build the API-key service for this request (pepper from settings)."""
     return ApiKeyService(ApiKeyCrypto(settings.auth.api_key_pepper))
+
+
+def get_mcp_client_service(settings: AppSettings = Depends(get_settings_dep)) -> McpClientService:
+    """Build the MCP authorized-client service for this request (US-606)."""
+    return McpClientService(ApiKeyCrypto(settings.auth.api_key_pepper))
 
 
 def get_authenticated_client(

@@ -43,6 +43,9 @@ KNOWN_SCOPES: frozenset[str] = frozenset(
         "review:read",
         "review:resolve",
         "review:file",
+        # Phase 6 (US-602): the MCP list_pending_review_items tool reads
+        # the review queue through the workflow scope (spec §13.4).
+        "workflow:read",
         "packaging:read",
         "packaging:manage",
         "cashbox:read",

@@ -23,6 +23,7 @@ dependencies = [
     "procrastinate>=3.0,<4",
     "openpyxl>=3.1.5",
     "pdfplumber>=0.11.10",
+    "mcp>=2.0,<3",
 ]
 
 [project.optional-dependencies]

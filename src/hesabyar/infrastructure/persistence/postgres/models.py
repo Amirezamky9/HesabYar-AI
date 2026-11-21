@@ -11174,3 +11174,250 @@ class RecurringOccurrenceModel(Base):
             f"RecurringOccurrenceModel(id={self.id!r}, template_id={self.template_id!r}, "
             f"occurrence_number={self.occurrence_number!r}, status={self.status!r})"
         )
+
+
+class AiAccessAuditModel(Base):
+    """One audit row per MCP call attempt (US-601, spec §13.8).
+
+    Maps to the ``ai_access_audit`` table (migration 0040). Every MCP
+    call is recorded — allowed, denied and failed alike — with the
+    client identity, tool name, company, scopes, outcome and timestamp.
+    Never stores tool arguments (they may carry caller data), hidden
+    chain-of-thought, or secrets: only the key's visible prefix, never
+    key material.
+
+    US-606 (migration 0041) adds ``kind='management'`` rows for MCP
+    client lifecycle events (``mcp.client.create`` / ``rotate`` /
+    ``revoke``), written by the REST management endpoints over
+    ``transport='rest'``. A management row names the client acted upon
+    (``client_id`` / ``key_id`` are the subject's, not the acting
+    operator's); the operator is recorded in the REST audit trail
+    (``audit_events``).
+    """
+
+    __tablename__ = "ai_access_audit"
+    __table_args__ = (
+        Index("ix_ai_access_audit_tenant_created", "tenant_id", "created_at"),
+        Index("ix_ai_access_audit_client_created", "client_id", "created_at"),
+        Index("ix_ai_access_audit_tool_created", "tool", "created_at"),
+        CheckConstraint(
+            "kind IN ('tool', 'resource', 'prompt', 'management')",
+            name="ck_ai_access_audit_kind",
+        ),
+        CheckConstraint(
+            "outcome IN ('allowed', 'denied', 'error')",
+            name="ck_ai_access_audit_outcome",
+        ),
+        CheckConstraint(
+            "transport IN ('stdio', 'streamable-http', 'memory', 'rest')",
+            name="ck_ai_access_audit_transport",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+        comment="UUID primary key (audit row id)",
+    )
+    tenant_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=True,
+        comment="Owning tenant FK (CASCADE delete); NULL when no identity was established",
+    )
+    client_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("api_clients.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="API client id (SET NULL on delete); NULL when unauthenticated",
+    )
+    key_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("api_keys.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="API key id (SET NULL on delete); NULL when unauthenticated",
+    )
+    key_prefix: Mapped[str | None] = mapped_column(
+        String(16),
+        nullable=True,
+        comment="Visible API-key prefix (safe to log); NULL when unauthenticated",
+    )
+    tool: Mapped[str] = mapped_column(
+        String(128),
+        nullable=False,
+        comment="Tool name, resource URI or prompt name that was called",
+    )
+    kind: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        comment=(
+            "tool | resource | prompt | management — what kind of MCP call "
+            "this was ('management' is a client lifecycle event, US-606)"
+        ),
+    )
+    company_id: Mapped[str | None] = mapped_column(
+        String(128),
+        nullable=True,
+        comment="HesabYar company row id the call touched (NULL when no company was involved)",
+    )
+    scopes: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="Comma-separated scopes the key carried at call time (NULL when unauthenticated)",
+    )
+    outcome: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        comment="allowed | denied | error — whether the call ran, was refused, or failed",
+    )
+    error_code: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        comment="Machine-readable failure reason for denied/error outcomes (NULL when allowed)",
+    )
+    request_id: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        comment="MCP request id, when the transport supplied one",
+    )
+    transport: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        comment=(
+            "stdio | streamable-http | memory | rest — which transport served "
+            "the call ('rest' is a management event, US-606)"
+        ),
+    )
+    client_info: Mapped[str | None] = mapped_column(
+        String(256),
+        nullable=True,
+        comment="MCP client name/version from initialize, when known (e.g. 'claude/1.0')",
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Call timestamp (UTC)",
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"AiAccessAuditModel(id={self.id!r}, tool={self.tool!r}, "
+            f"outcome={self.outcome!r}, client_id={self.client_id!r})"
+        )
+
+
+class McpAuthorizedClientModel(Base):
+    """An authorized MCP client (US-606, spec §13.8 + §14.1).
+
+    Maps to the ``mcp_authorized_clients`` table (migration 0041).
+    This is the MANAGEMENT record for one AI client's MCP access —
+    not a second credential system. The credential is an ordinary
+    ``api_keys`` row (``hya_live_``, HMAC-SHA-256 + pepper, issued
+    through :class:`ApiKeyService` with ``mcp:connect`` plus the
+    tool scopes); the MCP server keeps authenticating that key and
+    never consults this table. Registry membership gates nothing at
+    call time — it records which clients the operator authorized,
+    with what scopes and company grant, and when the key was rotated
+    or revoked.
+
+    One registry row owns one ``api_clients`` row (created with it,
+    same name — the (tenant, name) uniqueness of ``api_clients``
+    makes registry names unique per tenant) and points at the
+    CURRENT key (``key_id`` moves on rotation; the old key is
+    revoked, never deleted). ``scopes`` and ``engine_company_id``
+    mirror the current key's grant at issuance/rotation — the
+    service is the only writer, so the two cannot drift.
+
+    A row is revoked when ``revoked_at`` is set (the key is revoked
+    with the same reason at the same moment). Revoked rows are kept
+    — the audit log (``ai_access_audit``, including the
+    ``mcp.client.revoke`` management row) still names them.
+    """
+
+    __tablename__ = "mcp_authorized_clients"
+    __table_args__ = (
+        Index("ix_mcp_authorized_clients_tenant_created", "tenant_id", "created_at"),
+        Index("ix_mcp_authorized_clients_key", "key_id"),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+        comment="UUID primary key",
+    )
+    tenant_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+        comment="Owning tenant FK (CASCADE delete)",
+    )
+    client_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("api_clients.id", ondelete="CASCADE"),
+        nullable=False,
+        comment="Owning API client FK (CASCADE delete; one api_clients row per MCP client)",
+    )
+    key_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("api_keys.id"),
+        nullable=False,
+        comment="Current API key FK (moves on rotation; keys are revoked, never deleted)",
+    )
+    name: Mapped[str] = mapped_column(
+        String(128),
+        nullable=False,
+        comment="Human-readable client name (unique per tenant via api_clients)",
+    )
+    description: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="What this client is for (which AI host, which team)",
+    )
+    scopes: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        comment="Comma-separated scopes, mirroring the current key (always includes mcp:connect)",
+    )
+    engine_company_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("engine_companies.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="Company grant, mirroring the current key (NULL = every company of the tenant)",
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Row creation timestamp (UTC)",
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        onupdate=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+        comment="Last-modified timestamp (UTC)",
+    )
+    revoked_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Revocation timestamp (UTC); NULL means not revoked",
+    )
+    revoked_reason: Mapped[str | None] = mapped_column(
+        String(256),
+        nullable=True,
+        comment="Why the client was revoked",
+    )
+
+    tenant: Mapped[TenantModel] = relationship("TenantModel")
+    client: Mapped[ApiClientModel] = relationship("ApiClientModel")
+    key: Mapped[ApiKeyModel] = relationship("ApiKeyModel")
+    company: Mapped[EngineCompanyModel | None] = relationship("EngineCompanyModel")
+
+    def __repr__(self) -> str:
+        return (
+            f"McpAuthorizedClientModel(id={self.id!r}, tenant_id={self.tenant_id!r}, "
+            f"name={self.name!r}, revoked_at={self.revoked_at!r})"
+        )
