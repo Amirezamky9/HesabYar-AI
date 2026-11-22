@@ -1,102 +1,98 @@
 {
-  "branchName": "ralph/phase-6",
-  "description": "HesabYar Phase 6 (MCP + AI access): MCP server on the official Python SDK v2 (MCP 2026-07-28, stdio + Streamable HTTP), the 14 read-only tools of spec §13.4 plus read-only tools for the Phase 5 reports (settlement, cheques, packaging, cashbox, cash forecast), resources + prompts, draft-only mutation tools, and MCP client management + conformance tests.",
+  "branchName": "ralph/phase-7",
+  "description": "HesabYar Phase 7 (production readiness): security review + threat model, load + concurrency tests, S3 backups + restore drills for both databases, monitoring + alerting, upgrade/rollback runbook + release docs + operator manual, and a fresh-store install with the generic connector on Iran hosting / Iranian egress.",
   "project": "HesabYar",
   "userStories": [
     {
       "acceptanceCriteria": [
-        "MCP server on the official Python MCP SDK v2, targeting the MCP 2026-07-28 specification; `mcp` 2.x pinned in uv.lock; Python 3.12 baseline",
-        "Transports: stdio (local developer) + Streamable HTTP (remote/production); NO new legacy HTTP+SSE implementation",
-        "Authentication + authorization: the same API-key + scope system as REST (hya_live_ keys, HMAC-SHA-256 + pepper); the company identity is always checked against the authenticated grant — a tool must NEVER accept a caller-provided company ID as proof of authorization; OAuth access tokens (if used) bound to the intended MCP resource/audience",
-        "Every MCP call is audit-logged (ai_access_audit: client, tool, company, scope, outcome, timestamp); no hidden chain-of-thought or provider secrets stored",
-        "The MCP server calls the SAME application query/command handlers as REST — no separate implementation of trial balance, tax calculation or posting for AI; no direct PostgreSQL access from any MCP tool (spec §0 rule 4); no API keys in tool arguments, URLs, logs or bundles",
-        "Protocol conformance + client-compatibility test harness in place (run in CI); server starts cleanly in both transports",
+        "Security review of the whole system, documented as a threat model (docs/security/threat-model.md): encrypted credentials (at rest + in transit), OAuth tokens (storage, rotation, revocation, audience binding), HMAC webhooks (signature verification, replay window, secret rotation), API keys (hashing, pepper, rotation), MCP boundary (scope checks, company filter, audit), session + password handling, file uploads",
+        "Every finding fixed or explicitly accepted with a written rationale; no finding left silently open",
+        "Security test suite in CI: auth-bypass attempts (missing/invalid/expired/revoked keys, wrong-company access), scope escalation (a key with reports:read cannot call a banking:read tool or endpoint), webhook signature forgery + replayed payloads, token replay after rotation, MCP cross-company reads fail closed",
+        "No secrets in logs, error messages, URLs or bundles (test: grep the log output of a full request cycle for the test secrets)",
         "Targeted tests per story + affected-area tests written for CI; ruff + pyright clean"
       ],
-      "description": "MCP server core: SDK v2, MCP 2026-07-28, stdio + Streamable HTTP, REST-grade auth + scopes + audit, same application services as REST.",
-      "id": "US-601",
-      "notes": "Wave A (first — every other story builds on the server). Spec §13.2 + §13.3 + §13.8. The MCP process may share the HesabYar Python package and run as a separate process/container; the system stays a modular monolith.",
+      "description": "Security review + threat model, findings fixed, security test suite in CI.",
+      "id": "US-701",
+      "notes": "Wave A (first — its findings inform the other stories). Spec §17 phase 7 + phased design §1.3 phase 7. The review covers what was built in phases 0–6: REST, webhooks, MCP, admin UI, workers, Tryton adapter. Do NOT invent a new auth system — review and harden what exists.",
       "passes": true,
       "priority": 1,
-      "title": "MCP server core (SDK v2, transports, auth, audit)"
+      "title": "Security review + threat model"
     },
     {
       "acceptanceCriteria": [
-        "All 14 read-only tools of spec §13.4, each calling the same application query service as the matching REST endpoint: list_companies (company:read), get_accounting_summary (reports:read), get_trial_balance (reports:read), get_general_ledger (ledger:read), get_balance_sheet (reports:read), get_income_statement (reports:read), get_cash_flow (reports:read), get_receivables_aging (reports:read), get_payables_aging (reports:read), get_bank_reconciliation_status (banking:read), get_tax_compliance_status (compliance:read), validate_financial_statement (standards:validate), explain_accounting_rule (standards:read), list_pending_review_items (workflow:read)",
-        "Tool arguments explicit and narrow: company, date range, report type, account filter, output detail — nothing else",
-        "Provenance on EVERY financial result (spec §13.7): company + period, currency + canonical unit (Rial), source engine + report type, generated timestamp + source-data freshness, snapshot/source reference, calculation/ruleset version, validation + incomplete-data warnings, and a clear statement that the model interprets supplied data and does not create authoritative financial facts",
-        "Amounts as integer Rial values or safe decimal strings — NEVER binary floating-point",
-        "Conformance test per tool (arguments, scopes, error shapes); equality test: the same report via MCP and via REST produces the same figures for the same company, date range and source snapshot",
+        "Load tests for the hot paths, runnable in CI (bounded, no external services, seeded data): webhook ingestion burst (1000 events), concurrent report reads, settlement tie-out over a large statement, dashboard batch endpoint under concurrent users",
+        "Concurrency tests: duplicate concurrent events are processed exactly once (the idempotency lock — spec §19.9, no duplicate posting from repeated external events); concurrent cheque registration with the same Sayyad number; concurrent invoice numbering produces no duplicates or gaps beyond the documented behavior",
+        "Rate limiting holds under load (429s, no dropped requests beyond the limit, no 500s)",
+        "Measured baselines documented (docs/performance-baselines.md): p50/p95/p99 latencies per hot path at the tested load, with the CI hardware noted — no performance claim without a measured number",
         "Targeted tests per story + affected-area tests written for CI; ruff + pyright clean"
       ],
-      "description": "The 14 read-only tools of spec §13.4, with full §13.7 provenance and MCP-vs-REST equality.",
-      "id": "US-602",
-      "notes": "Wave B. Depends on US-601 (server) + the Phase 5-6 report services (US-550). The equality test is a spec requirement (§13.3 + §19: 'A report requested from MCP and the dashboard must produce the same figures').",
+      "description": "Load + concurrency tests for the hot paths, with measured baselines.",
+      "id": "US-702",
+      "notes": "Wave A (independent of US-701). Spec §17 phase 7 + §19.9. The tests must be CI-safe: bounded runtime, no live services, no flaky timing assertions (assert on outcomes + counts, not on exact milliseconds).",
       "passes": true,
       "priority": 2,
-      "title": "Read-only tools — the 14 of spec §13.4"
+      "title": "Load + concurrency tests"
     },
     {
       "acceptanceCriteria": [
-        "Read-only MCP tools for the Phase 5 reports, same freshness + source metadata as §11.1: settlement status (tranches, expected vs received, variances), cheques (registry, due-soon, in-clearing aging, collateral), packaging + shipping costs, cash-box counts + variances, cash forecast (30/60/90/120-day, confirmed vs forecast)",
-        "Each tool reuses the existing application query service (US-521/US-531/US-515/US-516/US-553) — no duplicate logic; scopes match the REST endpoints (settlement:read, cheques:read, banking:read, reports:read as applicable)",
-        "MCP-vs-REST equality tests for the same data + period for every new tool",
-        "Provenance §13.7 on every result (same as US-602)",
+        "Backup jobs for BOTH databases (HesabYar Postgres + Tryton Postgres): scheduled (configurable cadence), S3-compatible destination with a CONFIGURABLE endpoint — the S3 destination (Iran-hosted S3-compatible vs non-Iranian egress) is an UNVERIFIED deployment decision, so the code must NOT hard-code either endpoint, region or provider; credentials come from configuration, never from code",
+        "Backups encrypted at rest (configurable key) and integrity-checked (checksum recorded + verified on restore)",
+        "Restore drill procedure + tests: restore both databases to scratch databases, run the migration check (alembic heads single + up to date), verify accounting reconciliation (trial balance balances, no orphaned documents, settlement tranches tie out) — the drill is runnable in CI against scratch databases",
+        "Backup/restore runbook (docs/backup-restore.md): retention, rotation, restore steps, failure modes, who does what",
         "Targeted tests per story + affected-area tests written for CI; ruff + pyright clean"
       ],
-      "description": "Read-only MCP tools for the Phase 5 reports (settlement, cheques, packaging, cashbox, cash forecast).",
-      "id": "US-603",
-      "notes": "Wave B. Depends on US-601 + the Phase 5 report services. Phased design §1.3 phase 6: 'ابزارهای فقط‌خواندنی برای گزارش‌های جدید ... با همان فرادادهٔ تازگی و منبع §۱۱٫۱'.",
+      "description": "S3 backups + restore drills for both databases, destination-agnostic.",
+      "id": "US-703",
+      "notes": "Wave B. Spec §17 phase 7 + phased design §1.3 phase 7. The S3 destination decision is UNVERIFIED — build the interface, document the decision as pending, do NOT pick a provider. No live S3 credentials exist — tests use a local S3-compatible stub (e.g. moto/minio in CI) or a fake backend.",
       "passes": true,
       "priority": 3,
-      "title": "Read-only tools — Phase 5 reports"
+      "title": "S3 backups + restore drills"
     },
     {
       "acceptanceCriteria": [
-        "Resources (all filtered by identity + company scope; NO unfiltered all-company resource): active chart-of-accounts metadata, available fiscal periods + company metadata, versioned standards summaries + verified source references, active tax-policy profile + applicability metadata, approved report snapshots with bounded access, integration + compliance status summaries",
-        "Prompts: monthly close review, explain unusual balance movement, summarize overdue receivables, review unreconciled bank activity, validate the financial statements for a period, compare month-over-month performance",
-        "Each prompt is a deterministic template over the read-only tools — the prompt never invents figures; every figure it cites comes from a tool call with provenance",
-        "Conformance tests for resources (scope filtering proven: a client scoped to company A cannot read company B's resource) and prompts (template renders + cites only tool-provided data)",
+        "Health endpoints (liveness + readiness) for every process (API, worker, MCP server, Tryton adapter connectivity)",
+        "Metrics + alert rules: inbox/queue staleness (events unprocessed past threshold), worker lag, Fintech token expiry (alert before expiry, with the rotation runbook linked), settlement drift (expected vs received beyond tolerance), failed webhooks, backup failures, 5xx rate",
+        "Alert channels configurable (the existing pluggable SMS/email providers — Kavenegar + sms.ir first — plus a webhook channel); no provider hard-coded; alert text in Persian",
+        "Operator monitoring panel in the admin UI (Persian RTL, VibeFarsi): system health, queue depths, recent alerts, token expiries, backup status — the dashboard's existing alert widgets are the starting point",
         "Targeted tests per story + affected-area tests written for CI; ruff + pyright clean"
       ],
-      "description": "MCP resources + prompts, all identity- and company-scoped.",
-      "id": "US-604",
-      "notes": "Wave B. Depends on US-601 (+ US-602/US-603 for the data the prompts cite). Spec §13.6. The scope-filtering test is a SECURITY property — a cross-company read must fail closed.",
+      "description": "Monitoring + alerting: health, metrics, alert rules, operator panel.",
+      "id": "US-704",
+      "notes": "Wave B. Spec §17 phase 7 + phased design §1.3 phase 7 (incl. inbox/queue staleness + Fintech token-expiry alerts). Depends on US-701 for the token-expiry model (which tokens, where stored). Frontend house rules in apps/admin/AGENTS.md apply.",
       "passes": true,
       "priority": 4,
-      "title": "MCP resources + prompts"
+      "title": "Monitoring + alerting"
     },
     {
       "acceptanceCriteria": [
-        "Four draft-only tools (spec §13.5), exposed ONLY after the read-only tools are stable: prepare_journal_draft, prepare_invoice_draft, prepare_reconciliation_suggestions, prepare_tax_document_draft",
-        "Each tool creates a DRAFT object only and returns its ID + validation findings + the next human action; it must NEVER post the journal, finalize the invoice, approve a reconciliation, or submit anything to Moadian",
-        "Drafts go through the same validation + policy gate as dashboard-created drafts (draft by default, ADR 0003 decision 1); the draft is attributed to the MCP client in the audit log",
-        "NO approve_and_post tool in this release (spec §13.5: a later one would need a separately approved policy, explicit human confirmation, scoped identity, idempotency, complete audit logging — and a model's natural-language statement is NEVER approval)",
-        "Conformance tests per tool: draft created, nothing posted, findings + next action present, Moadian never touched",
+        "Upgrade/rollback runbook (docs/runbook-upgrade-rollback.md): upgrade steps (code + migrations + Tryton modules + frontend), pre-upgrade checks, rollback steps per layer (code rollback, migration downgrade, Tryton module downgrade), rollback decision criteria, data-safety rules (never roll back a migration that destroyed data without a backup restore)",
+        "Data migration + accounting reconciliation procedure (docs/data-migration.md): migrating a store's data in (from the generic connector + manual import), reconciliation checks (trial balance, aging, settlement tie-out), discrepancy handling (review queue, never silent)",
+        "Release documentation (docs/release.md): versioning, changelog, release checklist, environment promotion (dev → staging → production)",
+        "Operator manual (docs/operator-manual.md, Persian): day-to-day operations, common incidents + responses, credential rotation, backup verification, where to look when something breaks",
         "Targeted tests per story + affected-area tests written for CI; ruff + pyright clean"
       ],
-      "description": "Draft-only mutation tools — drafts only, never post/finalize/approve/submit.",
-      "id": "US-605",
-      "notes": "Wave C (after US-602/US-603 are stable — spec §13.5: 'After read-only MCP is stable'). Depends on US-601 + US-202 (journal drafts) + US-204 (invoices) + US-514 (reconciliation) + US-402/US-404 (tax/Moadian). The never-post guarantee is a SAFETY property — test it explicitly.",
+      "description": "Upgrade/rollback runbook + data-migration procedure + release docs + operator manual.",
+      "id": "US-705",
+      "notes": "Wave C. Spec §17 phase 7. Docs are the deliverable, but every procedure must be TESTED where testable (rollback of a migration in CI, reconciliation checks as tests) — no untested procedure is marked done (§19.14).",
       "passes": true,
       "priority": 5,
-      "title": "Draft-only mutation tools"
+      "title": "Runbooks + release docs + operator manual"
     },
     {
       "acceptanceCriteria": [
-        "MCP authorized-clients registry (mcp_authorized_clients): per-client scopes + company grants, key rotation + revocation, first-use secret shown exactly once (same rules as REST API keys: HMAC-SHA-256 + pepper, never in logs/bundles)",
-        "Admin UI (Persian RTL, VibeFarsi): list authorized MCP clients, create/revoke/rotate, audit log view (ai_access_audit: who called what, when, for which company, with what outcome)",
-        "Full protocol conformance suite in CI: every tool + resource + prompt against the MCP 2026-07-28 spec (client compatibility: at least the reference MCP client + one host-style client)",
-        "Operator docs: how to connect an AI client (stdio + Streamable HTTP), scope model, audit, revocation; security review of the MCP boundary documented (no direct DB access, no keys in arguments, OAuth audience binding, fail-closed scope checks)",
-        "Playwright: MCP client-management journey (create client → see it listed → revoke → audit shows the revocation); responsive checks at 360–390px",
+        "Fresh-store install end to end (the phase exit criterion): a new store installs HesabYar, connects via the GENERIC connector (the custom-coded Hayat store is the reference — the connector must stay generic), imports its opening balances, processes its first orders/invoices/settlements, and the trial balance balances — tested in CI as an install scenario",
+        "Production deployment guide for Iran hosting / Iranian egress (docs/deployment-iran.md): server requirements, network (Iranian IP egress — nearly all banking services require it), TLS, reverse proxy, process supervision, secrets management (no secrets in the repo, no secrets in CI logs), environment configuration checklist",
+        "Deployment checklist + smoke tests: post-deploy smoke suite (health, login, one report, one webhook, one MCP call) runnable against a deployed instance without touching production data",
+        "No live production server exists yet (the user provides it later) — the guide + smoke suite are the deliverable; nothing is deployed to a real server in this story",
+        "Playwright: fresh-install journey (signup → company setup → first invoice → first report); responsive checks at 360–390px",
         "Targeted tests per story + affected-area tests written for CI; ruff + pyright clean"
       ],
-      "description": "MCP client management (registry + admin UI + audit) + full conformance suite + operator docs.",
-      "id": "US-606",
-      "notes": "Wave C (last — needs the whole server). Depends on US-601–US-605. Frontend house rules in apps/admin/AGENTS.md apply. The conformance suite is the phase exit criterion (spec §17 phase 6 + phased design §1.3).",
+      "description": "Fresh-store install with the generic connector + Iran production deployment guide + smoke tests.",
+      "id": "US-706",
+      "notes": "Wave C (last — needs the whole system). Spec §17 phase 7 exit criterion + phased design §1.3 phase 7. The production server comes from the user later — do NOT provision anything, do NOT ask for credentials. The ۵ت remainder (Fintech live connectivity B3) is NOT part of this story — it needs the user's Fintech credentials and stays deferred.",
       "passes": false,
       "priority": 6,
-      "title": "MCP client management + conformance + docs"
+      "title": "Fresh-store install + Iran deployment guide"
     }
   ]
 }
