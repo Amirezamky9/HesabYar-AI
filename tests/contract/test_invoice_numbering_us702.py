@@ -52,10 +52,7 @@ from hesabyar.domain.common.dates import FiscalDate
 from hesabyar.domain.common.money import MoneyIRR
 from hesabyar.infrastructure.accounting.tryton.adapter import TrytonAccountingAdapter
 from hesabyar.infrastructure.accounting.tryton.client import TrytonRestClient
-from hesabyar.infrastructure.accounting.tryton.errors import (
-    ENGINE_ERROR,
-    TrytonAdapterError,
-)
+from hesabyar.infrastructure.accounting.tryton.errors import TrytonAdapterError
 from tests.load_support import LatencyRecorder, run_threads
 
 BASE_URL = os.environ.get("TRYTON_BASE_URL", "http://localhost:8000")
@@ -165,72 +162,87 @@ def _invoice_command(company: CompanyRef, party: PartyRef, accounts) -> CreateIn
     )
 
 
-#: Bounded retries for one concurrent post (see _post_one_with_retry).
-#: 8 threads contend on ONE invoice-sequence row: each round at most
-#: one simultaneous attempter wins, so a post needs several
-#: desynchronized chances. 6 attempts with jittered backoff (base
-#: 0.3s, doubling, capped at ~5s: worst case ~9s per invoice,
-#: expected half that, parallel across threads).
-_MAX_POST_ATTEMPTS = 6
-_BACKOFF_BASE_SECONDS = 0.3
-_BACKOFF_CAP_SECONDS = 5.0
+#: Polling budget for one concurrent post (see _post_one_with_polling).
+#:
+#: The invoice + move sequences are ir.sequence.strict (see
+#: scripts/ci/provision_adapter_test_company.py): a single row locked
+#: with SELECT ... FOR UPDATE NOWAIT (trytond
+#: backend/postgresql/database.py: lock_records). A contended post
+#: therefore fails INSTANTLY with 55P03 (LockNotAvailable) instead of
+#: waiting — and 55P03, like 40001/40P01, is a psycopg
+#: OperationalError, which trytond's WSGI layer maps to HTTP 503
+#: (trytond/wsgi.py: ServiceUnavailable). trytond's own 5 internal
+#: retries (20-100ms sleeps) all re-race within milliseconds while
+#: the winner holds the lock for the whole post (seconds), so they
+#: are useless — and a sparse retry (6 attempts over ~9s, rounds 1-2
+#: of the CI fixes) almost never lands in the millisecond gap
+#: between one post's commit and the next post's lock acquisition,
+#: which is why this test failed three CI runs in a row.
+#:
+#: The only strategy that works against NOWAIT is to POLL: keep one
+#: draft and re-attempt the post every ~0.1-0.3s until the lock is
+#: free. The 16 posts serialize at ~1 post duration each, so 180s
+#: covers post durations up to ~11s with margin; the run_threads
+#: 300s safety net still bounds the whole test.
+_POST_POLL_TIMEOUT_SECONDS = 180.0
+_POST_POLL_SLEEP_MIN_SECONDS = 0.1
+_POST_POLL_SLEEP_MAX_SECONDS = 0.3
 
 
-def _is_transient_contention(exc: TrytonAdapterError) -> bool:
-    """Retryable engine errors plus 500s — the contention surface.
+def _is_sequence_contention(exc: TrytonAdapterError) -> bool:
+    """True only for HTTP 503 — the proven contention signal.
 
-    trytond never returns 502/503/504 (verified in the trytond 8.2.3
-    source: no 503 anywhere), so round 1's retryable-only filter
-    never engaged: under contention trytond surfaces serialization
-    failures as HTTP 500 (ENGINE_ERROR, non-retryable by the
-    client's taxonomy) once its own internal retries exhaust
-    ([database] retry=5, and only for errors raised inside the
-    operation — a failure at COMMIT is never retried by trytond).
-    Validation/auth/not-found errors are NOT transient and still
-    raise immediately.
+    trytond's WSGI layer returns 503 (ServiceUnavailable) exactly for
+    DatabaseOperationalError, which covers the whole contention
+    surface: 55P03 lock-not-available (NOWAIT), 40001 serialization
+    failure, 40P01 deadlock. Anything else is NOT contention: a 500
+    is a genuine engine error (trytond's own ConcurrencyException
+    cannot occur on this path — it needs transaction timestamps,
+    which the REST post never sets), and a transport error means
+    trytond is down or the response was lost — retrying a
+    possibly-completed post would hit the already-posted invoice's
+    workflow guard. So only 503 polls; everything else fails fast.
     """
-    return exc.retryable or exc.code == ENGINE_ERROR
+    return exc.status_code == 503
 
 
-def _post_one_with_retry(
+def _post_one_with_polling(
     adapter: TrytonAccountingAdapter, company: CompanyRef, party: PartyRef, accounts
 ) -> InvoiceView:
-    """Create -> validate -> post one invoice, retrying transient engine errors.
+    """Create -> validate once, then POLL the post on the same draft.
 
-    trytond runs every connection at REPEATABLE READ, so 8 threads
-    posting against one invoice sequence contend on the sequence
-    row: all but one simultaneous attempter lose (serialization
-    failure), and trytond surfaces the loss as HTTP 500 once its
-    internal retries exhaust. This is expected contention under
-    load, not an engine outage — the sequential test in this file
-    posts fine. Production retries at the event-pipeline level
-    (``is_retryable``); this contract test calls the adapter
-    directly, so it retries at the call level instead.
+    Create + validate are uncontended (no shared sequence is touched
+    — the number is assigned only by post), so they run once with no
+    retry: a failure there is genuine. The post is the contended
+    step (two strict-sequence rows, one lock holder at a time), so
+    it polls: same draft, short jittered sleeps, until the lock is
+    free or the 180s budget expires.
 
-    The backoff is JITTERED on purpose: round 1's fixed 0.2s/0.4s
-    sleeps re-synchronized the herd — every loser retried at the
-    same instant and collided again (CI run #32 still failed after
-    3 attempts). A uniform-random sleep spreads the retries across
-    the window, so each attempt has a real chance of finding the
-    sequence row free. Retrying the whole sequence is safe: drafts
-    carry no number, so an orphaned draft from a failed attempt
-    cannot duplicate a number (and the module docstring already
-    accepts residue). The final attempt still raises, so a genuine
-    failure still fails the test.
+    Retrying the post on the SAME draft is safe: a failed post rolls
+    its whole transaction back (number assignment, move, state
+    change), so the draft is still validated with no number — and
+    unlike rounds 1-2 (new draft per attempt) polling orphans no
+    drafts. A thread that keeps polling is guaranteed its win
+    eventually: every post release goes to a thread that still needs
+    one (threads exit after their 2 posts), so after 16 releases
+    every thread holds exactly 2 numbers.
     """
-    for attempt in range(1, _MAX_POST_ATTEMPTS + 1):
+    ref = adapter.create_invoice_draft(_invoice_command(company, party, accounts))
+    adapter.validate_invoice(ref)
+    deadline = time.monotonic() + _POST_POLL_TIMEOUT_SECONDS
+    while True:
         try:
-            ref = adapter.create_invoice_draft(_invoice_command(company, party, accounts))
-            adapter.validate_invoice(ref)
             return adapter.post_invoice(ref)
         except TrytonAdapterError as exc:
-            if not _is_transient_contention(exc) or attempt == _MAX_POST_ATTEMPTS:
+            if not _is_sequence_contention(exc):
                 raise
-            cap = min(
-                _BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)), _BACKOFF_CAP_SECONDS
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(
+                random.uniform(
+                    _POST_POLL_SLEEP_MIN_SECONDS, _POST_POLL_SLEEP_MAX_SECONDS
+                )
             )
-            time.sleep(random.uniform(0, cap))
-    raise AssertionError("unreachable: the loop always returns or raises")
 
 
 def test_invoice_number_is_none_on_draft_and_set_on_posting(
@@ -265,7 +277,7 @@ def test_concurrent_invoice_posting_assigns_unique_numbers(
             numbers = []
             for _ in range(per_thread):
                 started = time.monotonic()
-                posted = _post_one_with_retry(thread_adapter, company, party, accounts)
+                posted = _post_one_with_polling(thread_adapter, company, party, accounts)
                 recorder.record("invoices.create_validate_post", time.monotonic() - started)
                 assert posted.state == "posted"
                 assert posted.number is not None and posted.number != ""

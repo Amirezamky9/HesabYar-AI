@@ -483,6 +483,33 @@ def _auth(secret: str, key: str | None = None) -> dict[str, str]:
     return headers
 
 
+def _all_listed_ids(api: TestClient, url: str, headers: dict[str, str]) -> list[int]:
+    """Follow cursor pages until next_cursor is None; return every item id.
+
+    Membership assertions must walk the WHOLE filtered list, not page
+    1: the shared Tryton DB grows as more tests execute (the US-702
+    numbering test alone leaves dozens of type=out invoices dated
+    today), and the invoice list is date-sorted newest-first with a
+    50-item default page — so a just-created invoice dated 2026-11-17
+    is NOT necessarily on the first page (CI run #33: invoice 88 was
+    past page 1). The caller passes limit=100 in the URL to keep the
+    page count low; the 20-page net (2,000 rows) is far above the
+    suite's invoice count and fails loudly instead of looping.
+    """
+    ids: list[int] = []
+    cursor: str | None = None
+    for _ in range(20):
+        page_url = url if cursor is None else f"{url}&cursor={cursor}"
+        page = api.get(page_url, headers=headers)
+        assert page.status_code == 200, page.text
+        body = page.json()
+        ids.extend(item["id"] for item in body["items"])
+        cursor = body["next_cursor"]
+        if cursor is None:
+            return ids
+    raise AssertionError(f"list pagination did not terminate for {url}")
+
+
 def _draft_body(
     world: World,
     accounts: dict[str, AccountRef],
@@ -733,13 +760,14 @@ def test_phase2_full_cycle_e2e(
     assert invoice_view.state == "draft"
     assert invoice_view.total_amount.amount == 750_000
 
-    # List/get through the API see it.
-    listed = api.get(
-        f"/api/v1/invoices?company={world.company_row_id}&type=out&state=draft",
-        headers=headers,
+    # List/get through the API see it (walk the whole filtered list:
+    # the shared DB holds other tests' invoices, so the draft is not
+    # necessarily on page 1 — see _all_listed_ids).
+    assert invoice_id in _all_listed_ids(
+        api,
+        f"/api/v1/invoices?company={world.company_row_id}&type=out&state=draft&limit=100",
+        headers,
     )
-    assert listed.status_code == 200
-    assert invoice_id in [item["id"] for item in listed.json()["items"]]
     got = api.get(f"/api/v1/invoices/{invoice_id}", headers=headers)
     assert got.status_code == 200
     assert got.json()["total_amount"] == 750_000
@@ -968,21 +996,16 @@ def test_e2e_invoice_filters_live(
     invoice_id = created.json()["id"]
     created_invoices.append(invoice_id)
     headers = _auth(world.key_full_secret)
-    base = f"/api/v1/invoices?company={world.company_row_id}"
-    assert invoice_id in [
-        item["id"] for item in api.get(f"{base}&type=out", headers=headers).json()["items"]
-    ]
-    assert invoice_id in [
-        item["id"]
-        for item in api.get(f"{base}&state=draft", headers=headers).json()["items"]
-    ]
-    assert invoice_id not in [
-        item["id"] for item in api.get(f"{base}&type=in", headers=headers).json()["items"]
-    ]
-    assert invoice_id not in [
-        item["id"]
-        for item in api.get(f"{base}&state=posted", headers=headers).json()["items"]
-    ]
+    base = f"/api/v1/invoices?company={world.company_row_id}&limit=100"
+    # Walk the whole filtered list for every assertion: the shared DB
+    # holds other tests' invoices (the US-702 numbering test leaves
+    # dozens dated today, newer than this draft's 2026-11-17), so the
+    # draft is not necessarily on page 1 — and absence on page 1
+    # proves nothing for the negative assertions either.
+    assert invoice_id in _all_listed_ids(api, f"{base}&type=out", headers)
+    assert invoice_id in _all_listed_ids(api, f"{base}&state=draft", headers)
+    assert invoice_id not in _all_listed_ids(api, f"{base}&type=in", headers)
+    assert invoice_id not in _all_listed_ids(api, f"{base}&state=posted", headers)
 
 
 def test_e2e_audit_requires_admin(api: TestClient, world: World) -> None:
