@@ -14,6 +14,7 @@ connection in teardown.
 
 from __future__ import annotations
 
+import datetime
 import os
 import uuid
 from collections.abc import Generator
@@ -27,6 +28,7 @@ from sqlalchemy import create_engine, delete, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker
 
+from hesabyar.domain.settlement.models import sales_period_from
 from hesabyar.infrastructure.auth import ApiKeyCrypto, ApiKeyService
 from hesabyar.infrastructure.auth.credential_vault import generate_encryption_key
 from hesabyar.infrastructure.config import AppSettings, AuthSettings
@@ -459,7 +461,12 @@ def test_verify_and_record_creates_payment(api: TestClient, world: World) -> Non
     assert body["payment"]["net_irr"] == 89_000_000  # 10% fee + 10% VAT on fee
     assert body["payment"]["source"] == "gateway_poll"
     assert body["payment"]["store_order_id"] == "ORD-1"
-    assert body["payment"]["sales_period_jalali"] == "1405/08"
+    # The mock verify carries no confirmation timestamp, so the product
+    # stamps the reconciliation time (gateways.py) — the period is the
+    # CURRENT Jalali month, computed with the product's own helper.
+    assert body["payment"]["sales_period_jalali"] == sales_period_from(
+        datetime.datetime.now(datetime.UTC)
+    )
     assert len(body["tranches"]) == 4
 
 

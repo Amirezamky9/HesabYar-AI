@@ -54,7 +54,7 @@ from hesabyar.domain.scheduler.models import (
     TriggeredBy,
 )
 from hesabyar.domain.scheduler.ports import JobRegistryPort, SchedulerInventoryPort
-from hesabyar.domain.scheduler.schedules import NextRun, compute_next_run, tehran_now
+from hesabyar.domain.scheduler.schedules import TEHRAN, NextRun, compute_next_run
 
 #: Max characters of a failure message kept on a review item reason
 #: (the full text lives on the run record).
@@ -269,7 +269,10 @@ class SchedulerService:
                 details={"job_id": job_id},
             )
         started_at = self._clock()
-        day = today or tehran_now().date()
+        # The business day comes from the injected clock too — a frozen
+        # clock must freeze the run record whole (started_at AND today),
+        # not leave today reading the real wall clock.
+        day = today or self._clock().astimezone(TEHRAN).date()
         try:
             summary = runner.run(
                 JobRunContext(today=day, actor=actor, triggered_by=TriggeredBy.MANUAL)
