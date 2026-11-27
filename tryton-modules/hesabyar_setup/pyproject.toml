@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trytond-hesabyar-setup"
+version = "8.2.3"
+description = "HesabYar chart installation / update + REST wrappers for Tryton (install_chart, update_chart, process_rest, assign_and_do_rest)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "GPL-3.0-or-later" }
+authors = [{ name = "HesabYar" }]
+keywords = ["accounting", "tryton", "hesabyar"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Plugins",
+    "Framework :: Tryton",
+    "Topic :: Office/Business :: Financial :: Accounting",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+]
+dependencies = [
+    "trytond>=8.2,<8.3",
+    "trytond-account>=8.2,<8.3",
+    "trytond-account-payment>=8.2,<8.3",
+    "trytond-company>=8.2,<8.3",
+    "trytond-stock>=8.2,<8.3",
+]
+
+[project.entry-points."trytond.modules"]
+hesabyar_setup = "trytond.modules.hesabyar_setup"
+
+[tool.setuptools]
+packages = ["trytond.modules.hesabyar_setup"]
+
+[tool.setuptools.package-data]
+"trytond.modules.hesabyar_setup" = ["tryton.cfg", "*.xml"]

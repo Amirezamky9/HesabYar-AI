@@ -1,0 +1,17 @@
+# HesabYar — Phase 0 progress
+
+Started: 2026-11-16
+Branch: ralph/phase-0
+Plan: prd.json (5 stories, US-001..US-005)
+Spec: ~/workspace/user/files/design-eng_0_zaup.md (§17 Phase 0)
+Loop: Ralph, run in PARALLEL per user instruction — Wave A: US-001 + US-005 + US-002 (independent); Wave B: US-003 + US-004 in parallel after US-002 passes.
+Environment: no Docker in this VM (native installs only); Python 3.12.3; uv 0.13.8 at ~/.local/bin/uv; project .venv synced; no local PostgreSQL yet (US-002 installs it).
+
+## Entries
+- 2026-11-16: Phase 0 planned. prd.json written (5 stories), branch ralph/phase-0 created from master @935a6a5. Coordinator spawned to run the loop with parallel fan-out.
+- 2026-11-16: US-001 PASS (commit dfcb087). ADR 0002 written (Tryton = default engine, AccountingEnginePort + Tryton adapter, no duplicate journal tables, native ledger mutually exclusive, no dual posting); ARCHITECTURE.md bumped to 1.5.0 with 1.4.0 explicitly superseded; CONTEXT.md + CURRENT_RULES_1405.md fixed; README grep-clean, untouched. Verified: ruff pass, pyright 0 errors, contradiction grep clean (3 hits all intentional negations/history).
+- 2026-11-16: US-005 PASS (commit 9b97a61). Sao cloned outside repo (hesabyar-reference/sao, HEAD 8eb1e9c); inventory (501 lines, file-referenced, §18 mapping — no Sao counterpart for modules 8/9/10/11) + license manifest (6.7.0, GPL-3.0+, archived mirror, no-copy-without-GPL-decision rule). Verified: ruff pass, pyright 0 errors, no Sao strings in src/, no apps/ dir. Note: 6.7.0 baseline; re-check details vs live 8.2 server in US-002/US-003.
+- 2026-11-16: US-002 PASS (commit 44bd228). PostgreSQL 16.15 native + Tryton 8.2.3 (pinned, PyPI-verified) in isolated venv outside repo; 10 modules activated; separate DBs hesabyar_test / hesabyar_tryton_test; REST app key provisioned; docs/dev-setup.md (310 lines). Verified by coordinator: trytond 8.2.3, PG cluster online, full suite 160 passed with documented HESABYAR_DATABASE_URL. Caveats: /etc/hosts read-only → env-var DB URL; naiad 1.0.dev only; 8.2 REST/JSON-RPC quirks documented. Wave A complete (3/3).
+- 2026-11-16: US-004 PASS (commit 3290af6). IRR currency digits=0 via REST (live-verified by coordinator); 49 tests — large-integer round-trips bit-exact to 19 digits, 12 live FiscalDate cases incl. Persian/Arabic-Indic digits, fractional-Rial rejection at 4 levels via the real adapter; dev-setup.md §7. Held until US-003 committed (tests import the adapter), then re-verified in the full run.
+- 2026-11-16: US-003 PASS (commit 43da646). Engine-neutral AccountingEnginePort + Tryton REST adapter (client/adapter/mapping/errors/contracts, REST-only, no SQL/JSON-RPC); naiad decision: direct httpx (1.0.dev only, personal repo); test company 'HesabYar Adapter Test' id 2, 135-account chart, FY 2026 + 12 open periods; 9 contract + 32 unit tests; trust_env=False proxy fix confirmed. Port is sync, create+validate only.
+- 2026-11-16: PHASE 0 COMPLETE (5/5 stories pass). Coordinator final verification: ruff clean, pyright 0 errors, full suite 250 passed server-up / 213 passed + 37 skipped server-down, 58 contract tests passed. Exit criteria MET: adapter spike reads accounts + creates/validates a journal draft with no direct DB access. trytond left running (port 8000), PostgreSQL running.

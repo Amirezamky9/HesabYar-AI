@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<!-- This file is part of HesabYar.  The COPYRIGHT file at the top level of
+this repository contains the full copyright notices and license terms.
+This module is licensed under the GNU General Public License v3 or later,
+like all Tryton modules.  See LICENSE in this package. -->
+<tryton>
+    <data grouped="1">
+        <record model="ir.message" id="msg_sayad_id_unique">
+            <field name="text">A cheque with this Sayyad ID already exists in a live state.</field>
+        </record>
+    </data>
+</tryton>

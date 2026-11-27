@@ -1,0 +1,98 @@
+{
+  "branchName": "ralph/phase-7",
+  "description": "HesabYar Phase 7 (production readiness): security review + threat model, load + concurrency tests, S3 backups + restore drills for both databases, monitoring + alerting, upgrade/rollback runbook + release docs + operator manual, and a fresh-store install with the generic connector on Iran hosting / Iranian egress.",
+  "project": "HesabYar",
+  "userStories": [
+    {
+      "acceptanceCriteria": [
+        "Security review of the whole system, documented as a threat model (docs/security/threat-model.md): encrypted credentials (at rest + in transit), OAuth tokens (storage, rotation, revocation, audience binding), HMAC webhooks (signature verification, replay window, secret rotation), API keys (hashing, pepper, rotation), MCP boundary (scope checks, company filter, audit), session + password handling, file uploads",
+        "Every finding fixed or explicitly accepted with a written rationale; no finding left silently open",
+        "Security test suite in CI: auth-bypass attempts (missing/invalid/expired/revoked keys, wrong-company access), scope escalation (a key with reports:read cannot call a banking:read tool or endpoint), webhook signature forgery + replayed payloads, token replay after rotation, MCP cross-company reads fail closed",
+        "No secrets in logs, error messages, URLs or bundles (test: grep the log output of a full request cycle for the test secrets)",
+        "Targeted tests per story + affected-area tests written for CI; ruff + pyright clean"
+      ],
+      "description": "Security review + threat model, findings fixed, security test suite in CI.",
+      "id": "US-701",
+      "notes": "Wave A (first — its findings inform the other stories). Spec §17 phase 7 + phased design §1.3 phase 7. The review covers what was built in phases 0–6: REST, webhooks, MCP, admin UI, workers, Tryton adapter. Do NOT invent a new auth system — review and harden what exists.",
+      "passes": true,
+      "priority": 1,
+      "title": "Security review + threat model"
+    },
+    {
+      "acceptanceCriteria": [
+        "Load tests for the hot paths, runnable in CI (bounded, no external services, seeded data): webhook ingestion burst (1000 events), concurrent report reads, settlement tie-out over a large statement, dashboard batch endpoint under concurrent users",
+        "Concurrency tests: duplicate concurrent events are processed exactly once (the idempotency lock — spec §19.9, no duplicate posting from repeated external events); concurrent cheque registration with the same Sayyad number; concurrent invoice numbering produces no duplicates or gaps beyond the documented behavior",
+        "Rate limiting holds under load (429s, no dropped requests beyond the limit, no 500s)",
+        "Measured baselines documented (docs/performance-baselines.md): p50/p95/p99 latencies per hot path at the tested load, with the CI hardware noted — no performance claim without a measured number",
+        "Targeted tests per story + affected-area tests written for CI; ruff + pyright clean"
+      ],
+      "description": "Load + concurrency tests for the hot paths, with measured baselines.",
+      "id": "US-702",
+      "notes": "Wave A (independent of US-701). Spec §17 phase 7 + §19.9. The tests must be CI-safe: bounded runtime, no live services, no flaky timing assertions (assert on outcomes + counts, not on exact milliseconds).",
+      "passes": true,
+      "priority": 2,
+      "title": "Load + concurrency tests"
+    },
+    {
+      "acceptanceCriteria": [
+        "Backup jobs for BOTH databases (HesabYar Postgres + Tryton Postgres): scheduled (configurable cadence), S3-compatible destination with a CONFIGURABLE endpoint — the S3 destination (Iran-hosted S3-compatible vs non-Iranian egress) is an UNVERIFIED deployment decision, so the code must NOT hard-code either endpoint, region or provider; credentials come from configuration, never from code",
+        "Backups encrypted at rest (configurable key) and integrity-checked (checksum recorded + verified on restore)",
+        "Restore drill procedure + tests: restore both databases to scratch databases, run the migration check (alembic heads single + up to date), verify accounting reconciliation (trial balance balances, no orphaned documents, settlement tranches tie out) — the drill is runnable in CI against scratch databases",
+        "Backup/restore runbook (docs/backup-restore.md): retention, rotation, restore steps, failure modes, who does what",
+        "Targeted tests per story + affected-area tests written for CI; ruff + pyright clean"
+      ],
+      "description": "S3 backups + restore drills for both databases, destination-agnostic.",
+      "id": "US-703",
+      "notes": "Wave B. Spec §17 phase 7 + phased design §1.3 phase 7. The S3 destination decision is UNVERIFIED — build the interface, document the decision as pending, do NOT pick a provider. No live S3 credentials exist — tests use a local S3-compatible stub (e.g. moto/minio in CI) or a fake backend.",
+      "passes": true,
+      "priority": 3,
+      "title": "S3 backups + restore drills"
+    },
+    {
+      "acceptanceCriteria": [
+        "Health endpoints (liveness + readiness) for every process (API, worker, MCP server, Tryton adapter connectivity)",
+        "Metrics + alert rules: inbox/queue staleness (events unprocessed past threshold), worker lag, Fintech token expiry (alert before expiry, with the rotation runbook linked), settlement drift (expected vs received beyond tolerance), failed webhooks, backup failures, 5xx rate",
+        "Alert channels configurable (the existing pluggable SMS/email providers — Kavenegar + sms.ir first — plus a webhook channel); no provider hard-coded; alert text in Persian",
+        "Operator monitoring panel in the admin UI (Persian RTL, VibeFarsi): system health, queue depths, recent alerts, token expiries, backup status — the dashboard's existing alert widgets are the starting point",
+        "Targeted tests per story + affected-area tests written for CI; ruff + pyright clean"
+      ],
+      "description": "Monitoring + alerting: health, metrics, alert rules, operator panel.",
+      "id": "US-704",
+      "notes": "Wave B. Spec §17 phase 7 + phased design §1.3 phase 7 (incl. inbox/queue staleness + Fintech token-expiry alerts). Depends on US-701 for the token-expiry model (which tokens, where stored). Frontend house rules in apps/admin/AGENTS.md apply.",
+      "passes": true,
+      "priority": 4,
+      "title": "Monitoring + alerting"
+    },
+    {
+      "acceptanceCriteria": [
+        "Upgrade/rollback runbook (docs/runbook-upgrade-rollback.md): upgrade steps (code + migrations + Tryton modules + frontend), pre-upgrade checks, rollback steps per layer (code rollback, migration downgrade, Tryton module downgrade), rollback decision criteria, data-safety rules (never roll back a migration that destroyed data without a backup restore)",
+        "Data migration + accounting reconciliation procedure (docs/data-migration.md): migrating a store's data in (from the generic connector + manual import), reconciliation checks (trial balance, aging, settlement tie-out), discrepancy handling (review queue, never silent)",
+        "Release documentation (docs/release.md): versioning, changelog, release checklist, environment promotion (dev → staging → production)",
+        "Operator manual (docs/operator-manual.md, Persian): day-to-day operations, common incidents + responses, credential rotation, backup verification, where to look when something breaks",
+        "Targeted tests per story + affected-area tests written for CI; ruff + pyright clean"
+      ],
+      "description": "Upgrade/rollback runbook + data-migration procedure + release docs + operator manual.",
+      "id": "US-705",
+      "notes": "Wave C. Spec §17 phase 7. Docs are the deliverable, but every procedure must be TESTED where testable (rollback of a migration in CI, reconciliation checks as tests) — no untested procedure is marked done (§19.14).",
+      "passes": true,
+      "priority": 5,
+      "title": "Runbooks + release docs + operator manual"
+    },
+    {
+      "acceptanceCriteria": [
+        "Fresh-store install end to end (the phase exit criterion): a new store installs HesabYar, connects via the GENERIC connector (the custom-coded Hayat store is the reference — the connector must stay generic), imports its opening balances, processes its first orders/invoices/settlements, and the trial balance balances — tested in CI as an install scenario",
+        "Production deployment guide for Iran hosting / Iranian egress (docs/deployment-iran.md): server requirements, network (Iranian IP egress — nearly all banking services require it), TLS, reverse proxy, process supervision, secrets management (no secrets in the repo, no secrets in CI logs), environment configuration checklist",
+        "Deployment checklist + smoke tests: post-deploy smoke suite (health, login, one report, one webhook, one MCP call) runnable against a deployed instance without touching production data",
+        "No live production server exists yet (the user provides it later) — the guide + smoke suite are the deliverable; nothing is deployed to a real server in this story",
+        "Playwright: fresh-install journey (signup → company setup → first invoice → first report); responsive checks at 360–390px",
+        "Targeted tests per story + affected-area tests written for CI; ruff + pyright clean"
+      ],
+      "description": "Fresh-store install with the generic connector + Iran production deployment guide + smoke tests.",
+      "id": "US-706",
+      "notes": "Wave C (last — needs the whole system). Spec §17 phase 7 exit criterion + phased design §1.3 phase 7. The production server comes from the user later — do NOT provision anything, do NOT ask for credentials. The ۵ت remainder (Fintech live connectivity B3) is NOT part of this story — it needs the user's Fintech credentials and stays deferred.",
+      "passes": false,
+      "priority": 6,
+      "title": "Fresh-store install + Iran deployment guide"
+    }
+  ]
+}

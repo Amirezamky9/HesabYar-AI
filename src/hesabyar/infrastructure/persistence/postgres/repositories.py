@@ -16,7 +16,12 @@ from sqlalchemy.orm import Session
 from hesabyar.domain.common.context import TenantContext
 from hesabyar.domain.common.errors import InvariantViolationError, TenantMismatchError
 from hesabyar.domain.common.ids import ActorId, TenantId
-from hesabyar.infrastructure.persistence.postgres.models import ActorModel, TenantModel
+from hesabyar.infrastructure.persistence.postgres.models import (
+    ActorModel,
+    ApiClientModel,
+    ApiKeyModel,
+    TenantModel,
+)
 
 
 class ActorRepository:
@@ -170,3 +175,107 @@ class TenantRepository:
             )
         self.session.add(tenant)
         self.session.flush()
+
+
+# ---------------------------------------------------------------------------
+# API-key repositories (US-103)
+#
+# Deliberately NOT tenant-scoped: API-key authentication *establishes* the
+# tenant context (the key itself is the credential), so these repositories
+# cannot take a TenantContext the way ActorRepository does. The tenant
+# boundary is enforced one layer up, by AuthenticatedClient: a verified
+# key only ever yields its own tenant_id, and company access is checked
+# against that tenant (see interfaces/rest/dependencies.py).
+#
+# These repositories never see a raw secret: issuance stores prefix + hash
+# only, and authentication looks keys up by prefix.
+# ---------------------------------------------------------------------------
+
+
+class ApiClientRepository:
+    """Repository for ApiClientModel entities (no tenant context — see above)."""
+
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def get_by_id(self, client_id: str) -> ApiClientModel | None:
+        """Fetch an API client by primary key."""
+        stmt = select(ApiClientModel).where(ApiClientModel.id == str(client_id))
+        return self.session.execute(stmt).scalar_one_or_none()
+
+    def list_for_tenant(self, tenant_id: str) -> list[ApiClientModel]:
+        """List all API clients belonging to one tenant."""
+        stmt = (
+            select(ApiClientModel)
+            .where(ApiClientModel.tenant_id == str(tenant_id))
+            .order_by(ApiClientModel.name)
+        )
+        return list(self.session.execute(stmt).scalars().all())
+
+    def save(self, client: ApiClientModel) -> None:
+        """Persist or update an API client."""
+        self.session.add(client)
+        self.session.flush()
+
+
+class ApiKeyRepository:
+    """Repository for ApiKeyModel entities (no tenant context — see above)."""
+
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def find_by_prefix(self, key_prefix: str) -> list[ApiKeyModel]:
+        """Fetch candidate keys sharing a visible prefix.
+
+        Prefixes are not unique by construction (16 chars, ~42 random
+        bits), so callers must verify every candidate's hash.
+        """
+        stmt = select(ApiKeyModel).where(ApiKeyModel.key_prefix == key_prefix)
+        return list(self.session.execute(stmt).scalars().all())
+
+    def get_by_id(self, key_id: str) -> ApiKeyModel | None:
+        """Fetch an API key by primary key."""
+        stmt = select(ApiKeyModel).where(ApiKeyModel.id == str(key_id))
+        return self.session.execute(stmt).scalar_one_or_none()
+
+    def list_for_client(self, client_id: str) -> list[ApiKeyModel]:
+        """List all keys (including revoked) belonging to one client."""
+        stmt = (
+            select(ApiKeyModel)
+            .where(ApiKeyModel.client_id == str(client_id))
+            .order_by(ApiKeyModel.created_at)
+        )
+        return list(self.session.execute(stmt).scalars().all())
+
+    def save(self, key: ApiKeyModel) -> None:
+        """Persist or update an API key."""
+        self.session.add(key)
+        self.session.flush()
+
+
+class SqlAlchemyInstallationTenantResolver:
+    """Resolve an installation's tenant through the API-key store (US-555).
+
+    Implements
+    :class:`hesabyar.domain.settlement.ports.InstallationTenantResolver`:
+    a key is issued for one client of one tenant under one
+    installation, so the oldest key for an installation identifies
+    its tenant. Revoked/expired keys still identify the same client,
+    so they are not filtered out — the lookup is about ownership,
+    not about whether the key can still authenticate. Returns None
+    when no key exists for the installation.
+    """
+
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def tenant_id_for_installation(self, installation_id: str) -> str | None:
+        """Return the tenant owning this installation, or None."""
+        stmt = (
+            select(ApiClientModel.tenant_id)
+            .join(ApiKeyModel, ApiKeyModel.client_id == ApiClientModel.id)
+            .where(ApiKeyModel.installation_id == installation_id)
+            .order_by(ApiKeyModel.created_at.asc(), ApiKeyModel.id.asc())
+            .limit(1)
+        )
+        return self.session.execute(stmt).scalar_one_or_none()

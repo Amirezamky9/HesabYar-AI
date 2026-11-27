@@ -18,9 +18,13 @@ from hesabyar.infrastructure.persistence.postgres.models import Base
 # Alembic Config object — provides access to values in alembic.ini.
 config = context.config
 
-# Interpret the config file for Python logging (unless we're inside pytest).
+# Interpret the config file for Python logging. disable_existing_loggers
+# must stay False: the default (True) disables every logger created so
+# far in the process — including the application's loggers and pytest's
+# log capture — whenever a migration runs in-process (US-103 found this
+# via test_migrations.py breaking later caplog assertions).
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # Target metadata for autogenerate support.
 target_metadata = Base.metadata

@@ -1,0 +1,299 @@
+# HesabYar — Phase 4 progress log
+
+Plan: `prd.json` on branch `ralph/phase-4` (plan commit `342305b`).
+Phase 3 archived to `archive/phase-3/`. Phase 3 complete: 5/5 stories pass
+(US-301..US-305, bookkeeping `7dbd657`); dashboard + backend verified live.
+
+## Phase 4 scope (spec §17, §12, §7.4, §18 module 8)
+
+Iranian intelligence layer: standards registry + validators in the
+application service layer (US-401), effective-dated tax-policy registry
+(US-402), Iranian report validations + source provenance (US-403),
+Moadian test profiles + simulator (US-404), compliance center UI + full
+e2e (US-405).
+
+## Waves (parallel per the user's standing instruction)
+
+- Wave A: US-401 alone (foundation: migration pattern + registry +
+  validation service; everything else builds on its patterns).
+- Wave B: US-402 / US-403 / US-404 in parallel (isolated worktrees;
+  separate tables/services; US-403's adapter addition is isolated to
+  the Tryton adapter). Merge in story order; coordinator resolves
+  shared-file conflicts (migrations, OpenAPI, scope catalog).
+- Wave C: US-405 (needs the Phase 4 APIs).
+
+## Key plan decisions
+
+- Tests run against SUPABASE (the dev env switched after Phase 3):
+  source `~/workspace/projects/hesabyar-reference/.env.supabase`
+  (`HESABYAR_DATABASE_URL` + `HESABYAR_TRYTON__BASE_URL=http://localhost:8010`)
+  before any pytest/FastAPI run. Trytond :8010 serves the Supabase
+  Tryton DB; start it with `start-trytond-supabase.sh` (password from
+  ~/.pgpass). Local PostgreSQL was wiped by the 5th VM replacement and
+  is NOT restored — Supabase is primary now.
+- SERIALIZE pytest: never run two pytest processes concurrently — they
+  deadlock on the shared HesabYar test DB. The coordinator must sequence
+  verification runs across stories.
+- No production Moadian connectivity in this phase — simulator only.
+  Human approval is a recorded step before any (future) production
+  submission. No LLM-initiated submission, ever (spec §19 rule 11).
+- No hard-coded tax rates: all annual parameters live in the versioned
+  registry. 1405 candidates are seeded CORROBORATED_CURRENT and
+  production-BLOCKED until the official source is pinned.
+- Standard 15 (Investments) is BLOCKED_SOURCE_GAP for periods beginning
+  1405/01/01+ (bundled text is the pre-1404 revision). Standard 43
+  (Revenue, from 1404/01/01) and Standard 44 (Leases, from 1405/01/01)
+  are VERIFIED_TEXT. See docs/CURRENT_RULES_1405.md.
+- Validation outcomes are exactly PASS / FAIL / NOT_APPLICABLE / ERROR;
+  ERROR never becomes PASS (fail-closed, per the existing DSL).
+- Persian-only, Rial-only product (standing). VibeFarsi/FarsiUI via the
+  existing facade for US-405. BFF auth pattern for new dashboard pages.
+  No fake data anywhere — gated/blocked items show their reason.
+- US-403 closes the get_report gap for TRIAL BALANCE ONLY (posted-moves
+  read via REST). P&L, balance sheet and cash flow stay deferred.
+
+## Environment notes (2026-11-17)
+
+- 5th VM replacement (~10:55 local) wiped local PG + all servers; repo
+  (home dir) intact. Supabase trytond :8010 restarted; REST verified.
+- EPERM sandbox block (04:49–~10:00 UTC) lifted after the replacement.
+- Full pytest suite against Supabase was running during planning
+  (switch proof); the coordinator MUST NOT start until it completes
+  (watcher cron `hesabyar-supabase-suite-watch` reports it).
+
+## Deferred / carried forward
+
+- (carried from Phase 2/3, see archive/phase-3/progress.txt — incl.
+  get_report for P&L/balance sheet/cash flow; GET /accounting/journals
+  endpoint; statement reconcile typed 501; invoice finalize; payment
+  create/approve; statement import; party/tafsili on journal lines;
+  fresh-DB first-run suite greenness; dev-key collision quirk)
+- Tax CALCULATION on invoices (rates from the registry applied at
+  invoice time) is NOT in Phase 4 — the registry + decisions only.
+- Moadian production connectivity + real credentials (secret manager)
+  — simulator only in Phase 4.
+- Electronic commercial-books exports (§12.4) — separate versioned
+  module, not in Phase 4.
+- Standard 15 revised-1404 official text import (blocked until the
+  official source is obtained and verified).
+
+## Log
+
+- 2026-11-17: US-401 implemented by Wave A agent, committed as `9dcb1b5`
+  (migration 0005 standards registry); agent still running final
+  verification at time of this entry.
+- 2026-11-17: NEW PARENT DIRECTION (user): US-402 + US-404 started
+  IMMEDIATELY in parallel isolated worktrees (based on `9dcb1b5`, so
+  US-401's migration 0005 is the Alembic base; US-402 migration 0006,
+  US-404 migration 0007, both down_revision 0005 — coordinator chains
+  0007 after 0006 at merge). US-403 stays after US-401 passes (needs
+  the validation service). TEST POLICY CHANGE: per-story verification
+  is TARGETED tests only (story tests + affected areas + ruff +
+  pyright); full suite runs once at wave-end and once at phase-end
+  (coordinator's independent verification). US-401's full suite may
+  finish as the Wave A full run. DB-test serialization enforced: agents
+  poll for a running pytest before any DB-touching test run.
+- 2026-11-17: US-404 implemented, committed as `f0f4a67` on
+  `ralph/phase-4-us404` (migration 0007; simulator + outbox + approval
+  gate + 10 REST paths; agent reports 89 Moadian tests green + live
+  smoke green). COORDINATOR VERIFICATION FOUND A BLOCKER (not a US-404
+  logic defect): the architecture guards in
+  tests/unit/test_application_services.py FAIL (2 tests) because
+  application/commands/moadian.py + queries/moadian.py import sqlalchemy
+  and infrastructure directly (spec §6.3 forbids this). Same violation
+  in US-401's committed standards services (and US-402's in-progress
+  tax services). The correct pattern is port + repository: domain port
+  (e.g. StandardsRegistryPort) + SQLAlchemy implementation in
+  infrastructure/persistence/postgres/ + application service depends
+  only on the port. Ruff: 1 E501 in US-401's migration 0005:504 (not
+  US-404's code). Pyright: 0 errors. FIXES IN FLIGHT: US-401 agent is
+  already self-correcting (uncommitted refactor; coordinator sent
+  follow-up: finish refactor, fix E501, kill the stale mixed-version
+  full suite, re-run full suite from a clean tree); US-402 agent
+  course-corrected mid-work; US-404 fix agent spawned in its worktree.
+  US-404 NOT marked passed until the refactor lands and guards pass.
+
+### US-401 — Standards registry + validation service (2026-11-17)
+
+Implemented on branch `ralph/phase-4` (awaiting parent verification;
+`prd.json` `passes` flag NOT flipped by the implementer).
+
+- Migration `0005`: `standard_sources`, `standard_revisions`,
+  `standard_rules`, `validation_runs`, `validation_results` (typed
+  columns, CHECK constraints incl. the closed outcome set and the
+  executable⟺formula invariant, unique constraints, indexes; no EAV).
+  Applied to Supabase (`alembic upgrade head`, now at 0005).
+- Seed (`infrastructure/persistence/postgres/seed_standards.py`,
+  idempotent): 35 standards + 35 revisions + 36 rules from
+  `metadata.json` / `standards/*/source/standard.md` (sha256) /
+  `validators/rules.yaml` ported to the closed DSL (equation →
+  `(expr-expected) <= 1/100 and ... >= -1/100`; thresholds → `>=`/`<=`;
+  CF005 requirement → non-executable; 4 materiality ratios NOT seeded).
+  Statuses per CURRENT_RULES_1405.md: 43/44 VERIFIED_TEXT (effective
+  1404/01/01 / 1405/01/01), 15 BLOCKED_SOURCE_GAP (bundled revision
+  1399, effective 1380/01/01–1404/12/29), other 32 UNVERIFIED (new
+  label: bundled text present, official source not yet pinned).
+- Services: `StandardsQueryService` (list/get/coverage) +
+  `StandardsValidationService` (create/get run). Rules evaluate against
+  their statement's slice merged over the document (legacy
+  `validate_all` semantics — the only reading under which the 36 rules
+  are mutually consistent); cross-checks use dotted paths. Outcomes
+  exactly PASS/FAIL/NOT_APPLICABLE/ERROR; missing data → ERROR.
+  Standard 15 gate blocks 1405+ (or unknown) periods with
+  `STANDARD_SOURCE_BLOCKED` (422). Coverage reported separately
+  (35 / 1 / 36 / 0 verified / 35 executable; CF005 listed as
+  not-executed, never fabricated).
+- REST (`/api/v1/standards`, `/api/v1/standards/{code}`,
+  `/api/v1/validation-runs` POST 201 + GET; scopes
+  `standards:read` / `standards:validate`, RFC 9457 errors).
+- Docs: `docs/standards-registry.md`.
+- Verification (implementer-run): ruff 0, pyright 0 errors; targeted
+  pytest — seed unit 17 passed, registry infra 13 passed, services
+  22 passed, REST 19 passed (71 new tests). Full suite run + live
+  smoke check: see below (added after the full run).
+- Environment incidents during this story: a runtime restart killed a
+  background registry-test run mid-flight (empty log, no confirmed
+  result; worktree intact, trytond :8010 down — restarted via
+  `start-trytond-supabase.sh`); one transient Supabase
+  OperationalError failed a single registry test, green on re-run
+  (same transient class as the known dev-key/connection flakes).
+  Two test bugs found by failures and fixed in the tests (not the
+  code): `rules_failed == 1` vs 2 (BS001+BS002), `()` vs `[]`,
+  pagination page-2 start code.
+- 2026-11-17: US-404 fix landed as `80ce854` on `ralph/phase-4-us404`
+  (Moadian services now depend on MoadianRepositoryPort; SQLAlchemy
+  implementation in infrastructure/persistence/postgres/
+  moadian_repository.py). COORDINATOR VERIFICATION (independent, in
+  progress): ruff clean (src+tests), pyright 0 errors, grep confirms
+  zero forbidden imports in both moadian application files, guard
+  tests now fail ONLY on US-401's standards.py (moadian files pass),
+  DB-free Moadian tests 57 passed (my run). DB tests (registry + REST,
+  32) re-running on a scratch DB — result pending. (First attempt
+  errored on my own URL-substitution bug — the pattern matched the
+  username, not the dbname; fixed by anchoring on `/postgres?sslmode`.)
+  US-401 refactor committed as `82ff154`; its fresh full suite is
+  running. US-404 still NOT marked passed until the DB tests land.
+- 2026-11-17: US-404 PASS (coordinator-verified independently).
+  Implementation `f0f4a67` + arch-guard fix `80ce854` on
+  `ralph/phase-4-us404`. My verification: ruff clean (src+tests),
+  pyright 0 errors, Moadian targeted tests 89/89 green (57 DB-free +
+  32 DB tests on scratch Supabase DB `hesabyar_test_us404v`, dropped
+  afterwards), guards fail only on US-401's standards.py (moadian
+  files clean). Marked passes:true in prd.json. Merge into
+  ralph/phase-4 pending in story order (after US-402 lands; migration
+  0007 to be chained after 0006); merged-tree re-verification at
+  wave-end.
+- 2026-11-17: US-402 implemented, committed as `743a155` on
+  `ralph/phase-4-us402` (migration 0006; tax registry + source gate +
+  6 REST paths; agent reports 84/84 targeted tests + live smoke 6/6).
+  COORDINATOR VERIFICATION (independent, in progress): ruff clean
+  (src+tests), pyright 0 errors, grep confirms zero forbidden imports
+  in both tax application files (course correction applied), guard
+  tests fail ONLY on US-401's standards.py, DB-free tax tests 38 passed
+  (my run), migration 0006 down_revision 0005 confirmed, seed has all
+  5 candidates with correct performance years (Art100 + growth → 1404),
+  AC5 grep clean (only docstring examples outside seed/tests). DB tests
+  (registry + repository + REST, 46) re-running on a scratch DB —
+  result pending. NOTE: the agent transparently reports running its DB
+  tests concurrently with the US-401 full suite near the end (no
+  deadlock observed; its tests touch only tax_* tables + unique rows)
+  and stamping the shared DB to 0006 — merge-time check: confirm the
+  US-401 suite result is unaffected and re-stamp/upgrade after merging
+  0007. US-402 still NOT marked passed until the DB tests land.
+- 2026-11-17: US-402 PASS (coordinator-verified independently).
+  Implementation `743a155` on `ralph/phase-4-us402`. My verification:
+  ruff clean (src+tests), pyright 0 errors, targeted tests 84/84 green
+  (38 DB-free + 46 DB tests on scratch Supabase DB
+  `hesabyar_test_us402v`, dropped afterwards), guards fail only on
+  US-401's standards.py (tax files clean). Marked passes:true in
+  prd.json. Merge into ralph/phase-4 pending until the US-401 full
+  suite finishes (merging mid-run would mix code versions under the
+  running pytest); then merge US-402, re-chain US-404's 0007 after
+  0006, merge US-404, and re-verify the merged tree.
+- 2026-11-17: US-401 PASS (coordinator-verified independently).
+  Implementation `9dcb1b5` + refactor `82ff154` (StandardsRegistryPort +
+  PostgresStandardsRegistry; E501 in migration 0005 fixed). My
+  verification on the committed tree: ruff check clean, pyright 0 errors,
+  architecture guards 16/16, targeted tests 156/156 in my own run
+  (seed 17 + services 22 + registry 13 + REST 19 + DSL/validator files,
+  21:03 against Supabase). Agent's fresh full suite on the committed
+  tree: 669 passed / 132 skipped / 0 failed in 55:46. Seed verified in
+  code: std 43/44 VERIFIED_TEXT, std 15 BLOCKED_SOURCE_GAP for 1405+
+  periods. Only pre-existing format diff remains
+  (tests/infrastructure/test_migrations.py, unformatted since before
+  US-401). Marked passes:true in prd.json. Wave A done (US-401/402/404
+  all pass). Next: merge Wave B in story order (US-402, then re-chain
+  US-404's 0007 after 0006 and merge), check the shared-DB Alembic
+  stamp (US-402 agent stamped it to 0006), re-verify the merged tree,
+  then spawn US-403.
+- 2026-11-17: Wave B MERGED into ralph/phase-4 (US-402 `05e6c25`,
+  US-404 `f8a2ade`). US-402 merge: 1 conflict (dependencies.py imports +
+  standards service vs tax factories — kept both). US-404 merge:
+  re-chained 0007 after 0006 in the worktree (`b9c216e`), 7 conflicts
+  (application/errors, scopes, models, app, dependencies, rest/errors,
+  test_migrations — all keep-both; models.py rebuilt from the two
+  versions: HEAD tax section + branch Moadian section, syntax-checked).
+  Alembic chain linear 0005 -> 0006 -> 0007 (head). Shared Supabase DB
+  verified: tax tables present (0006 was a real upgrade, not a bare
+  stamp), upgraded to 0007. Merged tree: ruff clean, pyright 0, guards
+  16/16. Wave-end full suite launched 13:55 on the merged tree
+  (f8a2ade, detached, /tmp/coord/waveB_full_suite.log) — NOTE: one
+  early F visible in the progress dots (~14-22%); identity TBD from
+  the suite summary, coordinator investigating. US-403 spawned next.
+- 2026-11-17: Wave-end full suite on the merged tree (f8a2ade):
+  1 failed, 838 passed, 135 skipped in 1:11:38. The single failure was
+  test_scope_catalog_matches_spec: the spec §14.2 catalog had 25 scopes
+  but Phase 4 legitimately adds 4 (US-402 tax:read/tax:decide, US-404
+  moadian:read/moadian:submit) — the test's hard-coded 25 was stale,
+  not a product defect. Fixed the test to expect 29 and assert the four
+  Phase 4 scopes (commit below); the single test re-runs green
+  (1 passed, DB-free). Effective wave-end result: 839 passed, 135
+  skipped, 0 failed. US-403 agent running in its worktree.
+- 2026-11-17: US-403 PASS (coordinator-verified independently).
+  Implementation `3e46ce9` on `ralph/phase-4-us403`, merged cleanly
+  (`8089d01`, no conflicts). Trial balance from POSTED moves via Tryton
+  REST (new port method, full paging, batch account names), report
+  validation delegating to the US-401 service, report_snapshots table
+  (migration 0008, chain linear, single head). My verification in the
+  worktree: ruff clean, pyright 0 errors, guards 16/16, targeted tests
+  32/32 (services 17 + REST 15 on scratch DB hesabyar_test_us403v,
+  dropped afterwards), contract tests 5/5 vs live Tryton in my own
+  run (posted-line cross-check, date-range filter, draft exclusion).
+  NOTE: a VM replacement struck mid-verification (~15:25) — wiped /tmp
+  (first targeted run lost at 26/32, 0 failures) and trytond :8010;
+  recovered via start-trytond-supabase.sh; logs now kept under
+  ~/workspace/coord-logs/ instead of /tmp. Marked passes:true in
+  prd.json. Wave B fully done (US-401/402/403/404 pass). Next: US-405
+  (Wave C, compliance center UI + full e2e).
+- 2026-11-17: US-405 PASS (coordinator-verified independently).
+  Implementation `4b3fa2b` + `d28c4b4` on `ralph/phase-4-us405`,
+  merged fast-forward into ralph/phase-4 (HEAD `3f253ed`). Compliance
+  center UI (overview/standards/tax-policy/validations/Moadian via
+  BFF, VibeFarsi facade, Persian RTL light). My verification in the
+  worktree: ruff clean, pyright 0 errors, guards 16/16, frontend
+  typecheck 0, lint clean, build green (28 routes), vitest 185/185,
+  Playwright compliance flow 2/2 in my own run (6.1m), a11y 5/5
+  (keyboard, WCAG AA, no overflow 320/390/1280). Coordinator-found
+  defects, fixed on the branch (`8aa25f1`, `3f253ed`): (1) Moadian
+  document form defaulted to profiles[0] (oldest; deactivated after
+  the agent's cleanup) -> 409 MOADIAN_INVALID_STATE, so the e2e failed
+  at the Moadian leg in my runs (the agent's own run passed only
+  because profiles[0] was still active then) — now defaults to newest
+  active + auto-selects the just-created profile; (2) Persian message
+  mappings added for MOADIAN_INVALID_STATE + TRIAL_BALANCE_UNBALANCED;
+  (3) console-error assertion failed on the deliberate tax-policy 422
+  (expected product behavior) -> scoped filter in the test.
+  KNOWN DEFERRED: 2 pre-existing journal e2e tests fail at
+  pickAccounts (responsive.spec.ts) — GET /accounting/accounts takes
+  ~30s vs the BFF 30s timeout (measured 29.7s/29.9s; companies 8s);
+  backend perf work for a follow-up story, not a US-405 regression
+  (no backend src/ touched). Phase 4 complete 5/5; phase-end full
+  suite running on the merged tree (see coordinator log).
+- 2026-11-17: Phase-end full Python suite on the merged tree (8504619):
+  FIRST run killed at ~49% by a VM replacement (~19:56; trytond also
+  down; 4 failures visible in the partial log, identities unknown).
+  RERUN after trytond restart: 871 passed, 140 skipped, 0 failed in
+  1:19:05 — the 4 failures were artifacts of the environment dying
+  mid-run, not genuine failures. Phase 4 CLOSED: 5/5 stories pass,
+  Alembic head 0008, wave-end + phase-end suites green. Shared DB is
+  free for Phase 5 workers (suite PIDs 1981/1985 finished).

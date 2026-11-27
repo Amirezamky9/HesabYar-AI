@@ -10,7 +10,7 @@ import jdatetime
 
 from hesabyar.domain.common.errors import InvalidDateError
 
-_PERSIAN_ARABIC_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧۸۹", "01234567890123456789")
+_PERSIAN_ARABIC_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
 
 
 def normalize_digits(value: str) -> str:

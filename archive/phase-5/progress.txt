@@ -1,0 +1,186 @@
+# HesabYar — Phase 5 progress log (Foundation 5الف)
+
+Plan: `prd.json` on branch `ralph/phase-5`.
+Phase 4 archived to `archive/phase-4/`. Phase 4 complete: 5/5 stories pass
+(US-401..US-405; US-405 `4b3fa2b` + `d28c4b4` + fixes `8aa25f1`/`3f253ed`;
+branch head `8504619` marks Phase 4 complete, coordinator-verified).
+ADR 0003 (store connectivity, dual-entry architecture) ACCEPTED 2026-11-17
+and landed in `docs/adr/0003-store-connectivity-banking.md` as the first
+commit of this branch.
+
+## Phase 5 scope — 5الف Foundation (phased design §1.2)
+
+Event platform (US-501 / F1), Tryton modules (US-502 / F2), registries +
+policy gate (US-503 / F3), review-queue skeleton (US-504 / F4). All four
+streams run IN PARALLEL in isolated worktrees (user's standing instruction).
+Design source: `hesabyar-reference/phased-design-checklist-2026-11-17.md`
+(3,310 lines, Superpowers-reviewed) + ADR 0003 + research rounds 1–2 +
+settlement re-verification memo.
+
+## Waves
+
+- Wave A (this plan): US-501 + US-502 + US-503 + US-504 in parallel.
+  F1/F2 are fully independent. F3 needs F1's event envelope (build against
+  the envelope spec in phased design §2; integrate when F1 lands). F4 needs
+  F1's decision audit log (same pattern: skeleton first, wire the log in).
+  Merge in story order; coordinator resolves shared-file conflicts
+  (migrations, OpenAPI, scope catalog, models).
+
+## Key plan decisions
+
+- Tests run against SUPABASE: source
+  `~/workspace/projects/hesabyar-reference/.env.supabase`
+  (`HESABYAR_DATABASE_URL` + `HESABYAR_TRYTON__BASE_URL=http://localhost:8010`)
+  before any pytest/FastAPI run. Trytond :8010 serves the Supabase Tryton
+  DB; start it with `start-trytond-supabase.sh` (password from ~/.pgpass).
+- SERIALIZE pytest: never run two pytest processes concurrently — they
+  deadlock on the shared HesabYar test DB. CRITICAL: the Phase 4 phase-end
+  full suite is STILL RUNNING when this plan is written — NO DB-touching
+  pytest until the parent confirms it finished. Start with worktree setup,
+  scaffolding, DB-free tests, frontend work, and Tryton console/module
+  work (Tryton DB, not the HesabYar test DB).
+- Per-story verification is TARGETED tests only (story tests + affected
+  areas + ruff + pyright); full suite once at wave-end (user's policy
+  since 2026-11-17).
+- Architecture guard: the 16-test Phase 4 guard (no port bypass, no direct
+  SQL to the Tryton DB) must stay green. Application services depend only
+  on ports; SQLAlchemy lives in infrastructure/persistence/postgres/.
+- No hard-coded rates, no hard-coded channel lists (grep-verified).
+  Fee % is user-entered per channel/contract; rate change = new versioned
+  contract with an effective date. Ilmaz is NOT a built-in channel.
+- No browser automation / RPA / screen-scraping as a product path (ADR
+  0003 update 4). No internet-banking passwords stored, ever.
+- Fintech inquiry results are ephemeral: store verdict/code/time only.
+- Persian-only, Rial-only product (standing). VibeFarsi/FarsiUI via the
+  existing facade for US-504. BFF auth pattern for new dashboard pages.
+  No fake data anywhere.
+- US-502 spikes (§3.8) close BEFORE building on them; path 1 (wizard) vs
+  path 2 (direct journal via port) chosen + documented after the spikes.
+- Inventory accounting method (continental vs anglo-saxon) decided before
+  installing account_stock_*.
+
+## Deferred / carried forward
+
+- (carried from Phase 4, see archive/phase-4/progress.txt — incl.
+  get_report for P&L/balance sheet/cash flow; GET /accounting/journals
+  endpoint; statement reconcile typed 501; invoice finalize; payment
+  create/approve; statement import; party/tafsili on journal lines;
+  tax calculation on invoices; Moadian production connectivity;
+  electronic commercial-books exports §12.4; Standard 15 revised-1404
+  text import)
+- 2 pre-existing journal e2e tests fail at pickAccounts (responsive
+  spec): GET /accounting/accounts takes ~30s vs the BFF 30s timeout —
+  backend perf work for a follow-up story, not a Phase 4 regression.
+- Phases 5ب–5خ, 6 (MCP), 7 (production readiness) follow this foundation
+  per the phased design's dependency order.
+
+## Log
+
+- 2026-11-17 ~23:56 — Wave A launched: US-501 (F1) + US-502 (F2) + US-503
+  (F3) + US-504 (F4) in parallel, isolated worktrees
+  `hesabyar-wt-us50{1..4}` on branches `ralph/phase-5-us50{1..4}`.
+  Alembic head is 0008 (report_snapshots, US-403). Migration slots:
+  US-501 → 0009 (down 0008), US-503 → 0010 (down 0008, re-chain at
+  merge), US-504 → 0011 if needed (down 0008, re-chain at merge).
+  Phase 4 phase-end full pytest STILL RUNNING at launch (PIDs 1981/1985
+  in main repo) — workers instructed: no DB-touching pytest until no
+  pytest runs anywhere (poll pgrep) + shared lock
+  `~/workspace/coord-logs/pytest.lock`; US-502 holds module installs
+  until the suite finishes (it also uses the Tryton DB). Coordinator
+  verifies each story independently before marking passes:true; merge
+  in story order.
+- 2026-11-18 ~00:55 — DB LOCK RELEASED: Phase 4 phase-end full suite
+  finished (871 passed / 140 skipped / 0 failed, ralph/phase-4 head
+  8504619); all-clear sent to all 4 workers (US-502 may now install
+  Tryton modules; US-504 may run Playwright live tests). Serialization
+  still applies (pgrep + pytest.lock). Note for US-504: the dev API key
+  in apps/admin/.env.local was wiped by the phase-end suite (known
+  quirk) — re-mint with mint-dev-key.py in the worktree before live
+  Playwright tests.
+- 2026-11-18 ~01:40 — US-503 worker reported COMPLETE (`4603895`).
+  Coordinator verification: commit + 29 files confirmed; ruff clean;
+  pyright 0; DB-free targeted 134 passed (36 domain + 82 services +
+  16 guards); OpenAPI shows 26 /api/v1/integrations paths; seed has 7
+  built-ins (Ilmaz absent, comments only); no hard-coded channel list
+  or fee literals; migration 0010 (down 0008, 9 tables, 7 uniques).
+  DB verification: 71 passed, 3 ERRORS — TestBankConnectionRepository
+  setup collides with the DEV `tryton-dev` engine_connections row
+  (fixture hard-codes database_name="hesabyar_tryton_test", unique
+  constraint uq_engine_connections_engine_database). Test-only defect:
+  fix round dispatched (uuid-suffix database_name, mirror the REST
+  fix). Migration tests SKIPPED in coordinator run — local postgres
+  cluster `main` is DOWN (apt reinstall by another agent hung; not
+  touched). US-503 NOT passed yet — pending fix round.
+  NOTE for merge: US-501's worktree also has an untracked
+  tests/interfaces/test_rest_integrations.py (its own event-ingestion
+  tests) — same path as US-503's file; resolve at merge.
+- 2026-11-18 ~02:00 — US-501 worker reported COMPLETE (`58eb355`).
+  Coordinator verification: commit confirmed; ruff clean; pyright 0;
+  DB-free targeted 99 passed (83 unit + 16 guards); migration 0009
+  (down 0008); 9 REST endpoints under /api/v1/integrations (ingest,
+  inbox, stale, replay, outbox, audit-log, store settings, worker
+  poll); 3 §10.4 uniqueness constraints live in migration 0004
+  (pre-existing, used by the platform); Toman→Rial ×10 with
+  prices_in_toman setting; moadian/ports.py refactor moves outbox
+  shapes to domain/events (sensible unification). DEFECT FOUND:
+  `CanonicalEvent` has 16 fields — it includes `event_type`, but
+  spec §10.2 + phased design §2 fix the envelope at exactly 15
+  fields WITHOUT event_type (the type travels alongside; US-503's
+  envelope is correct). Fix round dispatched (remove event_type
+  from the envelope, carry it alongside from the receiver, update
+  tests + contract doc). US-501 NOT passed yet — pending fix round.
+  MERGE WARNINGS: US-501 and US-503 BOTH created
+  src/hesabyar/interfaces/rest/routers/integrations.py (different
+  endpoints, no path overlap — combine at merge) and
+  tests/interfaces/test_rest_integrations.py (rename one at merge).
+  Shared DB note: migration 0009 + Procrastinate schema are applied
+  to the Supabase dev DB (head 0009); worktrees at head 0008 will
+  see an unknown revision if they run alembic against it.
+- 2026-11-18 ~03:00 — US-503 PASSED (`4603895` + fix `6b1f9fe`,
+  coordinator-verified). Fix: uuid-suffixed database_name in the
+  repo-test company fixture (collided with the dev `tryton-dev` row).
+  Verification: ruff clean, pyright 0, DB-free 134 passed (36 domain
+  + 82 services + 16 guards), DB 74 passed / 0 errors (fix agent's
+  full run; coordinator re-ran the 3 fixed bank tests: 3 passed),
+  migration tests 8 passed (coordinator restored the local `hesabyar`
+  role after the cluster was restored fresh). OpenAPI: 26
+  /api/v1/integrations paths; 7 built-in channels, Ilmaz absent.
+  Merge held: merge order is 501 → 502 → 503 → 504, and US-501's
+  fix round is still running.
+- 2026-11-18 ~03:15 — US-501 PASSED (`58eb355` + fix `3c9a8db`,
+  coordinator-verified). Fix: envelope is exactly the 15 §10.2
+  fields (event_type removed; type now travels alongside via the
+  required `X-HesabYar-Event-Type` header, validated by
+  parse_event_type, 9 canonical types only). Verification: ruff
+  clean, pyright 0, DB-free 131 passed (unit incl. 16 guards +
+  moadian services), DB 34 passed (11 repo + 15 REST + 8
+  migrations). Envelope field list verified field-by-field against
+  spec §10.2 and matches US-503's envelope exactly. Contract
+  change for 5ب integrators: senders must send the header and must
+  NOT put event_type in the envelope body (documented in
+  docs/event-platform.md).
+- 2026-11-18 ~03:25 — US-501 MERGED into ralph/phase-5 (`ba7202a`,
+  clean merge). Merged-tree re-verification: ruff clean, pyright 0,
+  DB-free 131 passed, DB 34 passed (11 repo + 15 REST + 8
+  migrations). Branch ralph/phase-5 head is now ba7202a (includes
+  parent commits 253183d + 696376d and bookkeeping 019da2b +
+  b470da1). Still outstanding: US-502 + US-504 original workers;
+  US-503 passed, merge pending 502 (order 501 → 502 → 503 → 504).
+
+## 2026-11-18 — US-504 PASSED (coordinator-verified)
+Review-queue skeleton (F4), commits 0df2219 + fix ad58ee0 (scope count 29→32) + fix 10eea24 (uuid-suffix test connection database name, pre-existing uq_engine_connections_engine_database collision). Verified: ruff clean, pyright 0, unit 45/45 (incl. 16 arch guards), REST 24/24, migrations 8/8, test_api_key_auth 30/30, tsc 0, lint clean, vitest 196/196, build green (29 routes), Playwright review-queue 5/5 (production server; Next dev server does not hydrate in this environment — environmental, not a defect). 9 item types exact vs phased design §7.2; migration 0011 (down 0008, re-chain at merge). Merge pending (order: 502 → 503 → 504).
+
+## 2026-11-18 — US-502 PASSED (coordinator-verified)
+Tryton modules (F2), commits f8c8cc5, 21d62ef, cd5add3, 7ac840d, a89ebea, b6eabb3, 93fcd47 + fix 5391b41 (ruff UP031 in hesabyar_setup company.py; 9 test fakes implement the extended AccountingEnginePort — incl. validate_invoice/post_invoice, which pyright had hidden by truncating the missing-member list). Verified: ruff clean, pyright 0, unit 140/140 affected-area (123 + 17 report), contract 13/13 live (19:49), 40 modules activated (REST-verified), 145-account chart (7 memorandum off-balance party-required + 3 receivables/payables). Spikes §3.8 closed (Path 1b process_rest wizard-mirror vs Path 2 direct journal); inventory anglo-saxon (continental present only as its dependency). Probes P0–P5 worker-verified (local trytond wiped by VM replacements; contract tests cover the same behaviors live). Merge next (order: 502 → 503 → 504).
+
+## 2026-11-18 — US-502 MERGED (ebe31af) + integration fix
+Clean merge, no conflicts. Merged-tree re-verification: ruff clean, pyright 0 (after a 4-error merge interaction: US-501's shared FakeEngine in tests/event_fixtures.py lacked the 16 US-502 port methods — fixed with stubs in the merge-integration commit, same pattern as US-502's fix round), unit 344/344 combined (US-501 event/Moadian + US-502 sales/adapter/affected-area) + 87/87 event tests after the fix. Contract 13/13 stands from worktree verification (merge touched none of its code); full DB re-verification at wave-end.
+
+## 2026-11-18 — US-503 MERGED (9c0628f)
+8 conflicts, all resolved by coordinator (see merge commit message): combined integrations router (35 OpenAPI paths = 9 US-501 + 26 US-503) + schemas, test file renamed (US-501's → test_rest_integrations_events.py), migration 0010 re-chained after 0009, models.py 38 classes (US-501's 2 + US-503's 9), dependencies providers combined, lockfiles regenerated (cryptography 50.0.2). Merged-tree re-verification: ruff clean, pyright 0, alembic single head 0010, unit 192/192, combined-router REST 55/55 (40 registry + 15 events, 18:27).
+
+## 2026-11-18 — US-504 MERGED (c89a527) — all 4 stories merged
+6 conflicts, all resolved by coordinator (see merge commit message): migration 0011 re-chained after 0010, models.py 41 classes (US-504's 3 review models; its 5 cosmetic reformats not taken), dependencies providers combined, both routers included, Integration* + Review* errors kept, test_migrations HEAD_REVISION 0011. Merged-tree re-verification: ruff clean, pyright 0, alembic single head 0011, unit 162/162, REST 54/54 (24 review-queue + 30 api-key-auth, 9:20), frontend tsc 0 / lint clean / vitest 196/196 / build green (29 routes incl. /review-queue). OpenAPI: 42 paths (35 integrations + 7 review-queue). Playwright 5/5 stands from worktree verification (merge touched no review-queue frontend/backend file; all US-504 files merged conflict-free).
+
+## 2026-11-18 — PHASE 5 (5الف) COMPLETE — wave-end full suite GREEN
+All 4 stories passed and merged (order 501 → 502 → 503 → 504; branch head 4412b5c before this log commit). Wave-end full suite on the final merged tree: 1274 passed, 145 skipped, 0 failed in 1:49:46 (log: ~/workspace/coord-logs/phase5-full-suite-run2.log). First run was SIGTERM'd by a VM replacement after ~79 min at ~47% with zero failures; re-run from scratch after recovering trytond + local PostgreSQL 16 + stale lock. Phase 4 baseline was 871/140/0 — Phase 5 adds 403 net passing tests. Alembic single head 0011; OpenAPI 42 paths (35 integrations + 7 review-queue); scope catalog 32. NOTE: the full suite truncates the dev postgres DB, so the dev API key in apps/admin/.env.local is wiped again — re-mint with apps/admin/scripts/mint-dev-key.py before any Playwright/screenshot work.

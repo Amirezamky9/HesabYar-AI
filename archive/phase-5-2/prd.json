@@ -1,0 +1,107 @@
+{
+  "branchName": "ralph/phase-5-2",
+  "description": "HesabYar Phase 5 wave 2 — store connector (5ب) + bank import/reconciliation (5ت B1/B2) + packaging/cash-box (5چ), per ADR 0003 + phased design (hesabyar-reference/phased-design-checklist-2026-11-17.md §1.3). Six stories run IN PARALLEL in isolated worktrees (user's standing instruction). Builds on branch ralph/phase-5 (Phase 5 5الف complete 4/4: event platform, Tryton modules, registries + policy gate, review-queue skeleton; wave-end suite 1274 passed / 145 skipped / 0 failed; Alembic head 0011; OpenAPI 42 paths; scope catalog 32; vitest 196/196; 29 Next.js routes). Spec: ~/workspace/user/files/design-eng_0_zaup.md (§10 events/mapping, §11 reports, §17 Phase 5 reshaped by ADR 0003, §18 nav, §19 rules). Standing rules: targeted tests per story (own + affected areas + ruff + pyright), full suite once at wave-end; DB-touching pytest stays SERIALIZED (shared Supabase test DB deadlocks on concurrent runs) — the parent's Phase 5 Playwright verification is still running as this plan is written; no DB-touching pytest until the parent confirms it finished. The 16-test architecture guard (no port bypass, no direct SQL to the Tryton DB) must stay green; no hard-coded rates or channel lists; Persian + Rial only. New canonical event names beyond US-501's 9 need ADR approval BEFORE implementation (phased design §8.4) — the derived installment.schedule.created event is NOT built in this phase. Digikala connector (D1) and Fintech aggregator (B3) are DEFERRED (D1 docs login-gated/UNVERIFIED; B3 needs customer credentials + Iranian egress). Playwright e2e must run against `pnpm start` (production server) — the Next dev server does not hydrate in this environment. Exit criteria: the 5ب, 5ت (B1/B2 subset) and 5چ exit criteria in the phased design §1.3.",
+  "project": "hesabyar",
+  "userStories": [
+    {
+      "acceptanceCriteria": [
+        "Webhook receiver POST /api/v1/integrations/{connector}/events with HMAC-SHA256 signature verification + immediate 200 ack + async processing from the inbox (US-501 pipeline)",
+        "All 8 store webhooks accepted and mapped to canonical events: order.completed → sales.order.completed, order.cancelled → sales.order.cancelled, refund.created → sales.refund.created + payment.refunded, payment.captured → payment.captured, payment.refunded → payment.refunded, cheque.registered → cheque.received.registered, bank_transfer.recorded → payment.bank_transfer.recorded, shipment.dispatched → packaging-consumption + shipment-cost consumers",
+        "Event type via the required X-HesabYar-Event-Type header (US-501 contract); only the 9 canonical types from docs/event-platform.md are used — any new type needs ADR approval first",
+        "One webhook per payment (store→HesabYar contract: the store takes the gateway callback, verifies it, and sends the result; gateways have no server webhook)",
+        "Order-status mapping rules + customer/product matching rules + partial refund / post-invoice cancellation handled via corrective documents, never by rewriting",
+        "Completed store order → Sale/invoice in Tryton (draft by default) with full traceability to the source event; installment fields inside order.completed are carried (the derived installment.schedule.created event itself is NOT built — needs ADR approval)",
+        "Unit + integration tests green; ruff clean, pyright 0 errors; architecture guards green"
+      ],
+      "description": "As a store I want to push order/payment/refund/cheque/shipment events to HesabYar via one webhook receiver, so sales flow into accounting automatically with full traceability.",
+      "id": "US-511",
+      "notes": "S1 — Inbound events (5ب). Needs F1 (US-501 inbox) + F3 (US-503 mapping center). Read the envelope/header contract in docs/event-platform.md before building. Gives order/payment events to 5پ and 5ث.",
+      "passes": true,
+      "priority": 1,
+      "title": "Store webhook receiver + canonical event mapping (S1)"
+    },
+    {
+      "acceptanceCriteria": [
+        "Read-only polling API (fetch_changes in CommerceConnectorPort): lists orders/payments/cheques with updated_since + cursor + page_size; stable sort on updated_at",
+        "Direct store-DB read — read-only, reconciliation/backfill only, read-only DB user, documented versioned queries, ZERO writes (proven in tests: a write attempt fails)",
+        "Historical backfill + multi-store in one installation (events never mix between stores: source_system/source_store_id per connector)",
+        "Missed webhook is filled by polling with the SAME idempotency key — no duplicate accounting effect",
+        "Unit + integration tests green; ruff clean, pyright 0 errors; architecture guards green"
+      ],
+      "description": "As an operator I want polling + read-only store-DB backfill to close every gap the webhooks miss, so no order or cheque is ever lost.",
+      "id": "US-512",
+      "notes": "S2 — Reconciliation & backfill (5ب). Needs F1. Gives missing-cheque reconciliation to 5ث. The store-DB read path is read-only by construction (ADR 0003 decision 3) — test the zero-write property explicitly.",
+      "passes": true,
+      "priority": 2,
+      "title": "Store reconciliation & backfill: polling + read-only DB read (S2)"
+    },
+    {
+      "acceptanceCriteria": [
+        "Manual order/invoice/refund entry produces the SAME canonical event envelope and travels the SAME pipeline (validation, mapping, policy gate, audit log) as webhook events",
+        "Every auto-created record is traceable to its source event; every manually created record is traceable to its manual entry",
+        "REST endpoints (versioned /api/v1, RFC 9457 errors, API-key scopes) + dashboard page via BFF routes (VibeFarsi facade, Persian RTL light); panel mapping per phased design §7",
+        "Unit + integration tests green; ruff clean, pyright 0 errors; architecture guards green; frontend: tsc 0, lint clean, vitest green, build green; responsive + a11y pass"
+      ],
+      "description": "As an operator I want to enter orders/invoices/refunds manually through the same pipeline as automatic events, so manual entry is a first-class dual path, not a side door.",
+      "id": "US-513",
+      "notes": "S3 — Dual-entry manual path (5ب). Needs F1 + F3. Establishes the dual-entry pattern every later module reuses.",
+      "passes": true,
+      "priority": 3,
+      "title": "Dual-entry manual order/invoice/refund (S3)"
+    },
+    {
+      "acceptanceCriteria": [
+        "Statement import (B1, Melli-first): Excel/CSV/PDF bank-statement files — the FIRST bank capability (Bank Melli has no public statement API; manual import is always the first path for Melli)",
+        "Per-bank column mapping (saved) + Jalali dates + Persian digits + encoding detection + two-layer dedup (bank_ref + date unique constraint; date+amount+description match key for files without bank_ref)",
+        "2,000-row bank-export cap accounted for in the import design; every import has an import_batch_id + accounting-effect preview + manual_import_review queue item",
+        "Reconciliation (B2): 3-priority matching — (1) exact reference number, (2) amount + date (±match_window_days, default 2 days) + destination Shaba, (3) smart suggestion with confidence that a human approves",
+        "Unmatched deposits NEVER auto-post to revenue → review queue (bank_unmatched) with mapping suggestions; confirmed manual mappings are saved as rules for the future (Suggest → Auto; learned mappings belong to B2)",
+        "The Phase 2 typed-501 stub POST /api/v1/bank/statements/{id}/reconcile is IMPLEMENTED in this phase; bank-reconciliation-status report (§11.2) works",
+        "No internet-banking password is ever asked for or stored (OAuth/consent model only)",
+        "Unit + integration tests green; ruff clean, pyright 0 errors; architecture guards green; import page via BFF (VibeFarsi facade, Persian RTL light); frontend gates green"
+      ],
+      "description": "As an accountant I want to import Bank Melli statements from files and reconcile them against deposits, settlements and cheques, so bank matching works without any bank API.",
+      "id": "US-514",
+      "notes": "B1/B2 — Bank statement import + reconciliation (5ت). Needs F1 + F4 + F2 (account_statement). B3 (Fintech aggregator + inquiry) is NOT in this phase — it needs customer credentials + Iranian egress. Gives bank rows to 5پ (settlement matching) and 5ث (cheque clearing).",
+      "passes": true,
+      "priority": 4,
+      "title": "Bank statement import + reconciliation, Melli-first (B1/B2)"
+    },
+    {
+      "acceptanceCriteria": [
+        "Packaging materials are consumable goods in Tryton stock; separate 'packaging materials' location under the main warehouse; average cost (default) / FIFO",
+        "Reorder points (min/target/max) in stock_supply + daily supply-wizard run via ir.cron inside Tryton + trytond-cron → automatic purchase_request → packaging_reorder review-queue item (Tryton wizard is not callable via REST; Procrastinate only reads the run result and emits low_stock)",
+        "Days-of-cover computed on the HesabYar side from recent consumption moves (e.g. 30-day average) — the number the user actually wants ('when will it run out?')",
+        "Per-order analytic cost: one analytic account per order; packaging consumption, shipment cost and cost of goods carry the same cost center → 'full cost of each order' from one analytic report",
+        "Shipment cost as three separate figures: amount invoiced to the customer (sale_shipment_cost: On Order / On Shipment), actual amount paid to the carrier, amount absorbed into margin (None → stock_shipment_cost)",
+        "Approximate price calculator incl. packaging (HesabYar side): goods + packaging (current cost) + shipment (carrier rate) + margin; result is labelled approximate and NEVER auto-applies to an invoice",
+        "Periodic materials count (stock.inventory): expected vs actual → adjustment via move to/from lost-and-found location + inventory adjustment document",
+        "account_stock_shipment_cost accounting behavior is UNVERIFIED — read its docs before using it",
+        "Unit + integration tests green; ruff clean, pyright 0 errors; architecture guards green; materials page + price calculator via BFF (VibeFarsi facade, Persian RTL light); frontend gates green"
+      ],
+      "description": "As a store owner I want packaging materials tracked with reorder timing and per-order packaging + shipping costs, so I know when supplies run out and what each order really costs.",
+      "id": "US-515",
+      "notes": "K1 — Packaging & shipping (5چ). Needs F2 (stock/supply/analytic). Order linking wants S1 (US-511) but starts with manual entry; wire the S1 link when US-511 lands. The user's own requested feature (separate from the spec).",
+      "passes": true,
+      "priority": 5,
+      "title": "Packaging materials + shipping cost tracking (K1)"
+    },
+    {
+      "acceptanceCriteria": [
+        "Cash daybook on Tryton account_statement; one Statement Journal per cash box (store cash box, petty cash, ...) with its own cash account",
+        "Counting session (HesabYar-side entity — Tryton has none): start session → book balance shown (read-only) → counted amount entered → variance computed → signed minutes (cashier + supervisor + manager; only when variance ≠ 0 — with zero variance, supervisor attendance is enough) as supporting documents",
+        "Count happens in the presence of a supervisor who is a DIFFERENT user than the cashier (internal control)",
+        "Shortage/surplus journal: policy (a) 'cash shortage/surplus' account (default) or policy (b) temporary debit/credit — selectable per installation; the shortage/surplus journal is a DRAFT until a manager approves it in the review queue — a cash shortage is NEVER auto-posted",
+        "Petty cash is a separate cash box with its own ceiling, modelled with the same Statement Journal (no separate Tryton 8.2 petty-cash module was found — UNVERIFIED)",
+        "Cash-box vs sales variance report (unrecorded sales) as a cash-box report",
+        "Unit + integration tests green; ruff clean, pyright 0 errors; architecture guards green; counting-session page via BFF (VibeFarsi facade, Persian RTL light); frontend gates green"
+      ],
+      "description": "As a cashier I want supervised cash-box counting with signed minutes and manager-approved shortage journals, so cash handling is controlled and auditable.",
+      "id": "US-516",
+      "notes": "K2 — Cash-box (5چ). Needs F2 (account_statement) + F4 (cashbox_variance item). The counting core is independent and parallel; links activate as their source modules land (cheques ← 5ث, bank deposit ← B1/B2, COD ← S1/P1, cash installment ← 5ج).",
+      "passes": true,
+      "priority": 6,
+      "title": "Cash-box counting + shortage/surplus journals (K2)"
+    }
+  ]
+}
